@@ -120,7 +120,7 @@ function PricingPage() {
                     tintOpacity={1}
                     blur={0}
                     textColor={isDark ? "#ffffff" : "#000000"}
-                    lineColor={isDark ? "#ffffff" : "#000000"}
+                    lineColor={isDark ? "#ffffff" : "#4e4e4e"}
                     baseColor={isDark ? "#000000" : "#ffffff"}
                     intensity={1}
                     shineSize={12}
