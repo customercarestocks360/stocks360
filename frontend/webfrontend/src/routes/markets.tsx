@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { MiniSparkline, SearchInput } from "@/components/ui/marketing";
+import { BuySellButtons, TradeModal } from "@/components/ui/trade-modal";
 
 export const Route = createFileRoute("/markets")({
   head: () => ({
@@ -103,6 +104,7 @@ const movementCategories = [
 function MarketsPage() {
   const [query, setQuery] = useState("");
   const filteredIndices = indices.filter((ind) => ind.n.toLowerCase().includes(query.toLowerCase()));
+  const [trade, setTrade] = useState<{ action: "buy" | "sell"; symbol: string; price: string } | null>(null);
 
   return (
     <AppLayout>
@@ -191,23 +193,29 @@ function MarketsPage() {
                     {cat.data.map((g) => (
                       <div
                         key={g.sym}
-                        className={`flex items-center justify-between p-3 rounded-xl bg-background/40 border border-border ${
+                        className={`rounded-xl bg-background/40 border border-border p-3 ${
                           g.up ? "hover:border-up/30" : "hover:border-down/30"
                         }`}
                       >
-                        <div className="min-w-0">
-                          <div className="font-mono text-sm font-bold">{g.sym}</div>
-                          <div className="truncate text-xs text-muted-foreground">{g.name}</div>
-                        </div>
-                        <div className="flex items-center gap-3 shrink-0">
-                          <div className="font-mono text-sm">{g.p}</div>
-                          <div
-                            className={`flex items-center gap-1 font-mono text-sm font-bold ${g.up ? "text-up" : "text-down"}`}
-                          >
-                            <i className={`fa-solid ${g.up ? "fa-caret-up" : "fa-caret-down"}`} />
-                            {g.c}
+                        <div className="flex items-center justify-between">
+                          <div className="min-w-0">
+                            <div className="font-mono text-sm font-bold">{g.sym}</div>
+                            <div className="truncate text-xs text-muted-foreground">{g.name}</div>
+                          </div>
+                          <div className="flex items-center gap-3 shrink-0">
+                            <div className="font-mono text-sm">{g.p}</div>
+                            <div
+                              className={`flex items-center gap-1 font-mono text-sm font-bold ${g.up ? "text-up" : "text-down"}`}
+                            >
+                              <i className={`fa-solid ${g.up ? "fa-caret-up" : "fa-caret-down"}`} />
+                              {g.c}
+                            </div>
                           </div>
                         </div>
+                        <BuySellButtons
+                          onBuy={() => setTrade({ action: "buy", symbol: g.sym, price: g.p })}
+                          onSell={() => setTrade({ action: "sell", symbol: g.sym, price: g.p })}
+                        />
                       </div>
                     ))}
                   </div>
@@ -217,6 +225,15 @@ function MarketsPage() {
           </div>
         </div>
       </section>
+      {trade && (
+        <TradeModal
+          open
+          onClose={() => setTrade(null)}
+          action={trade.action}
+          symbol={trade.symbol}
+          price={trade.price}
+        />
+      )}
     </AppLayout>
   );
 }

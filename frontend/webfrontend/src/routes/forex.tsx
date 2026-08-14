@@ -167,29 +167,35 @@ function ForexPage() {
                 {filteredPairs.map((a) => (
                   <div
                     key={a.n}
-                    className="relative flex items-center gap-4 overflow-hidden rounded-xl border border-overlay-border bg-surface p-4 shadow-sm backdrop-blur-md hover:border-primary/20 cursor-pointer"
+                    className="relative overflow-hidden rounded-xl border border-overlay-border bg-surface p-4 shadow-sm backdrop-blur-md hover:border-primary/20"
                   >
-                    <span
-                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full font-mono text-[11px] font-bold"
-                      style={{ backgroundColor: `${a.color}18`, color: a.color }}
-                    >
-                      <i className={`fa-solid ${a.icon} text-sm`} />
-                    </span>
-                    <div className="min-w-0">
-                      <div className="font-bold text-sm text-foreground">{a.n}</div>
-                      <div className="text-[11px] text-muted-foreground font-mono">Vol {a.v}</div>
+                    <div className="flex items-center gap-4">
+                      <span
+                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full font-mono text-[11px] font-bold"
+                        style={{ backgroundColor: `${a.color}18`, color: a.color }}
+                      >
+                        <i className={`fa-solid ${a.icon} text-sm`} />
+                      </span>
+                      <div className="min-w-0">
+                        <div className="font-bold text-sm text-foreground">{a.n}</div>
+                        <div className="text-[11px] text-muted-foreground font-mono">Vol {a.v}</div>
+                      </div>
+                      <div className="ml-auto hidden w-20 sm:block">
+                        <MiniSparkline
+                          color={a.up ? "var(--up)" : "var(--down)"}
+                          points={a.points}
+                          className="h-12 w-20"
+                        />
+                      </div>
+                      <div className="text-right">
+                        <div className="font-mono text-sm font-bold text-foreground">{a.p}</div>
+                        <div className={`font-mono text-xs ${a.up ? "text-up" : "text-down"}`}>{a.c}</div>
+                      </div>
                     </div>
-                    <div className="ml-auto hidden w-20 sm:block">
-                      <MiniSparkline
-                        color={a.up ? "var(--up)" : "var(--down)"}
-                        points={a.points}
-                        className="h-12 w-20"
-                      />
-                    </div>
-                    <div className="text-right">
-                      <div className="font-mono text-sm font-bold text-foreground">{a.p}</div>
-                      <div className={`font-mono text-xs ${a.up ? "text-up" : "text-down"}`}>{a.c}</div>
-                    </div>
+                    <BuySellButtons
+                      onBuy={() => setTrade({ action: "buy", symbol: a.n, price: a.p })}
+                      onSell={() => setTrade({ action: "sell", symbol: a.n, price: a.p })}
+                    />
                   </div>
                 ))}
               </div>
@@ -252,6 +258,15 @@ function ForexPage() {
           </div>
         </section>
       </div>
+      {trade && (
+        <TradeModal
+          open
+          onClose={() => setTrade(null)}
+          action={trade.action}
+          symbol={trade.symbol}
+          price={trade.price}
+        />
+      )}
     </AppLayout>
   );
 }

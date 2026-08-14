@@ -96,9 +96,18 @@ export function OrbitRing({
 }
 
 /* ────── Mini Sparkline — mock ticker/chart preview ────── */
-export function MiniSparkline({ color = "var(--up)", points }: { color?: string; points: number[] }) {
-  const width = 240;
-  const height = 72;
+export function MiniSparkline({
+  color = "var(--up)",
+  points,
+  className = "h-32 w-full",
+}: {
+  color?: string;
+  points: number[];
+  /** Tailwind sizing classes for the chart's rendered box (bigger = more visible). */
+  className?: string;
+}) {
+  const width = 320;
+  const height = 140;
   const max = Math.max(...points);
   const min = Math.min(...points);
   const range = max - min || 1;
@@ -108,7 +117,7 @@ export function MiniSparkline({ color = "var(--up)", points }: { color?: string;
   const areaPath = `${linePath} L${width},${height} L0,${height} Z`;
   const gradId = `spark-${color.replace(/[^a-zA-Z0-9]/g, "")}`;
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="h-16 w-full overflow-visible" preserveAspectRatio="none">
+    <svg viewBox={`0 0 ${width} ${height}`} className={`${className} overflow-visible`} preserveAspectRatio="none">
       <defs>
         <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor={color} stopOpacity="0.35" />
@@ -120,7 +129,7 @@ export function MiniSparkline({ color = "var(--up)", points }: { color?: string;
         d={linePath}
         fill="none"
         stroke={color}
-        strokeWidth="2"
+        strokeWidth="2.5"
         strokeLinecap="round"
         strokeLinejoin="round"
         className="transition-all duration-700"
