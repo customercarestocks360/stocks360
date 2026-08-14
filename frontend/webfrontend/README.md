@@ -151,8 +151,6 @@ Each file in this directory becomes a route automatically via TanStack Router:
 | `markets.tsx`     | `/markets`   | Markets overview page                            |
 | `stocks.tsx`      | `/stocks`    | Stocks trading page                              |
 | `crypto.tsx`      | `/crypto`    | Cryptocurrency trading page                      |
-| `insights.tsx`    | `/insights`  | Market insights and analysis page                |
-| `pricing.tsx`     | `/pricing`   | Pricing / subscription plans page                |
 | `README.md`       | —            | TanStack Router's route generation guide         |
 
 ### `src/router.tsx` — Router Setup

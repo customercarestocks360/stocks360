@@ -10,11 +10,11 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AboutRouteImport } from './routes/about'
 import { Route as CryptoRouteImport } from './routes/crypto'
-import { Route as InsightsRouteImport } from './routes/insights'
+import { Route as ForexRouteImport } from './routes/forex'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as MarketsRouteImport } from './routes/markets'
-import { Route as PricingRouteImport } from './routes/pricing'
 import { Route as SignupRouteImport } from './routes/signup'
 import { Route as StocksRouteImport } from './routes/stocks'
 
@@ -23,14 +23,19 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AboutRoute = AboutRouteImport.update({
+  id: '/about',
+  path: '/about',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const CryptoRoute = CryptoRouteImport.update({
   id: '/crypto',
   path: '/crypto',
   getParentRoute: () => rootRouteImport,
 } as any)
-const InsightsRoute = InsightsRouteImport.update({
-  id: '/insights',
-  path: '/insights',
+const ForexRoute = ForexRouteImport.update({
+  id: '/forex',
+  path: '/forex',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -41,11 +46,6 @@ const LoginRoute = LoginRouteImport.update({
 const MarketsRoute = MarketsRouteImport.update({
   id: '/markets',
   path: '/markets',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const PricingRoute = PricingRouteImport.update({
-  id: '/pricing',
-  path: '/pricing',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SignupRoute = SignupRouteImport.update({
@@ -61,32 +61,32 @@ const StocksRoute = StocksRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/about': typeof AboutRoute
   '/crypto': typeof CryptoRoute
-  '/insights': typeof InsightsRoute
+  '/forex': typeof ForexRoute
   '/login': typeof LoginRoute
   '/markets': typeof MarketsRoute
-  '/pricing': typeof PricingRoute
   '/signup': typeof SignupRoute
   '/stocks': typeof StocksRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/about': typeof AboutRoute
   '/crypto': typeof CryptoRoute
-  '/insights': typeof InsightsRoute
+  '/forex': typeof ForexRoute
   '/login': typeof LoginRoute
   '/markets': typeof MarketsRoute
-  '/pricing': typeof PricingRoute
   '/signup': typeof SignupRoute
   '/stocks': typeof StocksRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/about': typeof AboutRoute
   '/crypto': typeof CryptoRoute
-  '/insights': typeof InsightsRoute
+  '/forex': typeof ForexRoute
   '/login': typeof LoginRoute
   '/markets': typeof MarketsRoute
-  '/pricing': typeof PricingRoute
   '/signup': typeof SignupRoute
   '/stocks': typeof StocksRoute
 }
@@ -94,42 +94,42 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/about'
     | '/crypto'
-    | '/insights'
+    | '/forex'
     | '/login'
     | '/markets'
-    | '/pricing'
     | '/signup'
     | '/stocks'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/about'
     | '/crypto'
-    | '/insights'
+    | '/forex'
     | '/login'
     | '/markets'
-    | '/pricing'
     | '/signup'
     | '/stocks'
   id:
     | '__root__'
     | '/'
+    | '/about'
     | '/crypto'
-    | '/insights'
+    | '/forex'
     | '/login'
     | '/markets'
-    | '/pricing'
     | '/signup'
     | '/stocks'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AboutRoute: typeof AboutRoute
   CryptoRoute: typeof CryptoRoute
-  InsightsRoute: typeof InsightsRoute
+  ForexRoute: typeof ForexRoute
   LoginRoute: typeof LoginRoute
   MarketsRoute: typeof MarketsRoute
-  PricingRoute: typeof PricingRoute
   SignupRoute: typeof SignupRoute
   StocksRoute: typeof StocksRoute
 }
@@ -143,6 +143,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/about': {
+      id: '/about'
+      path: '/about'
+      fullPath: '/about'
+      preLoaderRoute: typeof AboutRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/crypto': {
       id: '/crypto'
       path: '/crypto'
@@ -150,11 +157,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CryptoRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/insights': {
-      id: '/insights'
-      path: '/insights'
-      fullPath: '/insights'
-      preLoaderRoute: typeof InsightsRouteImport
+    '/forex': {
+      id: '/forex'
+      path: '/forex'
+      fullPath: '/forex'
+      preLoaderRoute: typeof ForexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -169,13 +176,6 @@ declare module '@tanstack/react-router' {
       path: '/markets'
       fullPath: '/markets'
       preLoaderRoute: typeof MarketsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/pricing': {
-      id: '/pricing'
-      path: '/pricing'
-      fullPath: '/pricing'
-      preLoaderRoute: typeof PricingRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/signup': {
@@ -197,11 +197,11 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AboutRoute: AboutRoute,
   CryptoRoute: CryptoRoute,
-  InsightsRoute: InsightsRoute,
+  ForexRoute: ForexRoute,
   LoginRoute: LoginRoute,
   MarketsRoute: MarketsRoute,
-  PricingRoute: PricingRoute,
   SignupRoute: SignupRoute,
   StocksRoute: StocksRoute,
 }

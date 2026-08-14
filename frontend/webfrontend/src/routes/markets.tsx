@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useState } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
-import { Spark } from "@/components/ui/spark";
+import { MiniSparkline, SearchInput } from "@/components/ui/marketing";
 
 export const Route = createFileRoute("/markets")({
   head: () => ({
@@ -13,100 +14,205 @@ export const Route = createFileRoute("/markets")({
 });
 
 const indices = [
-  { n: "S&P 500", p: "5,631.20", c: "+0.33%", up: true },
-  { n: "NASDAQ", p: "18,211.50", c: "+0.54%", up: true },
-  { n: "DOW JONES", p: "39,812.10", c: "-0.12%", up: false },
-  { n: "NIFTY 50", p: "24,890.05", c: "+0.42%", up: true },
-  { n: "FTSE 100", p: "8,214.30", c: "+0.21%", up: true },
-  { n: "NIKKEI", p: "41,200.40", c: "-1.05%", up: false },
+  {
+    n: "S&P 500",
+    p: "5,631.20",
+    c: "+0.33%",
+    up: true,
+    color: "#3b82f6",
+    icon: "fa-chart-line",
+    points: [20, 22, 21, 24, 23, 26, 25, 28, 27, 30, 29, 33],
+  },
+  {
+    n: "NASDAQ",
+    p: "18,211.50",
+    c: "+0.54%",
+    up: true,
+    color: "#8b5cf6",
+    icon: "fa-microchip",
+    points: [18, 19, 22, 21, 25, 24, 27, 26, 30, 29, 32, 36],
+  },
+  {
+    n: "DOW JONES",
+    p: "39,812.10",
+    c: "-0.12%",
+    up: false,
+    color: "#eab308",
+    icon: "fa-industry",
+    points: [30, 28, 29, 26, 27, 24, 25, 22, 23, 20, 21, 18],
+  },
+  {
+    n: "NIFTY 50",
+    p: "24,890.05",
+    c: "+0.42%",
+    up: true,
+    color: "#10b981",
+    icon: "fa-earth-asia",
+    points: [16, 18, 17, 20, 19, 23, 21, 25, 24, 27, 26, 30],
+  },
+  {
+    n: "FTSE 100",
+    p: "8,214.30",
+    c: "+0.21%",
+    up: true,
+    color: "#3b82f6",
+    icon: "fa-earth-europe",
+    points: [22, 23, 21, 24, 22, 25, 24, 26, 25, 28, 27, 29],
+  },
+  {
+    n: "NIKKEI",
+    p: "41,200.40",
+    c: "-1.05%",
+    up: false,
+    color: "#ef4444",
+    icon: "fa-earth-oceania",
+    points: [32, 29, 30, 26, 27, 22, 24, 19, 21, 16, 18, 12],
+  },
+];
+
+const stockMovers = [
+  { sym: "NVDA", name: "NVIDIA Corp.", p: "$118.42", c: "+3.45%", up: true },
+  { sym: "AAPL", name: "Apple Inc.", p: "$229.87", c: "+0.88%", up: true },
+  { sym: "TSLA", name: "Tesla, Inc.", p: "$248.53", c: "-1.94%", up: false },
+  { sym: "INTC", name: "Intel Corp.", p: "$30.12", c: "-4.21%", up: false },
+  { sym: "MSTR", name: "MicroStrategy", p: "$1,452.10", c: "+4.12%", up: true },
+];
+
+const cryptoMovers = [
+  { sym: "DOGE", name: "Dogecoin", p: "$0.1428", c: "+5.83%", up: true },
+  { sym: "BTC", name: "Bitcoin", p: "$67,418.20", c: "+2.34%", up: true },
+  { sym: "ETH", name: "Ethereum", p: "$3,548.90", c: "+1.12%", up: true },
+  { sym: "XRP", name: "XRP", p: "$0.6231", c: "-2.41%", up: false },
+  { sym: "CRV", name: "Curve DAO", p: "$0.28", c: "-3.84%", up: false },
+];
+
+const forexMovers = [
+  { sym: "USD/JPY", name: "US Dollar / Yen", p: "157.42", c: "+0.41%", up: true },
+  { sym: "GBP/USD", name: "Pound / US Dollar", p: "1.2731", c: "+0.24%", up: true },
+  { sym: "AUD/USD", name: "Aussie / US Dollar", p: "0.6512", c: "+0.15%", up: true },
+  { sym: "EUR/USD", name: "Euro / US Dollar", p: "1.0892", c: "-0.18%", up: false },
+  { sym: "USD/INR", name: "US Dollar / Rupee", p: "83.41", c: "-0.09%", up: false },
+];
+
+const movementCategories = [
+  { title: "Top Stocks Today", icon: "fa-chart-line", color: "#3b82f6", data: stockMovers },
+  { title: "Top Crypto Today", icon: "fa-bitcoin-sign", color: "#f7931a", data: cryptoMovers },
+  { title: "Top Forex Today", icon: "fa-money-bill-transfer", color: "#10b981", data: forexMovers },
 ];
 
 function MarketsPage() {
+  const [query, setQuery] = useState("");
+  const filteredIndices = indices.filter((ind) => ind.n.toLowerCase().includes(query.toLowerCase()));
+
   return (
     <AppLayout>
-      <section className="relative overflow-hidden border-b border-border min-h-[calc(100vh-250px)]">
-        <div className="grid-bg absolute inset-0 opacity-70" />
-        <div className="halo absolute inset-0 opacity-60" />
-        
-        <div className="relative mx-auto max-w-7xl px-6 py-16">
-          <div className="mb-12 text-center">
-            <h1 className="text-4xl font-bold tracking-tight md:text-5xl">Global Markets Overview</h1>
-            <p className="mt-4 text-muted-foreground max-w-2xl mx-auto">
-              Track global macro trends, top performing sectors, and the most volatile assets across all integrated exchanges.
+      <section className="relative overflow-hidden border-b border-border">
+        <div className="grid-bg absolute inset-0 opacity-40" />
+
+        <div className="relative mx-auto max-w-7xl px-6 py-20 md:py-28">
+          <div className="mb-16 text-center">
+            <div className="label-mono inline-flex items-center gap-2 mb-4 text-primary">
+              <span className="h-1.5 w-1.5 rounded-full bg-primary shadow-[0_0_8px_var(--up)]" />
+              Global Markets
+            </div>
+            <h1 className="text-4xl font-bold tracking-tight md:text-6xl leading-[1.05]">
+              Markets Overview
+            </h1>
+            <p className="mt-5 text-muted-foreground max-w-2xl mx-auto text-base md:text-lg">
+              Track global macro trends, top performing sectors, and the most volatile assets
+              across all integrated exchanges.
             </p>
           </div>
-          
-          <div className="space-y-12">
+
+          <div className="space-y-16">
+            {/* ── Major Indices ── */}
             <div>
               <h2 className="text-xl font-semibold mb-6 flex items-center gap-2">
                 <i className="fa-solid fa-globe text-primary" /> Major Indices
               </h2>
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {indices.map((ind) => (
-                  <div key={ind.n} className="rounded-xl border border-overlay-border bg-surface-elevated p-5 backdrop-blur-sm transition-colors hover:border-border">
-                    <div className="flex justify-between items-center mb-4">
-                      <div className="font-medium">{ind.n}</div>
-                      <div className={`font-mono text-sm px-2 py-0.5 rounded ${ind.up ? "bg-up/10 text-up" : "bg-down/10 text-down"}`}>
+              <div className="mb-5 max-w-sm">
+                <SearchInput value={query} onChange={setQuery} placeholder="Search an index..." />
+              </div>
+              {filteredIndices.length === 0 && (
+                <p className="py-6 text-center text-sm text-muted-foreground">No indices found.</p>
+              )}
+              <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+                {filteredIndices.map((ind) => (
+                  <div
+                    key={ind.n}
+                    className="relative overflow-hidden rounded-3xl border border-border bg-card p-6 shadow-sm hover:border-primary/20"
+                  >
+                    <div className="flex justify-between items-start mb-4">
+                      <div className="flex items-center gap-3">
+                        <div
+                          className="flex h-10 w-10 items-center justify-center rounded-xl"
+                          style={{ backgroundColor: `${ind.color}15`, color: ind.color }}
+                        >
+                          <i className={`fa-solid ${ind.icon} text-sm`} />
+                        </div>
+                        <div className="font-medium">{ind.n}</div>
+                      </div>
+                      <div
+                        className={`font-mono text-sm px-2 py-0.5 rounded-full ${ind.up ? "bg-up/10 text-up" : "bg-down/10 text-down"}`}
+                      >
                         {ind.c}
                       </div>
                     </div>
-                    <div className="font-mono text-2xl font-bold">{ind.p}</div>
-                    <div className="mt-4 pt-4 border-t border-subtle-border">
-                      <Spark up={ind.up} />
+                    <div className="font-mono text-2xl font-bold text-foreground">{ind.p}</div>
+                    <div className="mt-5 pt-5 border-t border-border">
+                      <MiniSparkline
+                        color={ind.up ? "var(--up)" : "var(--down)"}
+                        points={ind.points}
+                        className="h-36 w-full"
+                      />
                     </div>
                   </div>
                 ))}
               </div>
             </div>
 
-            <div className="grid md:grid-cols-2 gap-8">
-              <div className="rounded-[2rem] border border-overlay-border bg-surface-elevated shadow-[var(--glow)] p-6 backdrop-blur-xl">
-                <h3 className="text-lg font-semibold mb-4 text-up flex items-center gap-2">
-                  <i className="fa-solid fa-arrow-trend-up" /> Top Gainers
-                </h3>
-                <div className="space-y-3">
-                  {[
-                    { sym: "NVDL", name: "NVIDIA Bull 2X", p: "$64.20", c: "+6.90%" },
-                    { sym: "WIF", name: "dogwifhat", p: "$2.14", c: "+5.42%" },
-                    { sym: "MSTR", name: "MicroStrategy", p: "$1,452.10", c: "+4.12%" },
-                  ].map(g => (
-                    <div key={g.sym} className="flex items-center justify-between p-3 rounded-lg bg-surface border border-subtle-border">
-                      <div className="flex items-center gap-3">
-                        <div className="font-mono text-sm font-bold w-12">{g.sym}</div>
-                        <div className="text-sm text-muted-foreground">{g.name}</div>
+            {/* ── Top Movers by Category — stocks, crypto and forex tracked separately ── */}
+            <div className="grid gap-6 lg:grid-cols-3">
+              {movementCategories.map((cat) => (
+                <div
+                  key={cat.title}
+                  className="relative overflow-hidden rounded-3xl border border-border bg-card p-6 shadow-sm hover:border-primary/20"
+                >
+                  <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                    <span
+                      className="flex h-8 w-8 items-center justify-center rounded-lg"
+                      style={{ backgroundColor: `${cat.color}15`, color: cat.color }}
+                    >
+                      <i className={`fa-solid ${cat.icon} text-sm`} />
+                    </span>
+                    {cat.title}
+                  </h3>
+                  <div className="space-y-3">
+                    {cat.data.map((g) => (
+                      <div
+                        key={g.sym}
+                        className={`flex items-center justify-between p-3 rounded-xl bg-background/40 border border-border ${
+                          g.up ? "hover:border-up/30" : "hover:border-down/30"
+                        }`}
+                      >
+                        <div className="min-w-0">
+                          <div className="font-mono text-sm font-bold">{g.sym}</div>
+                          <div className="truncate text-xs text-muted-foreground">{g.name}</div>
+                        </div>
+                        <div className="flex items-center gap-3 shrink-0">
+                          <div className="font-mono text-sm">{g.p}</div>
+                          <div
+                            className={`flex items-center gap-1 font-mono text-sm font-bold ${g.up ? "text-up" : "text-down"}`}
+                          >
+                            <i className={`fa-solid ${g.up ? "fa-caret-up" : "fa-caret-down"}`} />
+                            {g.c}
+                          </div>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-4">
-                        <div className="font-mono text-sm">{g.p}</div>
-                        <div className="font-mono text-sm text-up">{g.c}</div>
-                      </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
-              </div>
-
-              <div className="rounded-[2rem] border border-overlay-border bg-surface-elevated shadow-[var(--glow)] p-6 backdrop-blur-xl">
-                <h3 className="text-lg font-semibold mb-4 text-down flex items-center gap-2">
-                  <i className="fa-solid fa-arrow-trend-down" /> Top Losers
-                </h3>
-                <div className="space-y-3">
-                  {[
-                    { sym: "INTC", name: "Intel Corp.", p: "$30.12", c: "-4.21%" },
-                    { sym: "CRV", name: "Curve DAO", p: "$0.28", c: "-3.84%" },
-                    { sym: "PYPL", name: "PayPal Holdings", p: "$58.90", c: "-2.15%" },
-                  ].map(g => (
-                    <div key={g.sym} className="flex items-center justify-between p-3 rounded-lg bg-surface border border-subtle-border">
-                      <div className="flex items-center gap-3">
-                        <div className="font-mono text-sm font-bold w-12">{g.sym}</div>
-                        <div className="text-sm text-muted-foreground">{g.name}</div>
-                      </div>
-                      <div className="flex items-center gap-4">
-                        <div className="font-mono text-sm">{g.p}</div>
-                        <div className="font-mono text-sm text-down">{g.c}</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              ))}
             </div>
           </div>
         </div>

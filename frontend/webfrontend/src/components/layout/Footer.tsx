@@ -12,9 +12,9 @@ export function Footer() {
           </p>
         </div>
         {[
-          { h: "Markets", l: ["Crypto", "Stocks", "ETFs"] },
+          { h: "Markets", l: ["Crypto", "Stocks", "Forex", "ETFs"] },
           { h: "Products", l: ["Spot", "Margin", "Options"] },
-          { h: "Company", l: ["About"] },
+          { h: "Company", l: ["About Us"] },
           { h: "Legal", l: ["Terms", "Privacy", "Risk disclosure", "Fees", "Compliance"] },
         ].map((col) => (
           <div key={col.h}>

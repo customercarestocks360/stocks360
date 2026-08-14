@@ -3,8 +3,10 @@ import { useEffect, useRef, useCallback } from "react";
 /**
  * useScrollReveal — Intersection Observer hook for scroll-triggered animations.
  *
- * Watches a container ref and adds `data-revealed="true"` to child elements
- * that have the `[data-reveal]` attribute when they enter the viewport.
+ * Watches a container ref and toggles `data-revealed` on child elements that
+ * have the `[data-reveal]` attribute as they enter and leave the viewport.
+ * Elements are never unobserved, so the animation plays forward when
+ * scrolling down and reverses when scrolling back up past them.
  *
  * Usage:
  *   const containerRef = useScrollReveal();
@@ -30,10 +32,7 @@ export function useScrollReveal(threshold = 0.12) {
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            (entry.target as HTMLElement).dataset.revealed = "true";
-            observer.unobserve(entry.target);
-          }
+          (entry.target as HTMLElement).dataset.revealed = entry.isIntersecting ? "true" : "false";
         });
       },
       { threshold, rootMargin: "0px 0px -40px 0px" },

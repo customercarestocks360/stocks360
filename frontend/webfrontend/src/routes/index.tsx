@@ -2,9 +2,10 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import SpecularButton from "@/components/ui/specular-button";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { useTheme } from "@/components/ThemeProvider";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import Dither from "@/components/ui/Dither";
 import { useScrollReveal } from "@/hooks/useScrollReveal";
+import { AnimatedNumber, OrbitRing, MiniSparkline, IconTileRow, TestimonialCard } from "@/components/ui/marketing";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -27,81 +28,17 @@ export const Route = createFileRoute("/")({
   component: Index,
 });
 
-/* ────── Animated Counter Component ────── */
-function AnimatedNumber({ value, suffix = "" }: { value: string; suffix?: string }) {
-  const [display, setDisplay] = useState("0");
-  const ref = useRef<HTMLSpanElement>(null);
-  const triggered = useRef(false);
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting && !triggered.current) {
-          triggered.current = true;
-          const numericStr = value.replace(/[^0-9.]/g, "");
-          const target = parseFloat(numericStr);
-          const isDecimal = numericStr.includes(".");
-          const prefix = value.replace(/[0-9.,]+.*/, "");
-          const duration = 1800;
-          const start = performance.now();
-          const animate = (now: number) => {
-            const elapsed = now - start;
-            const progress = Math.min(elapsed / duration, 1);
-            const eased = 1 - Math.pow(1 - progress, 4);
-            const current = target * eased;
-            const formatted = isDecimal ? current.toFixed(1) : Math.floor(current).toLocaleString();
-            setDisplay(prefix + formatted);
-            if (progress < 1) requestAnimationFrame(animate);
-          };
-          requestAnimationFrame(animate);
-        }
-      },
-      { threshold: 0.3 },
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [value]);
-
-  return (
-    <span ref={ref}>
-      {display}
-      {suffix}
-    </span>
-  );
-}
-
-/* ────── Orbit Ring SVG ────── */
-function OrbitRing({ size = 400, duration = 20, dotCount = 6, color = "var(--primary)" }: { size?: number; duration?: number; dotCount?: number; color?: string }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox={`0 0 ${size} ${size}`}
-      className="absolute opacity-20"
-      style={{ animation: `spin ${duration}s linear infinite` }}
-    >
-      <circle
-        cx={size / 2}
-        cy={size / 2}
-        r={size / 2 - 2}
-        fill="none"
-        stroke={color}
-        strokeWidth={0.5}
-        strokeDasharray="4 8"
-        opacity={0.4}
-      />
-      {Array.from({ length: dotCount }).map((_, i) => {
-        const angle = (360 / dotCount) * i;
-        const rad = (angle * Math.PI) / 180;
-        const cx = size / 2 + (size / 2 - 2) * Math.cos(rad);
-        const cy = size / 2 + (size / 2 - 2) * Math.sin(rad);
-        return <circle key={i} cx={cx} cy={cy} r={2} fill={color} opacity={0.6} />;
-      })}
-    </svg>
-  );
-}
+/* Sample quotes — placeholders until real trader testimonials are collected */
+const TESTIMONIALS = [
+  { name: "Ananya Rao", role: "Full-time Trader", quote: "The unified margin across crypto and equities changed how I manage risk. One dashboard, zero friction." },
+  { name: "Vikram Shah", role: "Options Trader", quote: "8ms fills aren't marketing fluff — I've clocked it myself during volatile opens." },
+  { name: "Meera Iyer", role: "Software Engineer", quote: "Finally a terminal that doesn't feel like it was built in 2012. Dark mode done right." },
+  { name: "Rohan Kapoor", role: "Portfolio Analyst", quote: "Cross-margin across ETFs and commodities saved me from constantly shuffling capital." },
+  { name: "Sneha Verma", role: "Early-stage Investor", quote: "Support responded in minutes during a margin call at 2am. Impressive coverage." },
+  { name: "Arjun Malhotra", role: "Quant Developer", quote: "The API latency is genuinely sub-5ms. My algo strategies run smoother than anywhere else." },
+  { name: "Divya Nair", role: "Retail Investor", quote: "Onboarding took four minutes and I was trading Nifty ETFs the same day." },
+  { name: "Karan Bhatia", role: "Swing Trader", quote: "Zero requotes even during CPI releases. That alone is worth switching for." },
+];
 
 function Index() {
   const { theme } = useTheme();
@@ -232,7 +169,7 @@ function Index() {
           </div>
         </section>
 
-        {/* ─── #2 — Category Showcase Cards (Groww-style) ─── */}
+        {/* ─── #2 — Category Showcase Bento (Groww-style asymmetric grid) ─── */}
         <section className="mx-auto max-w-7xl px-6 py-24 md:py-32">
           <div className="text-center mb-16" data-reveal="fade-up">
             <div className="label-mono inline-block mb-3 text-primary">Explore Markets</div>
@@ -241,102 +178,180 @@ function Index() {
             </h2>
           </div>
 
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-            {/* Crypto Card */}
-            <Link
-              to="/crypto"
-              data-reveal="fade-up"
-              data-delay="1"
-              className="group relative flex flex-col overflow-hidden rounded-3xl border border-border bg-card p-8 transition-all duration-500 hover:-translate-y-2 hover:shadow-2xl hover:border-primary/30 cursor-pointer min-h-[340px]"
-            >
-              <div className="absolute top-0 right-0 w-40 h-40 opacity-[0.06] group-hover:opacity-[0.12] transition-opacity duration-700">
-                <div className="w-full h-full rounded-full bg-[#f7931a] blur-3xl" />
-              </div>
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#f7931a]/10 text-[#f7931a] mb-6 group-hover:scale-110 transition-transform duration-500">
-                <i className="fa-solid fa-bitcoin-sign text-2xl" />
-              </div>
-              <h3 className="text-2xl font-bold text-foreground mb-2">Crypto</h3>
-              <p className="text-sm text-muted-foreground leading-relaxed flex-1">
-                Bitcoin, Ethereum, Solana and 200+ tokens. Up to 100x leverage with institutional liquidity pools.
-              </p>
-              <div className="mt-6 flex items-center gap-2 font-mono text-xs font-bold text-[#f7931a] group-hover:gap-3 transition-all">
-                <span>Explore Crypto</span>
-                <i className="fa-solid fa-arrow-right text-[10px] group-hover:translate-x-1 transition-transform" />
-              </div>
-              <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-[#f7931a] to-[#f7931a]/0 scale-x-0 group-hover:scale-x-100 transition-transform origin-left duration-500" />
-            </Link>
+          <div className="grid gap-6 lg:grid-cols-2">
+            {/* ── Left column: Stocks (tall) + Commodities & Forex (wide banner) ── */}
+            <div className="flex flex-col gap-6">
+              {/* Stocks Card — mock ticker + sparkline */}
+              <Link
+                to="/stocks"
+                data-reveal="approach"
+                className="group relative flex flex-col overflow-hidden rounded-3xl border border-border bg-card p-8 transition-all duration-500 hover:-translate-y-1.5 hover:shadow-2xl hover:border-primary/30 cursor-pointer min-h-[380px]"
+              >
+                <div className="absolute top-0 right-0 w-56 h-56 opacity-[0.06] group-hover:opacity-[0.12] transition-opacity duration-700 pointer-events-none">
+                  <div className="w-full h-full rounded-full bg-[#3b82f6] blur-3xl" />
+                </div>
+                <div className="flex items-start justify-between">
+                  <div>
+                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#3b82f6]/10 text-[#3b82f6] mb-5 group-hover:scale-110 transition-transform duration-500">
+                      <i className="fa-solid fa-chart-line text-xl" />
+                    </div>
+                    <h3 className="text-2xl font-bold text-foreground mb-1">Stocks</h3>
+                    <p className="text-sm text-muted-foreground max-w-xs">
+                      US & Indian equities — NASDAQ, NYSE, NSE, BSE. Fractional shares, extended hours.
+                    </p>
+                  </div>
+                  <i className="fa-solid fa-arrow-up-right text-muted-foreground/40 group-hover:text-[#3b82f6] group-hover:translate-x-1 group-hover:-translate-y-1 transition-all" />
+                </div>
 
-            {/* Stocks Card */}
-            <Link
-              to="/stocks"
-              data-reveal="fade-up"
-              data-delay="2"
-              className="group relative flex flex-col overflow-hidden rounded-3xl border border-border bg-card p-8 transition-all duration-500 hover:-translate-y-2 hover:shadow-2xl hover:border-primary/30 cursor-pointer min-h-[340px]"
-            >
-              <div className="absolute top-0 right-0 w-40 h-40 opacity-[0.06] group-hover:opacity-[0.12] transition-opacity duration-700">
-                <div className="w-full h-full rounded-full bg-[#3b82f6] blur-3xl" />
-              </div>
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#3b82f6]/10 text-[#3b82f6] mb-6 group-hover:scale-110 transition-transform duration-500">
-                <i className="fa-solid fa-chart-line text-2xl" />
-              </div>
-              <h3 className="text-2xl font-bold text-foreground mb-2">Stocks</h3>
-              <p className="text-sm text-muted-foreground leading-relaxed flex-1">
-                US & Indian equities on a unified margin. NASDAQ, NYSE, NSE, BSE — fractional shares and extended hours.
-              </p>
-              <div className="mt-6 flex items-center gap-2 font-mono text-xs font-bold text-[#3b82f6] group-hover:gap-3 transition-all">
-                <span>Explore Stocks</span>
-                <i className="fa-solid fa-arrow-right text-[10px] group-hover:translate-x-1 transition-transform" />
-              </div>
-              <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-[#3b82f6] to-[#3b82f6]/0 scale-x-0 group-hover:scale-x-100 transition-transform origin-left duration-500" />
-            </Link>
+                <div className="mt-6 rounded-2xl border border-border bg-background/40 p-5">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+                        RESE · Renewable Energy Solutions
+                      </div>
+                      <div className="mt-1 flex items-baseline gap-2">
+                        <span className="text-2xl font-bold font-mono text-foreground">₹792.52</span>
+                        <span className="text-xs font-mono font-bold text-up">+15.95 (2.24%)</span>
+                      </div>
+                    </div>
+                    <span className="mt-1 h-2 w-2 rounded-full bg-up animate-pulse" />
+                  </div>
+                  <div className="mt-3">
+                    <MiniSparkline color="var(--up)" points={[10, 14, 11, 18, 15, 22, 19, 28, 24, 34, 30, 42]} />
+                  </div>
+                  <div className="mt-2 flex gap-2 font-mono text-[10px] text-muted-foreground">
+                    {["1D", "1W", "1M", "1Y", "All"].map((r, i) => (
+                      <span key={r} className={`px-2 py-0.5 rounded-full ${i === 0 ? "bg-primary text-primary-foreground font-bold" : ""}`}>
+                        {r}
+                      </span>
+                    ))}
+                  </div>
+                </div>
 
-            {/* ETFs & Indices Card */}
-            <Link
-              to="/markets"
-              data-reveal="fade-up"
-              data-delay="3"
-              className="group relative flex flex-col overflow-hidden rounded-3xl border border-border bg-card p-8 transition-all duration-500 hover:-translate-y-2 hover:shadow-2xl hover:border-primary/30 cursor-pointer min-h-[340px]"
-            >
-              <div className="absolute top-0 right-0 w-40 h-40 opacity-[0.06] group-hover:opacity-[0.12] transition-opacity duration-700">
-                <div className="w-full h-full rounded-full bg-[#8b5cf6] blur-3xl" />
-              </div>
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#8b5cf6]/10 text-[#8b5cf6] mb-6 group-hover:scale-110 transition-transform duration-500">
-                <i className="fa-solid fa-layer-group text-2xl" />
-              </div>
-              <h3 className="text-2xl font-bold text-foreground mb-2">ETFs & Indices</h3>
-              <p className="text-sm text-muted-foreground leading-relaxed flex-1">
-                Broad exposure to sectors, global indices, and automated portfolio rebalancing. S&P 500, Nifty 50, and beyond.
-              </p>
-              <div className="mt-6 flex items-center gap-2 font-mono text-xs font-bold text-[#8b5cf6] group-hover:gap-3 transition-all">
-                <span>Explore ETFs</span>
-                <i className="fa-solid fa-arrow-right text-[10px] group-hover:translate-x-1 transition-transform" />
-              </div>
-              <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-[#8b5cf6] to-[#8b5cf6]/0 scale-x-0 group-hover:scale-x-100 transition-transform origin-left duration-500" />
-            </Link>
+                <div className="mt-6 flex items-center gap-2 font-mono text-xs font-bold text-[#3b82f6] group-hover:gap-3 transition-all">
+                  <span>Explore Stocks</span>
+                  <i className="fa-solid fa-arrow-right text-[10px] group-hover:translate-x-1 transition-transform" />
+                </div>
+                <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-[#3b82f6] to-[#3b82f6]/0 scale-x-0 group-hover:scale-x-100 transition-transform origin-left duration-500" />
+              </Link>
 
-            {/* Commodities & Forex Card */}
-            <Link
-              to="/markets"
-              data-reveal="fade-up"
-              data-delay="4"
-              className="group relative flex flex-col overflow-hidden rounded-3xl border border-border bg-card p-8 transition-all duration-500 hover:-translate-y-2 hover:shadow-2xl hover:border-primary/30 cursor-pointer min-h-[340px]"
-            >
-              <div className="absolute top-0 right-0 w-40 h-40 opacity-[0.06] group-hover:opacity-[0.12] transition-opacity duration-700">
-                <div className="w-full h-full rounded-full bg-[#eab308] blur-3xl" />
-              </div>
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#eab308]/10 text-[#eab308] mb-6 group-hover:scale-110 transition-transform duration-500">
-                <i className="fa-solid fa-coins text-2xl" />
-              </div>
-              <h3 className="text-2xl font-bold text-foreground mb-2">Commodities</h3>
-              <p className="text-sm text-muted-foreground leading-relaxed flex-1">
-                Gold, Silver, Crude Oil, Natural Gas, and G10 FX pairs. Zero-slippage execution around the clock.
-              </p>
-              <div className="mt-6 flex items-center gap-2 font-mono text-xs font-bold text-[#eab308] group-hover:gap-3 transition-all">
-                <span>Explore Commodities</span>
-                <i className="fa-solid fa-arrow-right text-[10px] group-hover:translate-x-1 transition-transform" />
-              </div>
-              <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-[#eab308] to-[#eab308]/0 scale-x-0 group-hover:scale-x-100 transition-transform origin-left duration-500" />
-            </Link>
+              {/* Commodities & Forex Banner — icon tiles */}
+              <Link
+                to="/markets"
+                data-reveal="approach"
+                data-delay="2"
+                className="group relative flex flex-col md:flex-row md:items-center md:justify-between gap-6 overflow-hidden rounded-3xl border border-border bg-card p-8 transition-all duration-500 hover:-translate-y-1.5 hover:shadow-2xl hover:border-primary/30 cursor-pointer min-h-[180px]"
+              >
+                <div className="absolute top-0 right-0 w-40 h-40 opacity-[0.06] group-hover:opacity-[0.12] transition-opacity duration-700 pointer-events-none">
+                  <div className="w-full h-full rounded-full bg-[#eab308] blur-3xl" />
+                </div>
+                <div>
+                  <h3 className="text-2xl font-bold text-foreground mb-1">Commodities & Forex</h3>
+                  <p className="text-sm text-muted-foreground max-w-xs">
+                    Gold, Silver, Crude Oil, Natural Gas & G10 FX pairs.
+                  </p>
+                  <div className="mt-4 flex items-center gap-2 font-mono text-xs font-bold text-[#eab308] group-hover:gap-3 transition-all">
+                    <span>Explore Commodities</span>
+                    <i className="fa-solid fa-arrow-right text-[10px] group-hover:translate-x-1 transition-transform" />
+                  </div>
+                </div>
+                <IconTileRow
+                  items={[
+                    { icon: "fa-coins", color: "#eab308" },
+                    { icon: "fa-water", color: "#3b82f6" },
+                    { icon: "fa-money-bill-transfer", color: "#10b981" },
+                    { icon: "fa-fire", color: "#ef4444" },
+                  ]}
+                />
+                <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-[#eab308] to-[#eab308]/0 scale-x-0 group-hover:scale-x-100 transition-transform origin-left duration-500" />
+              </Link>
+            </div>
+
+            {/* ── Right column: ETFs & Indices (banner) + Crypto (tall) ── */}
+            <div className="flex flex-col gap-6">
+              {/* ETFs & Indices Banner — icon tiles */}
+              <Link
+                to="/markets"
+                data-reveal="approach"
+                data-delay="1"
+                className="group relative flex flex-col gap-6 overflow-hidden rounded-3xl border border-border bg-card p-8 transition-all duration-500 hover:-translate-y-1.5 hover:shadow-2xl hover:border-primary/30 cursor-pointer min-h-[180px]"
+              >
+                <div className="absolute top-0 right-0 w-40 h-40 opacity-[0.06] group-hover:opacity-[0.12] transition-opacity duration-700 pointer-events-none">
+                  <div className="w-full h-full rounded-full bg-[#8b5cf6] blur-3xl" />
+                </div>
+                <div className="flex items-start justify-between">
+                  <div>
+                    <h3 className="text-2xl font-bold text-foreground mb-1">ETFs & Indices</h3>
+                    <p className="text-sm text-muted-foreground">Gold, Silver, International & Index ETFs</p>
+                  </div>
+                  <i className="fa-solid fa-arrow-up-right text-muted-foreground/40 group-hover:text-[#8b5cf6] group-hover:translate-x-1 group-hover:-translate-y-1 transition-all" />
+                </div>
+                <IconTileRow
+                  items={[
+                    { icon: "fa-coins", color: "#eab308" },
+                    { icon: "fa-layer-group", color: "#8b5cf6" },
+                    { icon: "fa-earth-americas", color: "#3b82f6" },
+                    { icon: "fa-building-columns", color: "#10b981" },
+                  ]}
+                />
+                <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-[#8b5cf6] to-[#8b5cf6]/0 scale-x-0 group-hover:scale-x-100 transition-transform origin-left duration-500" />
+              </Link>
+
+              {/* Crypto Card — mock live ticker + sparkline */}
+              <Link
+                to="/crypto"
+                data-reveal="approach"
+                data-delay="3"
+                className="group relative flex flex-1 flex-col overflow-hidden rounded-3xl border border-border bg-card p-8 transition-all duration-500 hover:-translate-y-1.5 hover:shadow-2xl hover:border-primary/30 cursor-pointer min-h-[380px]"
+              >
+                <div className="absolute top-0 right-0 w-56 h-56 opacity-[0.06] group-hover:opacity-[0.12] transition-opacity duration-700 pointer-events-none">
+                  <div className="w-full h-full rounded-full bg-[#f7931a] blur-3xl" />
+                </div>
+                <div className="flex items-start justify-between">
+                  <div>
+                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#f7931a]/10 text-[#f7931a] mb-5 group-hover:scale-110 transition-transform duration-500">
+                      <i className="fa-solid fa-bitcoin-sign text-xl" />
+                    </div>
+                    <h3 className="text-2xl font-bold text-foreground mb-1">Crypto</h3>
+                    <p className="text-sm text-muted-foreground max-w-xs">
+                      Bitcoin, Ethereum, Solana & 200+ tokens. Up to 100x leverage.
+                    </p>
+                  </div>
+                  <i className="fa-solid fa-arrow-up-right text-muted-foreground/40 group-hover:text-[#f7931a] group-hover:translate-x-1 group-hover:-translate-y-1 transition-all" />
+                </div>
+
+                <div className="mt-6 rounded-2xl border border-border bg-background/40 p-5">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <div className="flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider text-emerald-500">
+                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                        Live · BTC/USD
+                      </div>
+                      <div className="mt-1 flex items-baseline gap-2">
+                        <span className="text-2xl font-bold font-mono text-foreground">$67,418</span>
+                        <span className="text-xs font-mono font-bold text-up">+2.9%</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-3">
+                    <MiniSparkline color="#f7931a" points={[30, 24, 32, 22, 28, 18, 26, 16, 22, 12, 18, 8]} />
+                  </div>
+                  <div className="mt-2 flex gap-2 font-mono text-[10px] text-muted-foreground">
+                    {["1H", "1D", "1W", "1M", "All"].map((r, i) => (
+                      <span key={r} className={`px-2 py-0.5 rounded-full ${i === 1 ? "bg-primary text-primary-foreground font-bold" : ""}`}>
+                        {r}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="mt-6 flex items-center gap-2 font-mono text-xs font-bold text-[#f7931a] group-hover:gap-3 transition-all">
+                  <span>Explore Crypto</span>
+                  <i className="fa-solid fa-arrow-right text-[10px] group-hover:translate-x-1 transition-transform" />
+                </div>
+                <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-[#f7931a] to-[#f7931a]/0 scale-x-0 group-hover:scale-x-100 transition-transform origin-left duration-500" />
+              </Link>
+            </div>
           </div>
         </section>
 
@@ -511,51 +526,6 @@ function Index() {
           </div>
         </section>
 
-        {/* ─── #5 — Live Execution Tape ─── */}
-        <section className="border-y border-border overflow-hidden bg-card/20">
-          <div className="py-4" data-reveal="fade-up">
-            <div className="flex items-center gap-3 px-6 mb-3">
-              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="label-mono text-xs text-emerald-500">Live Order Flow</span>
-            </div>
-            <div className="overflow-hidden">
-              <div className="flex gap-4 px-6 marquee-track" style={{ width: "max-content" }}>
-                {[
-                  { pair: "BTC/USD", side: "BUY", price: "$67,418", time: "0.3s" },
-                  { pair: "NVDA", side: "BUY", price: "$128.40", time: "0.8s" },
-                  { pair: "ETH/USD", side: "SELL", price: "$3,548", time: "1.1s" },
-                  { pair: "GOLD", side: "BUY", price: "$2,418", time: "1.4s" },
-                  { pair: "AAPL", side: "BUY", price: "$224.15", time: "1.9s" },
-                  { pair: "SOL/USD", side: "SELL", price: "$168.42", time: "2.2s" },
-                  { pair: "EUR/USD", side: "SELL", price: "$1.089", time: "2.5s" },
-                  { pair: "SPY", side: "BUY", price: "$554.20", time: "2.8s" },
-                  { pair: "BTC/USD", side: "BUY", price: "$67,418", time: "0.3s" },
-                  { pair: "NVDA", side: "BUY", price: "$128.40", time: "0.8s" },
-                  { pair: "ETH/USD", side: "SELL", price: "$3,548", time: "1.1s" },
-                  { pair: "GOLD", side: "BUY", price: "$2,418", time: "1.4s" },
-                  { pair: "AAPL", side: "BUY", price: "$224.15", time: "1.9s" },
-                  { pair: "SOL/USD", side: "SELL", price: "$168.42", time: "2.2s" },
-                  { pair: "EUR/USD", side: "SELL", price: "$1.089", time: "2.5s" },
-                  { pair: "SPY", side: "BUY", price: "$554.20", time: "2.8s" },
-                ].map((trade, i) => (
-                  <div
-                    key={`${trade.pair}-${i}`}
-                    className="flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-2 min-w-[200px]"
-                  >
-                    <span className={`h-2 w-2 rounded-full ${trade.side === "BUY" ? "bg-up" : "bg-down"}`} />
-                    <span className="font-mono text-xs font-bold text-foreground">{trade.pair}</span>
-                    <span className={`font-mono text-[10px] font-bold ${trade.side === "BUY" ? "text-up" : "text-down"}`}>
-                      {trade.side}
-                    </span>
-                    <span className="font-mono text-xs text-muted-foreground">{trade.price}</span>
-                    <span className="font-mono text-[9px] text-muted-foreground/50 ml-auto">{trade.time}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </section>
-
         {/* ─── #6 — Platform Features Bento Grid ─── */}
         <section className="mx-auto max-w-7xl px-6 py-24 md:py-32">
           <div className="text-center mb-16" data-reveal="blur">
@@ -612,13 +582,46 @@ function Index() {
           </div>
         </section>
 
-        {/* ─── #7 — Trusted By / Social Proof ─── */}
-        <section className="border-y border-border bg-card/20">
-          <div className="mx-auto max-w-7xl px-6 py-20 text-center" data-reveal="fade-up">
-            <div className="label-mono inline-block mb-3">Trusted Worldwide</div>
-            <h2 className="text-3xl font-bold tracking-tight md:text-4xl mb-12">
-              Trusted by <span className="text-primary">2M+</span> traders globally
-            </h2>
+        {/* ─── #7 — Trusted By / Social Proof — interactive testimonial wall ─── */}
+        <section className="relative overflow-hidden border-y border-border bg-card/20 py-20 md:py-28">
+          <div className="mx-auto max-w-7xl px-6 text-center" data-reveal="fade-up">
+            
+          </div>
+
+          <div className="relative mt-4">
+            {/* Row 1 — scrolls left, pauses on hover */}
+            <div
+              className="overflow-hidden py-2.5"
+              style={{ maskImage: "linear-gradient(to right, transparent, black 8%, black 92%, transparent)" }}
+            >
+              <div className="flex gap-5 marquee-track w-max">
+                {[...TESTIMONIALS, ...TESTIMONIALS].map((t, i) => (
+                  <TestimonialCard key={`row1-${i}`} {...t} delay={(i % TESTIMONIALS.length) * 70} />
+                ))}
+              </div>
+            </div>
+
+            {/* Center heading — sits between the two rows with its own breathing room, not overlapping either */}
+            <div className="relative z-10 my-8 flex justify-center md:my-10">
+              <h2 className="text-2xl font-bold tracking-tight text-foreground/60 md:text-4xl">
+                Trusted by <AnimatedNumber value="2400000" suffix="+" /> traders
+              </h2>
+            </div>
+
+            {/* Row 2 — scrolls right, opposite direction, pauses on hover */}
+            <div
+              className="overflow-hidden py-2.5"
+              style={{ maskImage: "linear-gradient(to right, transparent, black 8%, black 92%, transparent)" }}
+            >
+              <div className="flex gap-5 marquee-track-reverse w-max">
+                {[...TESTIMONIALS.slice().reverse(), ...TESTIMONIALS.slice().reverse()].map((t, i) => (
+                  <TestimonialCard key={`row2-${i}`} {...t} delay={(i % TESTIMONIALS.length) * 70} />
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="mx-auto max-w-7xl px-6 mt-16">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
               {[
                 { stat: "$300M", label: "Insurance Fund", icon: "fa-shield-halved" },
@@ -630,7 +633,7 @@ function Index() {
                   key={item.label}
                   data-reveal="scale"
                   data-delay={String(i + 1)}
-                  className="group rounded-2xl border border-border bg-card p-6 transition-all duration-500 hover:shadow-xl hover:-translate-y-1"
+                  className="group rounded-2xl border border-border bg-card p-6 text-center transition-all duration-500 hover:shadow-xl hover:-translate-y-1"
                 >
                   <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-secondary mb-4 group-hover:bg-primary group-hover:text-primary-foreground transition-colors duration-500">
                     <i className={`fa-solid ${item.icon} text-lg`} />
