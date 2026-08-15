@@ -12,9 +12,9 @@ export function Footer() {
           </p>
         </div>
         {[
-          { h: "Markets", l: ["Crypto", "Stocks", "ETFs", "Commodities", "Futures"] },
-          { h: "Products", l: ["Spot", "Margin", "Options", "Earn", "Indices"] },
-          { h: "Company", l: ["About", "Careers", "Press", "Blog", "Status"] },
+          { h: "Markets", l: ["Crypto", "Stocks", "Forex", "ETFs"] },
+          { h: "Products", l: ["Spot", "Margin", "Options"] },
+          { h: "Company", l: ["About Us"] },
           { h: "Legal", l: ["Terms", "Privacy", "Risk disclosure", "Fees", "Compliance"] },
         ].map((col) => (
           <div key={col.h}>
@@ -30,7 +30,7 @@ export function Footer() {
         ))}
       </div>
       <div className="mt-12 flex flex-wrap justify-between gap-4 border-t border-border pt-6 text-xs text-muted-foreground">
-        <span>© 2026 Axiom Exchange. All rights reserved.</span>
+        <span>© 2026 Stocks 360. All rights reserved.</span>
         <span className="max-w-xl">
           Investments are subject to market risks. Past performance is not indicative of future
           returns.

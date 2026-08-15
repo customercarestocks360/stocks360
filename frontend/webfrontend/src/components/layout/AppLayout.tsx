@@ -8,9 +8,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
     <div className="min-h-screen flex flex-col bg-background text-foreground">
       <TickerBar />
       <Header />
-      <main className="flex-1">
-        {children}
-      </main>
+      <main className="flex-1">{children}</main>
       <Footer />
       <TickerBar bottom />
     </div>

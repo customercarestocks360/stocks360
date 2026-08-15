@@ -1,8 +1,9 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import SpecularButton from "@/components/ui/specular-button";
-import { useTheme } from "@/components/ThemeProvider";
-import { useState, useEffect } from "react";
+import { OrbitRing, GoogleIcon, OtpVerification } from "@/components/ui/marketing";
+import { useAuth } from "@/components/AuthProvider";
 
 export const Route = createFileRoute("/login")({
   head: () => ({
@@ -20,100 +21,122 @@ export const Route = createFileRoute("/login")({
 });
 
 function Login() {
-  const { theme } = useTheme();
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-  const isDark = !mounted || theme === "dark";
+  const navigate = useNavigate();
+  const { login } = useAuth();
+  const [step, setStep] = useState<"credentials" | "otp">("credentials");
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <div className="relative min-h-screen overflow-hidden py-10">
-        <div className="grid-bg absolute inset-0 opacity-70" />
-        <div className="halo absolute inset-0 opacity-60" />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_var(--color-primary-foreground),_transparent_34%),radial-gradient(circle_at_bottom_right,_var(--color-primary-foreground),_transparent_28%)] opacity-[0.08]" />
-        <div className="relative mx-auto flex min-h-screen items-center justify-center px-6 py-6">
-          <div className="w-full max-w-lg rounded-[2rem] border border-overlay-border bg-overlay p-8 shadow-[var(--glow)] backdrop-blur-xl">
-            <div className="mb-8 space-y-6">
-              <div className="inline-flex items-center gap-3 rounded-full border border-overlay-border bg-surface px-4 py-2 text-sm uppercase tracking-[0.3em] text-muted-foreground">
-                <span className="h-2.5 w-2.5 rounded-full bg-primary" />
-                Stocks360
-              </div>
-              <div>
-                <h1 className="text-4xl font-semibold tracking-tight text-foreground sm:text-5xl">Welcome back</h1>
-                <p className="mt-4 text-sm leading-7 text-muted-foreground">
-                  Sign in to Stocks360 and access your trading terminal with a secure, sleek experience.
+    <div className="h-screen overflow-hidden bg-background text-foreground">
+      <div className="relative h-full overflow-hidden">
+        <div className="grid-bg absolute inset-0 opacity-40" />
+        <div className="halo absolute inset-0" />
+
+        {/* Ambient orbit rings, echoing the homepage's cinematic sections */}
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-[0.05]">
+          <OrbitRing size={640} duration={70} dotCount={14} />
+          <OrbitRing size={420} duration={50} dotCount={8} />
+          <OrbitRing size={220} duration={32} dotCount={4} />
+        </div>
+
+        <div className="relative mx-auto flex h-full items-center justify-center px-6 py-4">
+          {step === "otp" ? (
+            <OtpVerification
+              onBack={() => setStep("credentials")}
+              onVerified={() => {
+                login();
+                navigate({ to: "/" });
+              }}
+            />
+          ) : (
+          <div className="relative w-full max-w-lg">
+            {/* Glow blobs behind the card */}
+            <div className="absolute -top-16 -left-16 h-56 w-56 rounded-full bg-primary/20 blur-3xl pointer-events-none" />
+            <div className="absolute -bottom-16 -right-10 h-56 w-56 rounded-full bg-[#3b82f6]/20 blur-3xl pointer-events-none" />
+
+            <div className="relative max-h-[92vh] overflow-y-auto rounded-3xl border border-border bg-card/80 p-7 shadow-2xl backdrop-blur-xl sm:p-9">
+              <div className="mb-6">
+                <h1 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
+                  Welcome back
+                </h1>
+                <p className="mt-3 text-sm leading-6 text-muted-foreground">
+                  Sign in to Stocks360 and access your trading terminal with a secure, sleek
+                  experience.
                 </p>
               </div>
-            </div>
-            <form className="space-y-5">
-              <label className="block text-sm font-medium text-foreground">
-                Username
-                <Input placeholder="username" className="mt-3" type="text" />
-              </label>
-              <label className="block text-sm font-medium text-foreground">
-                Password
-                <Input placeholder="••••••••" className="mt-3" type="password" />
-              </label>
-              <div className="rounded-3xl border border-overlay-border bg-surface p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-semibold text-foreground">Captcha verification</p>
-                    <p className="mt-1 text-sm text-muted-foreground">Confirm you are human before signing in.</p>
-                  </div>
-                  <span className="rounded-full bg-surface-elevated px-3 py-1 text-[11px] uppercase tracking-[0.3em] text-muted-foreground border border-overlay-border">
-                    Secure
-                  </span>
-                </div>
-                <div className="mt-4 grid gap-3 sm:grid-cols-[auto_1fr]">
-                  <label className="flex items-center gap-3 rounded-2xl border border-overlay-border bg-surface px-4 py-3 cursor-pointer">
-                    <input type="checkbox" className="h-4 w-4 rounded border-border bg-background text-primary outline-none focus:ring-primary" />
-                    <span className="text-sm text-foreground">I'm not a robot</span>
-                  </label>
-                  <div className="rounded-3xl border border-overlay-border bg-surface p-3">
-                    <div className="mb-3 flex items-center justify-between text-xs uppercase tracking-[0.25em] text-muted-foreground">
-                      <span>Image challenge</span>
-                      <span>3/3</span>
-                    </div>
-                    <div className="grid gap-2 sm:grid-cols-3">
-                      <div className="h-16 rounded-2xl bg-surface-elevated border border-overlay-border" />
-                      <div className="h-16 rounded-2xl bg-surface-elevated border border-overlay-border" />
-                      <div className="h-16 rounded-2xl bg-surface-elevated border border-overlay-border" />
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <SpecularButton
-                type="submit"
-                size="lg"
-                radius={20}
-                tint={isDark ? "#ffffff" : "#000000"}
-                tintOpacity={0}
-                blur={0}
-                textColor={isDark ? "#f5f5f5" : "#1a1a1a"}
-                lineColor={isDark ? "#ffffff" : "#000000"}
-                baseColor={isDark ? "#34363e" : "#e5e5e5"}
-                intensity={1}
-                shineSize={12}
-                shineFade={38}
-                thickness={1}
-                speed={0.35}
-                followMouse
-                proximity={240}
-                autoAnimate={false}
-                className="w-full uppercase tracking-[0.2em]"
+
+              <button
+                type="button"
+                className="flex w-full items-center justify-center gap-3 rounded-xl border border-border bg-white py-3 text-sm font-semibold text-[#1f1f1f] shadow-sm transition-all hover:shadow-md hover:-translate-y-0.5 active:translate-y-0"
               >
-                Sign in
-              </SpecularButton>
-            </form>
-            <div className="mt-6 flex flex-wrap items-center justify-between gap-3 text-sm text-muted-foreground">
-              <p>New to Stocks360?</p>
-              <Link to="/signup" className="font-medium text-primary hover:text-primary-foreground">
-                Create account
-              </Link>
+                <GoogleIcon />
+                Continue with Google
+              </button>
+
+              <div className="my-5 flex items-center gap-3 text-xs font-mono uppercase tracking-widest text-muted-foreground">
+                <span className="h-px flex-1 bg-border" />
+                Or sign in with username
+                <span className="h-px flex-1 bg-border" />
+              </div>
+
+              <form
+                className="space-y-4"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  setStep("otp");
+                }}
+              >
+                <label className="block text-sm font-medium text-foreground">
+                  Username
+                  <Input
+                    placeholder="Enter your username"
+                    className="mt-2 rounded-xl border-border bg-background/60 py-5 focus-visible:ring-primary/40"
+                    type="text"
+                  />
+                </label>
+                <label className="block text-sm font-medium text-foreground">
+                  Password
+                  <Input
+                    placeholder="Enter your password"
+                    className="mt-2 rounded-xl border-border bg-background/60 py-5 focus-visible:ring-primary/40"
+                    type="password"
+                  />
+                </label>
+
+                <SpecularButton
+                  type="submit"
+                  size="lg"
+                  radius={16}
+                  tint="#000000"
+                  tintOpacity={1}
+                  blur={0}
+                  textColor="#ffffff"
+                  lineColor="#ffffff"
+                  baseColor="#000000"
+                  intensity={1}
+                  shineSize={10}
+                  shineFade={40}
+                  thickness={1}
+                  speed={0.35}
+                  followMouse
+                  proximity={250}
+                  autoAnimate={false}
+                  className="w-full uppercase tracking-[0.25em] font-bold"
+                >
+                  Sign in
+                </SpecularButton>
+              </form>
+
+              <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-5 text-sm text-muted-foreground">
+                <p>New to Stocks360?</p>
+                <Link to="/signup" className="font-medium text-primary transition-colors hover:text-primary/80">
+                  Create account
+                </Link>
+              </div>
             </div>
+
+            <div className="label-mono mt-4 text-center">Protected by 2FA · SOC 2 Type II</div>
           </div>
+          )}
         </div>
       </div>
     </div>
