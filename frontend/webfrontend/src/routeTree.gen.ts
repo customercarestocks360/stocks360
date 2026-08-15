@@ -11,8 +11,13 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AboutRouteImport } from './routes/about'
+import { Route as AccountRouteImport } from './routes/account'
 import { Route as CryptoRouteImport } from './routes/crypto'
+import { Route as DepositRouteImport } from './routes/deposit'
 import { Route as ForexRouteImport } from './routes/forex'
+import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
+import { Route as HistoryRouteImport } from './routes/history'
+import { Route as KycRouteImport } from './routes/kyc'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as MarketsRouteImport } from './routes/markets'
 import { Route as SignupRouteImport } from './routes/signup'
@@ -28,14 +33,39 @@ const AboutRoute = AboutRouteImport.update({
   path: '/about',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AccountRoute = AccountRouteImport.update({
+  id: '/account',
+  path: '/account',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const CryptoRoute = CryptoRouteImport.update({
   id: '/crypto',
   path: '/crypto',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DepositRoute = DepositRouteImport.update({
+  id: '/deposit',
+  path: '/deposit',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ForexRoute = ForexRouteImport.update({
   id: '/forex',
   path: '/forex',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ForgotPasswordRoute = ForgotPasswordRouteImport.update({
+  id: '/forgot-password',
+  path: '/forgot-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const HistoryRoute = HistoryRouteImport.update({
+  id: '/history',
+  path: '/history',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const KycRoute = KycRouteImport.update({
+  id: '/kyc',
+  path: '/kyc',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -62,8 +92,13 @@ const StocksRoute = StocksRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
+  '/account': typeof AccountRoute
   '/crypto': typeof CryptoRoute
+  '/deposit': typeof DepositRoute
   '/forex': typeof ForexRoute
+  '/forgot-password': typeof ForgotPasswordRoute
+  '/history': typeof HistoryRoute
+  '/kyc': typeof KycRoute
   '/login': typeof LoginRoute
   '/markets': typeof MarketsRoute
   '/signup': typeof SignupRoute
@@ -72,8 +107,13 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
+  '/account': typeof AccountRoute
   '/crypto': typeof CryptoRoute
+  '/deposit': typeof DepositRoute
   '/forex': typeof ForexRoute
+  '/forgot-password': typeof ForgotPasswordRoute
+  '/history': typeof HistoryRoute
+  '/kyc': typeof KycRoute
   '/login': typeof LoginRoute
   '/markets': typeof MarketsRoute
   '/signup': typeof SignupRoute
@@ -83,8 +123,13 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
+  '/account': typeof AccountRoute
   '/crypto': typeof CryptoRoute
+  '/deposit': typeof DepositRoute
   '/forex': typeof ForexRoute
+  '/forgot-password': typeof ForgotPasswordRoute
+  '/history': typeof HistoryRoute
+  '/kyc': typeof KycRoute
   '/login': typeof LoginRoute
   '/markets': typeof MarketsRoute
   '/signup': typeof SignupRoute
@@ -95,8 +140,13 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/about'
+    | '/account'
     | '/crypto'
+    | '/deposit'
     | '/forex'
+    | '/forgot-password'
+    | '/history'
+    | '/kyc'
     | '/login'
     | '/markets'
     | '/signup'
@@ -105,8 +155,13 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/about'
+    | '/account'
     | '/crypto'
+    | '/deposit'
     | '/forex'
+    | '/forgot-password'
+    | '/history'
+    | '/kyc'
     | '/login'
     | '/markets'
     | '/signup'
@@ -115,8 +170,13 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/about'
+    | '/account'
     | '/crypto'
+    | '/deposit'
     | '/forex'
+    | '/forgot-password'
+    | '/history'
+    | '/kyc'
     | '/login'
     | '/markets'
     | '/signup'
@@ -126,8 +186,13 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AboutRoute: typeof AboutRoute
+  AccountRoute: typeof AccountRoute
   CryptoRoute: typeof CryptoRoute
+  DepositRoute: typeof DepositRoute
   ForexRoute: typeof ForexRoute
+  ForgotPasswordRoute: typeof ForgotPasswordRoute
+  HistoryRoute: typeof HistoryRoute
+  KycRoute: typeof KycRoute
   LoginRoute: typeof LoginRoute
   MarketsRoute: typeof MarketsRoute
   SignupRoute: typeof SignupRoute
@@ -150,6 +215,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AboutRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/account': {
+      id: '/account'
+      path: '/account'
+      fullPath: '/account'
+      preLoaderRoute: typeof AccountRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/crypto': {
       id: '/crypto'
       path: '/crypto'
@@ -157,11 +229,39 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CryptoRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/deposit': {
+      id: '/deposit'
+      path: '/deposit'
+      fullPath: '/deposit'
+      preLoaderRoute: typeof DepositRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/forex': {
       id: '/forex'
       path: '/forex'
       fullPath: '/forex'
       preLoaderRoute: typeof ForexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/forgot-password': {
+      id: '/forgot-password'
+      path: '/forgot-password'
+      fullPath: '/forgot-password'
+      preLoaderRoute: typeof ForgotPasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/history': {
+      id: '/history'
+      path: '/history'
+      fullPath: '/history'
+      preLoaderRoute: typeof HistoryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/kyc': {
+      id: '/kyc'
+      path: '/kyc'
+      fullPath: '/kyc'
+      preLoaderRoute: typeof KycRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -198,8 +298,13 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AboutRoute: AboutRoute,
+  AccountRoute: AccountRoute,
   CryptoRoute: CryptoRoute,
+  DepositRoute: DepositRoute,
   ForexRoute: ForexRoute,
+  ForgotPasswordRoute: ForgotPasswordRoute,
+  HistoryRoute: HistoryRoute,
+  KycRoute: KycRoute,
   LoginRoute: LoginRoute,
   MarketsRoute: MarketsRoute,
   SignupRoute: SignupRoute,

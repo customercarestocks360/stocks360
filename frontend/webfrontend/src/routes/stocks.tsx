@@ -1,8 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
-import { MiniSparkline, SearchInput } from "@/components/ui/marketing";
+import { SearchInput } from "@/components/ui/marketing";
 import { BuySellButtons, TradeModal } from "@/components/ui/trade-modal";
+import { useFavorites } from "@/components/FavoritesProvider";
+import { FavoriteStar } from "@/components/ui/favorite-star";
+import { AssetChart } from "@/components/ui/asset-chart";
 
 export const Route = createFileRoute("/stocks")({
   head: () => ({
@@ -29,6 +32,11 @@ function StocksPage() {
     (a) => a.n.toLowerCase().includes(query.toLowerCase()) || a.t.toLowerCase().includes(query.toLowerCase()),
   );
   const [trade, setTrade] = useState<{ action: "buy" | "sell"; symbol: string; price: string } | null>(null);
+  const { isFavorite } = useFavorites();
+  const favoriteStocks = useMemo(
+    () => stockAssets.filter((a) => isFavorite(`stock:${a.t}`)),
+    [isFavorite],
+  );
 
   return (
     <AppLayout>
@@ -59,9 +67,37 @@ function StocksPage() {
 
           <div className="grid gap-6 lg:grid-cols-3">
             <div className="space-y-4 lg:col-span-1">
+              
+
+              {/* Favorites — tickers starred on this page */}
+              <div className="rounded-xl border border-overlay-border bg-surface p-4">
+                <div className="mb-3 flex items-center gap-2">
+                  <i className="fa-solid fa-star text-xs text-amber-400" />
+                  <span className="text-xs font-semibold uppercase tracking-wide text-foreground">
+                    My Favorites
+                  </span>
+                </div>
+                {favoriteStocks.length === 0 ? (
+                  <p className="py-2 text-center text-xs text-muted-foreground">
+                    Star a ticker below to add it here.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {favoriteStocks.map((a) => (
+                      <div key={a.n} className="flex items-center gap-2.5">
+                        <FavoriteStar id={`stock:${a.t}`} />
+                        <span className="font-mono text-sm font-semibold text-foreground">{a.t}</span>
+                        <span className="ml-auto font-mono text-sm text-foreground">{a.p}</span>
+                        <span className={`font-mono text-xs ${a.up ? "text-up" : "text-down"}`}>{a.c}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
               <h2 className="font-mono text-sm uppercase tracking-wider text-muted-foreground mb-4">
                 Top Volume
               </h2>
+
               <SearchInput value={query} onChange={setQuery} placeholder="Search ticker or company..." />
               {filteredStocks.length === 0 && (
                 <p className="py-6 text-center text-sm text-muted-foreground">No stocks found.</p>
@@ -72,6 +108,7 @@ function StocksPage() {
                   className="overflow-hidden rounded-xl border border-overlay-border bg-surface p-4 shadow-sm backdrop-blur-md hover:border-primary/20"
                 >
                   <div className="flex items-center gap-4">
+                    <FavoriteStar id={`stock:${a.t}`} />
                     <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-secondary border border-border">
                       <span className="font-mono text-[10px] font-bold text-foreground truncate max-w-[32px]">{a.t}</span>
                     </div>
@@ -92,8 +129,8 @@ function StocksPage() {
               ))}
             </div>
 
-            <div className="relative lg:col-span-2 overflow-hidden rounded-[2rem] border border-overlay-border bg-surface-elevated shadow-sm backdrop-blur-xl p-6 min-h-[560px] flex flex-col">
-              <div className="relative flex items-center justify-between border-b border-border pb-4 mb-4">
+            <div className="relative lg:col-span-2 overflow-hidden rounded-[2rem] border border-overlay-border bg-surface-elevated shadow-sm backdrop-blur-xl p-6 h-[720px] flex flex-col">
+              <div className="relative flex shrink-0 items-center justify-between border-b border-border pb-4 mb-4">
                 <div>
                   <h2 className="text-xl font-bold flex items-center gap-3">
                     AAPL <span className="text-sm text-muted-foreground font-normal">Apple Inc.</span>
@@ -118,7 +155,7 @@ function StocksPage() {
                   </button>
                 </div>
               </div>
-              <div className="relative grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+              <div className="relative grid shrink-0 grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
                 {[
                   { label: "P/E Ratio", val: "34.12" },
                   { label: "Div Yield", val: "0.45%" },
@@ -134,35 +171,12 @@ function StocksPage() {
                   </div>
                 ))}
               </div>
-              <div className="relative flex-1 flex flex-col rounded-xl border border-subtle-border bg-surface p-6">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-                      AAPL · 6 Month Trend
-                    </div>
-                    <div className="mt-1 flex items-baseline gap-2">
-                      <span className="text-2xl font-bold font-mono text-foreground">$229.87</span>
-                      <span className="text-xs font-mono font-bold text-up">+0.88% (+$2.01)</span>
-                    </div>
-                  </div>
-                  <span className="mt-1 h-2 w-2 rounded-full bg-up animate-pulse" />
+              <div className="relative min-h-0 flex-1 flex flex-col rounded-xl border border-subtle-border bg-surface p-6">
+                <div className="mb-2 shrink-0 text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+                  AAPL · Price Chart
                 </div>
-                <div className="mt-6 flex-1 flex items-center min-h-[220px]">
-                  <MiniSparkline
-                    color="var(--up)"
-                    points={[180, 188, 176, 195, 204, 198, 212, 206, 220, 214, 228, 221, 235, 226, 230]}
-                    className="h-full w-full"
-                  />
-                </div>
-                <div className="mt-3 flex items-center justify-between">
-                  <div className="flex gap-2 font-mono text-[10px] text-muted-foreground">
-                    {["1D", "1W", "1M", "6M", "1Y", "All"].map((r, i) => (
-                      <span key={r} className={`px-2 py-0.5 rounded-full ${i === 3 ? "bg-primary text-primary-foreground font-bold" : ""}`}>
-                        {r}
-                      </span>
-                    ))}
-                  </div>
-                  <span className="font-mono text-[10px] text-muted-foreground/50">Detailed financials in Pro view</span>
+                <div className="min-h-0 flex-1">
+                  <AssetChart seed="AAPL" color="#3b82f6" basePrice={229.87} />
                 </div>
               </div>
             </div>

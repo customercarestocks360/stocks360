@@ -24,6 +24,7 @@ function Login() {
   const navigate = useNavigate();
   const { login } = useAuth();
   const [step, setStep] = useState<"credentials" | "otp">("credentials");
+  const [identifier, setIdentifier] = useState("");
 
   return (
     <div className="h-screen overflow-hidden bg-background text-foreground">
@@ -43,9 +44,10 @@ function Login() {
             <OtpVerification
               onBack={() => setStep("credentials")}
               onVerified={() => {
-                login();
+                login(identifier);
                 navigate({ to: "/" });
               }}
+              destination={identifier ? `${identifier}` : "your registered email address"}
             />
           ) : (
           <div className="relative w-full max-w-lg">
@@ -74,7 +76,7 @@ function Login() {
 
               <div className="my-5 flex items-center gap-3 text-xs font-mono uppercase tracking-widest text-muted-foreground">
                 <span className="h-px flex-1 bg-border" />
-                Or sign in with username
+                Or sign in with email
                 <span className="h-px flex-1 bg-border" />
               </div>
 
@@ -86,15 +88,26 @@ function Login() {
                 }}
               >
                 <label className="block text-sm font-medium text-foreground">
-                  Username
+                  Email or Phone Number
                   <Input
-                    placeholder="Enter your username"
+                    value={identifier}
+                    onChange={(e) => setIdentifier(e.target.value)}
+                    placeholder="Enter your email or phone number"
                     className="mt-2 rounded-xl border-border bg-background/60 py-5 focus-visible:ring-primary/40"
                     type="text"
+                    required
                   />
                 </label>
                 <label className="block text-sm font-medium text-foreground">
-                  Password
+                  <div className="flex items-center justify-between">
+                    Password
+                    <Link
+                      to="/forgot-password"
+                      className="text-xs font-medium text-primary transition-colors hover:text-primary/80"
+                    >
+                      Forgot password?
+                    </Link>
+                  </div>
                   <Input
                     placeholder="Enter your password"
                     className="mt-2 rounded-xl border-border bg-background/60 py-5 focus-visible:ring-primary/40"

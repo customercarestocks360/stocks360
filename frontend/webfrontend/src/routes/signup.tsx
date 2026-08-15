@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import { Input } from "@/components/ui/input";
 import SpecularButton from "@/components/ui/specular-button";
 import { OrbitRing, GoogleIcon, OtpVerification } from "@/components/ui/marketing";
@@ -25,6 +25,24 @@ function Signup() {
   const navigate = useNavigate();
   const { login } = useAuth();
   const [step, setStep] = useState<"details" | "otp">("details");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [error, setError] = useState("");
+
+  const handleDetailsSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    if (password.length < 6) {
+      setError("Password must be at least 6 characters.");
+      return;
+    }
+    if (password !== confirmPassword) {
+      setError("Passwords don't match.");
+      return;
+    }
+    setError("");
+    setStep("otp");
+  };
 
   return (
     <div className="h-screen overflow-hidden bg-background text-foreground">
@@ -47,9 +65,10 @@ function Signup() {
             <OtpVerification
               onBack={() => setStep("details")}
               onVerified={() => {
-                login();
+                login(email);
                 navigate({ to: "/" });
               }}
+              destination={`the email ${email}`}
             />
           ) : (
           <div className="relative max-h-[94vh] w-full max-w-lg overflow-hidden rounded-3xl border border-border bg-card/80 p-7 shadow-2xl backdrop-blur-xl sm:p-9">
@@ -79,29 +98,42 @@ function Signup() {
                 <span className="h-px flex-1 bg-border" />
               </div>
 
-              <form
-                className="space-y-4"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  setStep("otp");
-                }}
-              >
-                <label className="block text-sm font-medium text-foreground">
-                  Full name
-                  <Input placeholder="Your name" className="mt-2 rounded-xl" type="text" />
-                </label>
+              <form className="space-y-4" onSubmit={handleDetailsSubmit}>
                 <label className="block text-sm font-medium text-foreground">
                   Email address
-                  <Input placeholder="yourEmail@example.com" className="mt-2 rounded-xl" type="email" />
+                  <Input
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="yourEmail@example.com"
+                    className="mt-2 rounded-xl"
+                    type="email"
+                    required
+                  />
                 </label>
                 <label className="block text-sm font-medium text-foreground">
                   Password
-                  <Input placeholder="Enter your password" className="mt-2 rounded-xl" type="password" />
+                  <Input
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Enter your password"
+                    className="mt-2 rounded-xl"
+                    type="password"
+                    required
+                  />
                 </label>
                 <label className="block text-sm font-medium text-foreground">
                   Confirm password
-                  <Input placeholder="Enter your password again" className="mt-2 rounded-xl" type="password" />
+                  <Input
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="Enter your password again"
+                    className="mt-2 rounded-xl"
+                    type="password"
+                    required
+                  />
                 </label>
+
+                {error && <p className="text-xs font-medium text-destructive">{error}</p>}
 
                 <SpecularButton
                   type="submit"

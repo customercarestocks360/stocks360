@@ -1,8 +1,20 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { useMemo, useState } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
-import { MiniSparkline, SearchInput } from "@/components/ui/marketing";
-import { BuySellButtons, TradeModal } from "@/components/ui/trade-modal";
+import { useFavorites } from "@/components/FavoritesProvider";
+import { FavoriteStar } from "@/components/ui/favorite-star";
+import { SearchInput } from "@/components/ui/marketing";
+import {
+  ASSETS,
+  CATEGORY_PICKS,
+  TIME_OPTIONS,
+  TYPE_ROUTES,
+  changeFor,
+  findAsset,
+  favKey,
+  type Asset,
+  type TimeOption,
+} from "@/lib/market-assets";
 
 export const Route = createFileRoute("/markets")({
   head: () => ({
@@ -14,226 +26,236 @@ export const Route = createFileRoute("/markets")({
   component: MarketsPage,
 });
 
-const indices = [
-  {
-    n: "S&P 500",
-    p: "5,631.20",
-    c: "+0.33%",
-    up: true,
-    color: "#3b82f6",
-    icon: "fa-chart-line",
-    points: [20, 22, 21, 24, 23, 26, 25, 28, 27, 30, 29, 33],
-  },
-  {
-    n: "NASDAQ",
-    p: "18,211.50",
-    c: "+0.54%",
-    up: true,
-    color: "#8b5cf6",
-    icon: "fa-microchip",
-    points: [18, 19, 22, 21, 25, 24, 27, 26, 30, 29, 32, 36],
-  },
-  {
-    n: "DOW JONES",
-    p: "39,812.10",
-    c: "-0.12%",
-    up: false,
-    color: "#eab308",
-    icon: "fa-industry",
-    points: [30, 28, 29, 26, 27, 24, 25, 22, 23, 20, 21, 18],
-  },
-  {
-    n: "NIFTY 50",
-    p: "24,890.05",
-    c: "+0.42%",
-    up: true,
-    color: "#10b981",
-    icon: "fa-earth-asia",
-    points: [16, 18, 17, 20, 19, 23, 21, 25, 24, 27, 26, 30],
-  },
-  {
-    n: "FTSE 100",
-    p: "8,214.30",
-    c: "+0.21%",
-    up: true,
-    color: "#3b82f6",
-    icon: "fa-earth-europe",
-    points: [22, 23, 21, 24, 22, 25, 24, 26, 25, 28, 27, 29],
-  },
-  {
-    n: "NIKKEI",
-    p: "41,200.40",
-    c: "-1.05%",
-    up: false,
-    color: "#ef4444",
-    icon: "fa-earth-oceania",
-    points: [32, 29, 30, 26, 27, 22, 24, 19, 21, 16, 18, 12],
-  },
-];
+function AssetIcon({ asset, size = "h-8 w-8" }: { asset: Asset; size?: string }) {
+  return (
+    <span
+      className={`flex ${size} shrink-0 items-center justify-center rounded-full font-mono text-[11px] font-bold`}
+      style={{ backgroundColor: `${asset.color}20`, color: asset.color }}
+    >
+      <i className={`fa-solid ${asset.icon} text-xs`} />
+    </span>
+  );
+}
 
-const stockMovers = [
-  { sym: "NVDA", name: "NVIDIA Corp.", p: "$118.42", c: "+3.45%", up: true },
-  { sym: "AAPL", name: "Apple Inc.", p: "$229.87", c: "+0.88%", up: true },
-  { sym: "TSLA", name: "Tesla, Inc.", p: "$248.53", c: "-1.94%", up: false },
-  { sym: "INTC", name: "Intel Corp.", p: "$30.12", c: "-4.21%", up: false },
-  { sym: "MSTR", name: "MicroStrategy", p: "$1,452.10", c: "+4.12%", up: true },
-];
-
-const cryptoMovers = [
-  { sym: "DOGE", name: "Dogecoin", p: "$0.1428", c: "+5.83%", up: true },
-  { sym: "BTC", name: "Bitcoin", p: "$67,418.20", c: "+2.34%", up: true },
-  { sym: "ETH", name: "Ethereum", p: "$3,548.90", c: "+1.12%", up: true },
-  { sym: "XRP", name: "XRP", p: "$0.6231", c: "-2.41%", up: false },
-  { sym: "CRV", name: "Curve DAO", p: "$0.28", c: "-3.84%", up: false },
-];
-
-const forexMovers = [
-  { sym: "USD/JPY", name: "US Dollar / Yen", p: "157.42", c: "+0.41%", up: true },
-  { sym: "GBP/USD", name: "Pound / US Dollar", p: "1.2731", c: "+0.24%", up: true },
-  { sym: "AUD/USD", name: "Aussie / US Dollar", p: "0.6512", c: "+0.15%", up: true },
-  { sym: "EUR/USD", name: "Euro / US Dollar", p: "1.0892", c: "-0.18%", up: false },
-  { sym: "USD/INR", name: "US Dollar / Rupee", p: "83.41", c: "-0.09%", up: false },
-];
-
-const movementCategories = [
-  { title: "Top Stocks Today", icon: "fa-chart-line", color: "#3b82f6", data: stockMovers },
-  { title: "Top Crypto Today", icon: "fa-bitcoin-sign", color: "#f7931a", data: cryptoMovers },
-  { title: "Top Forex Today", icon: "fa-money-bill-transfer", color: "#10b981", data: forexMovers },
-];
+function ChangeBadge({ value }: { value: number }) {
+  const up = value >= 0;
+  return (
+    <span className={`text-sm font-mono font-semibold ${up ? "text-up" : "text-down"}`}>
+      {up ? "+" : ""}
+      {value.toFixed(2)}%
+    </span>
+  );
+}
 
 function MarketsPage() {
+  const [time, setTime] = useState<TimeOption>("24h");
+  const [timeMenuOpen, setTimeMenuOpen] = useState(false);
+  const [sortDir, setSortDir] = useState<"asc" | "desc" | null>(null);
   const [query, setQuery] = useState("");
-  const filteredIndices = indices.filter((ind) => ind.n.toLowerCase().includes(query.toLowerCase()));
-  const [trade, setTrade] = useState<{ action: "buy" | "sell"; symbol: string; price: string } | null>(null);
+  const { isFavorite } = useFavorites();
+
+  const favoriteAssets = useMemo(
+    () => ASSETS.filter((a) => isFavorite(favKey(a))),
+    [isFavorite],
+  );
+
+  const sortedAssets = useMemo(() => {
+    const filtered = ASSETS.filter(
+      (a) =>
+        a.name.toLowerCase().includes(query.toLowerCase()) || a.sym.toLowerCase().includes(query.toLowerCase()),
+    );
+    if (!sortDir) return filtered;
+    const copy = [...filtered];
+    copy.sort((a, b) => {
+      const diff = changeFor(a, time) - changeFor(b, time);
+      return sortDir === "asc" ? diff : -diff;
+    });
+    return copy;
+  }, [sortDir, time, query]);
+
+  const toggleSort = () => {
+    setSortDir((d) => (d === null ? "desc" : d === "desc" ? "asc" : null));
+  };
 
   return (
     <AppLayout>
       <section className="relative overflow-hidden border-b border-border">
         <div className="grid-bg absolute inset-0 opacity-40" />
 
-        <div className="relative mx-auto max-w-7xl px-6 py-20 md:py-28">
-          <div className="mb-16 text-center">
-            <div className="label-mono inline-flex items-center gap-2 mb-4 text-primary">
-              <span className="h-1.5 w-1.5 rounded-full bg-primary shadow-[0_0_8px_var(--up)]" />
-              Global Markets
-            </div>
-            <h1 className="text-4xl font-bold tracking-tight md:text-6xl leading-[1.05]">
-              Markets Overview
-            </h1>
-            <p className="mt-5 text-muted-foreground max-w-2xl mx-auto text-base md:text-lg">
-              Track global macro trends, top performing sectors, and the most volatile assets
-              across all integrated exchanges.
-            </p>
+        <div className="relative mx-auto max-w-7xl px-6 py-12 md:py-16">
+          {/* ── Category strip: Hot / New / Top Gainer / Top Volume ── */}
+          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+            {CATEGORY_PICKS.map((cat) => (
+              <div
+                key={cat.title}
+                className="rounded-2xl border border-border bg-card p-5 shadow-sm hover:border-primary/20"
+              >
+                <div className="mb-3 flex items-center justify-between">
+                  <span className="text-sm font-semibold text-foreground">{cat.title}</span>
+                  <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                    More <i className="fa-solid fa-chevron-right text-[10px]" />
+                  </span>
+                </div>
+                <div className="space-y-3">
+                  {cat.syms.map((sym) => {
+                    const a = findAsset(sym);
+                    return (
+                      <div key={sym} className="flex items-center gap-2.5">
+                        <FavoriteStar id={favKey(a)} />
+                        <AssetIcon asset={a} size="h-7 w-7" />
+                        <span className="text-sm font-semibold text-foreground">{a.sym}</span>
+                        <span className="ml-auto font-mono text-sm text-foreground">{a.price}</span>
+                        <span className="w-16 text-right">
+                          <ChangeBadge value={changeFor(a, "24h")} />
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
 
-          <div className="space-y-16">
-            {/* ── Major Indices ── */}
-            <div>
-              <h2 className="text-xl font-semibold mb-6 flex items-center gap-2">
-                <i className="fa-solid fa-globe text-primary" /> Major Indices
-              </h2>
-              <div className="mb-5 max-w-sm">
-                <SearchInput value={query} onChange={setQuery} placeholder="Search an index..." />
-              </div>
-              {filteredIndices.length === 0 && (
-                <p className="py-6 text-center text-sm text-muted-foreground">No indices found.</p>
-              )}
-              <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-                {filteredIndices.map((ind) => (
+          {/* ── My Favorites — assets starred on this page ── */}
+          <div className="mt-8 rounded-2xl border border-border bg-card p-5 shadow-sm">
+            <div className="mb-3 flex items-center gap-2">
+              <i className="fa-solid fa-star text-sm text-amber-400" />
+              <span className="text-sm font-semibold text-foreground">My Favorites</span>
+            </div>
+            {favoriteAssets.length === 0 ? (
+              <p className="py-4 text-center text-sm text-muted-foreground">
+                Click the star icon on any asset to add it here.
+              </p>
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {favoriteAssets.map((a) => (
                   <div
-                    key={ind.n}
-                    className="relative overflow-hidden rounded-3xl border border-border bg-card p-6 shadow-sm hover:border-primary/20"
+                    key={a.sym}
+                    className="flex items-center gap-2.5 rounded-xl border border-border bg-background/40 px-3 py-2.5"
                   >
-                    <div className="flex justify-between items-start mb-4">
-                      <div className="flex items-center gap-3">
-                        <div
-                          className="flex h-10 w-10 items-center justify-center rounded-xl"
-                          style={{ backgroundColor: `${ind.color}15`, color: ind.color }}
-                        >
-                          <i className={`fa-solid ${ind.icon} text-sm`} />
-                        </div>
-                        <div className="font-medium">{ind.n}</div>
-                      </div>
-                      <div
-                        className={`font-mono text-sm px-2 py-0.5 rounded-full ${ind.up ? "bg-up/10 text-up" : "bg-down/10 text-down"}`}
-                      >
-                        {ind.c}
-                      </div>
-                    </div>
-                    <div className="font-mono text-2xl font-bold text-foreground">{ind.p}</div>
-                    <div className="mt-5 pt-5 border-t border-border">
-                      <MiniSparkline
-                        color={ind.up ? "var(--up)" : "var(--down)"}
-                        points={ind.points}
-                        className="h-36 w-full"
-                      />
-                    </div>
+                    <FavoriteStar id={favKey(a)} />
+                    <AssetIcon asset={a} size="h-7 w-7" />
+                    <span className="text-sm font-semibold text-foreground">{a.sym}</span>
+                    <span className="ml-auto font-mono text-sm text-foreground">{a.price}</span>
+                    <span className="w-16 text-right">
+                      <ChangeBadge value={changeFor(a, "24h")} />
+                    </span>
                   </div>
                 ))}
               </div>
+            )}
+          </div>
+
+          {/* ── Full market table ── */}
+          <div className="mt-14">
+            <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+              <h2 className="text-xl font-bold text-foreground">Top Tokens by Market Capitalization</h2>
+              <div className="w-full max-w-xs">
+                <SearchInput value={query} onChange={setQuery} placeholder="Search ticker or company..." />
+              </div>
             </div>
 
-            {/* ── Top Movers by Category — stocks, crypto and forex tracked separately ── */}
-            <div className="grid gap-6 lg:grid-cols-3">
-              {movementCategories.map((cat) => (
-                <div
-                  key={cat.title}
-                  className="relative overflow-hidden rounded-3xl border border-border bg-card p-6 shadow-sm hover:border-primary/20"
-                >
-                  <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                    <span
-                      className="flex h-8 w-8 items-center justify-center rounded-lg"
-                      style={{ backgroundColor: `${cat.color}15`, color: cat.color }}
-                    >
-                      <i className={`fa-solid ${cat.icon} text-sm`} />
-                    </span>
-                    {cat.title}
-                  </h3>
-                  <div className="space-y-3">
-                    {cat.data.map((g) => (
-                      <div
-                        key={g.sym}
-                        className={`rounded-xl bg-background/40 border border-border p-3 ${
-                          g.up ? "hover:border-up/30" : "hover:border-down/30"
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="min-w-0">
-                            <div className="font-mono text-sm font-bold">{g.sym}</div>
-                            <div className="truncate text-xs text-muted-foreground">{g.name}</div>
-                          </div>
-                          <div className="flex items-center gap-3 shrink-0">
-                            <div className="font-mono text-sm">{g.p}</div>
-                            <div
-                              className={`flex items-center gap-1 font-mono text-sm font-bold ${g.up ? "text-up" : "text-down"}`}
-                            >
-                              <i className={`fa-solid ${g.up ? "fa-caret-up" : "fa-caret-down"}`} />
-                              {g.c}
+            {sortedAssets.length === 0 && (
+              <p className="py-10 text-center text-sm text-muted-foreground">No assets found.</p>
+            )}
+
+            <div className="overflow-x-auto rounded-2xl border border-border bg-card">
+              <table className="w-full min-w-[720px] border-collapse text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
+                    <th className="px-5 py-3 font-medium">Name</th>
+                    <th className="px-5 py-3 font-medium">Price</th>
+                    <th className="px-5 py-3 font-medium">
+                      <div className="flex items-center gap-2">
+                        <div className="relative inline-block">
+                          <button
+                            type="button"
+                            onClick={() => setTimeMenuOpen((v) => !v)}
+                            className="flex items-center gap-1.5 rounded-md border border-border bg-background/60 px-2.5 py-1 font-mono text-xs font-semibold text-foreground"
+                          >
+                            {time}
+                            <i className="fa-solid fa-chevron-down text-[9px]" />
+                          </button>
+                          {timeMenuOpen && (
+                            <div className="absolute left-0 top-8 z-10 w-20 rounded-md border border-border bg-card p-1 shadow-lg">
+                              {TIME_OPTIONS.map((opt) => (
+                                <button
+                                  key={opt}
+                                  type="button"
+                                  onClick={() => {
+                                    setTime(opt);
+                                    setTimeMenuOpen(false);
+                                  }}
+                                  className={`block w-full rounded px-2 py-1.5 text-left font-mono text-xs ${
+                                    opt === time
+                                      ? "bg-primary text-primary-foreground"
+                                      : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+                                  }`}
+                                >
+                                  {opt}
+                                </button>
+                              ))}
                             </div>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={toggleSort}
+                          className="flex items-center gap-1 text-xs font-medium uppercase tracking-wide text-muted-foreground hover:text-foreground"
+                        >
+                          Change
+                          <i
+                            className={`fa-solid text-[10px] ${
+                              sortDir === "asc"
+                                ? "fa-arrow-up-short-wide text-primary"
+                                : sortDir === "desc"
+                                  ? "fa-arrow-down-wide-short text-primary"
+                                  : "fa-sort"
+                            }`}
+                          />
+                        </button>
+                      </div>
+                    </th>
+                    <th className="px-5 py-3 font-medium">24h Volume</th>
+                    <th className="px-5 py-3 font-medium">Market Cap</th>
+                    <th className="px-5 py-3 text-right font-medium">Trade</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedAssets.map((a) => (
+                    <tr key={a.sym} className="border-b border-border last:border-b-0 hover:bg-secondary/30">
+                      <td className="px-5 py-4">
+                        <div className="flex items-center gap-3">
+                          <FavoriteStar id={favKey(a)} />
+                          <AssetIcon asset={a} />
+                          <div>
+                            <div className="font-semibold text-foreground">{a.sym}</div>
+                            <div className="text-xs text-muted-foreground">{a.name}</div>
                           </div>
                         </div>
-                        <BuySellButtons
-                          onBuy={() => setTrade({ action: "buy", symbol: g.sym, price: g.p })}
-                          onSell={() => setTrade({ action: "sell", symbol: g.sym, price: g.p })}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
+                      </td>
+                      <td className="px-5 py-4 font-mono text-foreground">{a.price}</td>
+                      <td className="px-5 py-4">
+                        <ChangeBadge value={changeFor(a, time)} />
+                      </td>
+                      <td className="px-5 py-4 font-mono text-muted-foreground">{a.volume}</td>
+                      <td className="px-5 py-4 font-mono text-muted-foreground">{a.marketCap}</td>
+                      <td className="px-5 py-4 text-right">
+                        <Link
+                          to={TYPE_ROUTES[a.type]}
+                          className="inline-block rounded-lg bg-primary px-3.5 py-1.5 text-xs font-bold uppercase tracking-wide text-primary-foreground transition-opacity hover:opacity-90"
+                        >
+                          Trade
+                        </Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
       </section>
-      {trade && (
-        <TradeModal
-          open
-          onClose={() => setTrade(null)}
-          action={trade.action}
-          symbol={trade.symbol}
-          price={trade.price}
-        />
-      )}
     </AppLayout>
   );
 }

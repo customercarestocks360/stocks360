@@ -10,6 +10,7 @@ import {
 import { type ReactNode } from "react";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { AuthProvider } from "@/components/AuthProvider";
+import { FavoritesProvider } from "@/components/FavoritesProvider";
 
 import appCss from "../styles.css?url";
 
@@ -150,10 +151,12 @@ function RootComponent() {
   return (
     <ThemeProvider>
       <AuthProvider>
-        <QueryClientProvider client={queryClient}>
-          {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
-          <Outlet />
-        </QueryClientProvider>
+        <FavoritesProvider>
+          <QueryClientProvider client={queryClient}>
+            {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
+            <Outlet />
+          </QueryClientProvider>
+        </FavoritesProvider>
       </AuthProvider>
     </ThemeProvider>
   );

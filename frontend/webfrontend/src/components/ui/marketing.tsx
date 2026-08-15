@@ -197,10 +197,12 @@ export function OtpVerification({
   onBack,
   onVerified,
   correctCode = "123456",
+  destination = "your registered email address",
 }: {
   onBack: () => void;
   onVerified: () => void;
   correctCode?: string;
+  destination?: string;
 }) {
   const [digits, setDigits] = useState(["", "", "", "", "", ""]);
   const [error, setError] = useState(false);
@@ -255,7 +257,7 @@ export function OtpVerification({
       <div className="mt-4 text-center">
         <h1 className="text-xl font-bold tracking-tight text-foreground">Verify it's you</h1>
         <p className="mt-2 text-sm leading-6 text-muted-foreground">
-          Enter the 6-digit code we sent to your registered email address.
+          Enter the 6-digit code we sent to {destination}.
         </p>
       </div>
 

@@ -407,6 +407,24 @@
   animation: gradient-shift 4s ease infinite;
 }
 
+/* ─── Confetti burst (KYC completion celebration) ─── */
+@keyframes confetti-fall {
+  0% {
+    transform: translateY(-10vh) translateX(0) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(110vh) translateX(var(--confetti-drift, 0px)) rotate(var(--confetti-spin, 360deg));
+    opacity: 0.9;
+  }
+}
+
+@utility animate-confetti-fall {
+  animation-name: confetti-fall;
+  animation-timing-function: cubic-bezier(0.35, 0, 0.65, 1);
+  animation-fill-mode: forwards;
+}
+
 /* ─── Cross-page transitions (native View Transitions API) ─── */
 @media (prefers-reduced-motion: no-preference) {
   ::view-transition-old(root) {
@@ -435,5 +453,31 @@
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
+  }
+
+  /*
+   * Native <select> popups and checkboxes/radios are drawn by the OS/browser,
+   * not by our CSS — color-scheme tells them which palette to draw the popup
+   * and controls in, so the dark theme doesn't get a stray light-mode dropdown.
+   */
+  select {
+    color-scheme: light;
+  }
+  .dark select {
+    color-scheme: dark;
+  }
+  select option {
+    background-color: var(--color-card);
+    color: var(--color-card-foreground);
+  }
+
+  input[type="checkbox"],
+  input[type="radio"] {
+    accent-color: var(--color-primary);
+    color-scheme: light;
+  }
+  .dark input[type="checkbox"],
+  .dark input[type="radio"] {
+    color-scheme: dark;
   }
 }

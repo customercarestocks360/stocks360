@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import { useAuth } from "@/components/AuthProvider";
 
@@ -58,8 +58,6 @@ export function TradeModal({
   price: string;
 }) {
   const auth = useAuth();
-  const [kycNumber, setKycNumber] = useState("");
-  const [kycStage, setKycStage] = useState<"form" | "verifying" | "verified">("form");
   const [qty, setQty] = useState("1");
   const [placed, setPlaced] = useState(false);
 
@@ -67,20 +65,8 @@ export function TradeModal({
 
   const handleClose = () => {
     onClose();
-    setKycStage("form");
-    setKycNumber("");
     setPlaced(false);
     setQty("1");
-  };
-
-  const handleKycSubmit = (e: FormEvent) => {
-    e.preventDefault();
-    if (!kycNumber.trim()) return;
-    setKycStage("verifying");
-    setTimeout(() => {
-      setKycStage("verified");
-      setTimeout(() => auth.submitKyc(kycNumber.trim()), 900);
-    }, 1400);
   };
 
   let body: ReactNode;
@@ -104,50 +90,25 @@ export function TradeModal({
       </>
     );
   } else if (!auth.kycCompleted) {
-    if (kycStage === "form") {
-      body = (
-        <>
-          <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-secondary text-primary">
-            <i className="fa-solid fa-id-card text-base" />
-          </div>
-          <h3 className="mt-4 text-center text-lg font-bold text-foreground">Complete your KYC</h3>
-          <p className="mt-2 text-center text-sm text-muted-foreground">
-            We need to verify your identity before you can trade. Enter your KYC number to continue.
-          </p>
-          <form onSubmit={handleKycSubmit} className="mt-6 space-y-4">
-            <input
-              value={kycNumber}
-              onChange={(e) => setKycNumber(e.target.value)}
-              placeholder="Enter your KYC number"
-              className="w-full rounded-xl border border-border bg-background/60 px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
-            />
-            <button
-              type="submit"
-              className="w-full rounded-xl bg-primary px-4 py-3 text-sm font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90"
-            >
-              Submit for verification
-            </button>
-          </form>
-        </>
-      );
-    } else if (kycStage === "verifying") {
-      body = (
-        <div className="py-6 text-center">
-          <i className="fa-solid fa-circle-notch fa-spin text-2xl text-primary" />
-          <p className="mt-4 text-sm text-muted-foreground">Verifying your KYC number...</p>
+    body = (
+      <>
+        <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-secondary text-primary">
+          <i className="fa-solid fa-id-card text-base" />
         </div>
-      );
-    } else {
-      body = (
-        <div className="py-6 text-center">
-          <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-up/10 text-up">
-            <i className="fa-solid fa-check text-base" />
-          </div>
-          <h3 className="mt-4 text-lg font-bold text-foreground">KYC verified</h3>
-          <p className="mt-2 text-sm text-muted-foreground">You're all set — loading your trade ticket.</p>
-        </div>
-      );
-    }
+        <h3 className="mt-4 text-center text-lg font-bold text-foreground">Complete your account details</h3>
+        <p className="mt-2 text-center text-sm text-muted-foreground">
+          We need to verify your identity before you can {action} {symbol}.
+        </p>
+        <Link
+          to="/account"
+          search={{ tab: "account" }}
+          onClick={handleClose}
+          className="mt-6 block w-full rounded-xl bg-primary px-4 py-3 text-center text-sm font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90"
+        >
+          Complete account details
+        </Link>
+      </>
+    );
   } else if (!placed) {
     body = (
       <>
@@ -167,7 +128,10 @@ export function TradeModal({
         </label>
         <button
           type="button"
-          onClick={() => setPlaced(true)}
+          onClick={() => {
+            auth.placeOrder({ action, symbol, qty: parseFloat(qty) || 0, price });
+            setPlaced(true);
+          }}
           className={`mt-6 w-full rounded-xl px-4 py-3 text-sm font-bold uppercase tracking-wider text-white transition-opacity hover:opacity-90 ${
             action === "buy" ? "bg-up" : "bg-down"
           }`}

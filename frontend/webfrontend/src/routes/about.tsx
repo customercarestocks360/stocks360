@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { AnimatedNumber } from "@/components/ui/marketing";
@@ -38,7 +39,48 @@ const values = [
   },
 ];
 
+const legalTabs = [
+  {
+    key: "about",
+    label: "About Us",
+    icon: "fa-circle-info",
+  },
+  {
+    key: "terms",
+    label: "Terms",
+    icon: "fa-file-contract",
+    d: "By using Stocks360 you agree to our Terms of Service — the rules governing accounts, order execution and acceptable use of the platform.",
+  },
+  {
+    key: "privacy",
+    label: "Privacy",
+    icon: "fa-user-shield",
+    d: "We collect only what's needed to run your account and never sell your data. Our Privacy Policy covers what we store, why, and how you can request it removed.",
+  },
+  {
+    key: "risk",
+    label: "Risk disclosure",
+    icon: "fa-triangle-exclamation",
+    d: "Trading crypto, equities and ETFs carries risk of loss, including principal. Past performance doesn't guarantee future results — only trade what you can afford to lose.",
+  },
+  {
+    key: "fees",
+    label: "Fees",
+    icon: "fa-receipt",
+    d: "Flat, transparent fees on every trade — no hidden spreads and no payment-for-order-flow markups. The full fee schedule lives in your account settings.",
+  },
+  {
+    key: "compliance",
+    label: "Compliance",
+    icon: "fa-clipboard-check",
+    d: "Stocks360 operates under SOC 2 Type II controls and applicable regional financial regulations, with regular independent audits of custody and platform controls.",
+  },
+];
+
 function AboutPage() {
+  const [activeLegal, setActiveLegal] = useState<string | null>(null);
+  const activeTab = legalTabs.find((tab) => tab.key === activeLegal);
+
   return (
     <AppLayout>
       {/* ═══════════════════════════════════════════
@@ -46,17 +88,25 @@ function AboutPage() {
           ═══════════════════════════════════════════ */}
       <section className="relative overflow-hidden border-b border-border">
         <div className="grid-bg absolute inset-0 opacity-40" />
+        <div
+          className="absolute -top-32 -left-32 h-96 w-96 rounded-full opacity-20 blur-3xl"
+          style={{ background: "var(--up)" }}
+        />
+        <div
+          className="absolute -bottom-32 -right-32 h-96 w-96 rounded-full opacity-20 blur-3xl"
+          style={{ background: "var(--chart-2)" }}
+        />
 
         <div className="relative mx-auto max-w-7xl px-6 py-16">
           <div className="mb-10 max-w-2xl">
             <div className="label-mono inline-flex items-center gap-2 mb-4">
-              <span className="h-1.5 w-1.5 rounded-full bg-primary shadow-[0_0_8px_var(--up)]" />
+              <span className="h-1.5 w-1.5 rounded-full bg-primary shadow-[0_0_8px_var(--up)] animate-pulse" />
               Our Story
             </div>
             <h1 className="text-4xl font-bold tracking-tight md:text-5xl">
               Built by traders, for traders
             </h1>
-            <p className="mt-4 text-muted-foreground">
+            <p className="mt-4 text-muted-foreground transition-colors">
               Stocks360 started as a frustration: managing crypto, equities and ETFs meant juggling
               three logins, three balances and three sets of fees. We built the desk we actually
               wanted to trade on — one terminal, one ledger, no compromises.
@@ -76,8 +126,9 @@ function AboutPage() {
                 { value: "40", suffix: "+", label: "Countries Reached", icon: "fa-earth-americas" },
                 { value: "118", suffix: "B", label: "Assets in Custody", icon: "fa-vault" },
               ].map((stat) => (
-                <div key={stat.label} className="text-center">
-                  <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-2xl bg-secondary text-primary mb-4">
+                <div key={stat.label} className="text-center group">
+                  <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-2xl bg-secondary text-muted-foreground mb-4 transition-all duration-300 group-hover:scale-110 group-hover:shadow-md">
+
                     <i className={`fa-solid ${stat.icon} text-base`} />
                   </div>
                   <div className="font-mono text-2xl md:text-3xl font-bold text-foreground tracking-tight">
@@ -109,7 +160,11 @@ function AboutPage() {
                 between markets. That single idea is the reason Stocks360 exists.
               </p>
             </div>
-            <div className="rounded-2xl border border-border bg-card p-8 shadow-sm">
+            <div className="relative rounded-2xl border border-border bg-card p-8 shadow-sm transition-all duration-300 hover:shadow-lg hover:border-primary/30 overflow-hidden">
+              <div
+                className="absolute top-0 left-0 h-1 w-full"
+                style={{ background: "linear-gradient(90deg, var(--up), var(--chart-2))" }}
+              />
               <p className="text-lg font-medium text-foreground leading-relaxed">
                 &ldquo;We were tired of switching apps to check if a margin call on one exchange was
                 about to wreck a position on another. So we stopped switching.&rdquo;
@@ -133,9 +188,10 @@ function AboutPage() {
               {values.map((v) => (
                 <div
                   key={v.t}
-                  className="rounded-2xl border border-border bg-card p-8 shadow-sm hover:border-primary/20"
+                  className="group rounded-2xl border border-border bg-card p-8 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-lg hover:border-primary/30"
                 >
-                  <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-secondary text-primary mb-5">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-secondary text-muted-foreground mb-5 transition-transform duration-300 group-hover:scale-110">
+
                     <i className={`fa-solid ${v.icon} text-lg`} />
                   </div>
                   <h3 className="text-xl font-bold text-foreground mb-2">{v.t}</h3>
@@ -161,8 +217,54 @@ function AboutPage() {
           </div>
         </section>
 
+        {/* ─── Legal ─── */}
+        <section className="border-t border-border">
+          <div className="mx-auto max-w-3xl px-6 py-16 text-center">
+            <div className="label-mono inline-block mb-3">Legal</div>
+            <div className="flex flex-wrap justify-center gap-2">
+              {legalTabs.map((tab) => (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => setActiveLegal(tab.key === "about" ? null : tab.key)}
+                  className={`cursor-pointer rounded-full border px-4 py-2 text-xs font-mono uppercase tracking-wider transition-all duration-300 ${
+                    (tab.key === "about" && !activeLegal) || activeLegal === tab.key
+                      ? "border-primary bg-primary text-primary-foreground shadow-sm"
+                      : "border-border bg-card text-muted-foreground hover:border-primary/30 hover:text-foreground"
+                  }`}
+                >
+                  <i className={`fa-solid ${tab.icon} mr-2`} />
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            <div
+              className={`grid overflow-hidden transition-all duration-300 ease-out ${
+                activeTab ? "mt-6 grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
+              }`}
+            >
+              <div className="overflow-hidden">
+                {activeTab && (
+                  <div className="rounded-2xl border border-border bg-card p-6 text-left shadow-sm">
+                    <h3 className="text-sm font-bold text-foreground mb-2">
+                      <i className={`fa-solid ${activeTab.icon} mr-2 text-muted-foreground`} />
+                      {activeTab.label}
+                    </h3>
+                    <p className="text-sm text-muted-foreground leading-relaxed">{activeTab.d}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </section>
+
         {/* ─── CTA ─── */}
         <section className="relative overflow-hidden border-t border-border">
+          <div
+            className="absolute inset-0 opacity-10"
+            style={{ background: "radial-gradient(circle at 50% 0%, var(--up), transparent 60%)" }}
+          />
           <div className="relative mx-auto max-w-3xl px-6 py-24 md:py-32 text-center">
             <h2 className="text-3xl font-bold tracking-tight md:text-5xl leading-[1.05]">
               Come trade with us
@@ -173,13 +275,13 @@ function AboutPage() {
             <div className="mt-8 flex flex-wrap justify-center gap-4">
               <Link
                 to="/signup"
-                className="cursor-pointer rounded-2xl bg-primary px-10 py-4 font-mono text-sm font-bold uppercase tracking-wider text-primary-foreground shadow-lg transition-all hover:scale-[1.03] hover:shadow-xl active:scale-[0.98]"
+                className="cursor-pointer rounded-2xl bg-primary px-10 py-4 font-mono text-sm font-bold uppercase tracking-wider text-primary-foreground shadow-lg transition-all duration-300 hover:scale-[1.03] hover:shadow-xl hover:shadow-primary/20 active:scale-[0.98]"
               >
                 Open free account
               </Link>
               <Link
                 to="/markets"
-                className="cursor-pointer rounded-2xl border border-border bg-card px-10 py-4 font-mono text-sm uppercase tracking-wider text-foreground transition-colors hover:bg-secondary"
+                className="cursor-pointer rounded-2xl border border-border bg-card px-10 py-4 font-mono text-sm uppercase tracking-wider text-foreground transition-all duration-300 hover:bg-secondary hover:border-primary/30 hover:scale-[1.03]"
               >
                 Explore markets
               </Link>

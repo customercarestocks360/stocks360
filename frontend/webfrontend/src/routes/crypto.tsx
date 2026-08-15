@@ -1,8 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
-import { AnimatedNumber, MiniSparkline, IconTileRow, SearchInput } from "@/components/ui/marketing";
+import { MiniSparkline, IconTileRow, SearchInput } from "@/components/ui/marketing";
 import { BuySellButtons, TradeModal } from "@/components/ui/trade-modal";
+import { useFavorites } from "@/components/FavoritesProvider";
+import { FavoriteStar } from "@/components/ui/favorite-star";
+import { AssetChart } from "@/components/ui/asset-chart";
 
 export const Route = createFileRoute("/crypto")({
   head: () => ({
@@ -17,6 +20,7 @@ export const Route = createFileRoute("/crypto")({
 const cryptoAssets = [
   {
     t: "BT",
+    sym: "BTC",
     n: "Bitcoin",
     p: "$67,418.20",
     c: "+2.34%",
@@ -28,6 +32,7 @@ const cryptoAssets = [
   },
   {
     t: "ET",
+    sym: "ETH",
     n: "Ethereum",
     p: "$3,548.90",
     c: "+1.12%",
@@ -39,6 +44,7 @@ const cryptoAssets = [
   },
   {
     t: "SO",
+    sym: "SOL",
     n: "Solana",
     p: "$168.42",
     c: "+4.51%",
@@ -50,6 +56,7 @@ const cryptoAssets = [
   },
   {
     t: "BN",
+    sym: "BNB",
     n: "BNB",
     p: "$598.10",
     c: "+1.05%",
@@ -61,6 +68,7 @@ const cryptoAssets = [
   },
   {
     t: "XR",
+    sym: "XRP",
     n: "XRP",
     p: "$0.6231",
     c: "-2.41%",
@@ -72,6 +80,7 @@ const cryptoAssets = [
   },
   {
     t: "DO",
+    sym: "DOGE",
     n: "Dogecoin",
     p: "$0.1428",
     c: "+5.83%",
@@ -89,6 +98,11 @@ function CryptoPage() {
     (a) => a.n.toLowerCase().includes(query.toLowerCase()) || a.t.toLowerCase().includes(query.toLowerCase()),
   );
   const [trade, setTrade] = useState<{ action: "buy" | "sell"; symbol: string; price: string } | null>(null);
+  const { isFavorite } = useFavorites();
+  const favoriteAssets = useMemo(
+    () => cryptoAssets.filter((a) => isFavorite(`crypto:${a.sym}`)),
+    [isFavorite],
+  );
 
   return (
     <AppLayout>
@@ -98,50 +112,17 @@ function CryptoPage() {
           <div className="relative mx-auto max-w-7xl px-6 py-16">
             <div className="grid gap-6 lg:grid-cols-3">
               {/* Chart panel */}
-              <div className="relative lg:col-span-2 overflow-hidden rounded-[2rem] border border-overlay-border bg-surface-elevated shadow-[var(--glow)] backdrop-blur-xl p-6 min-h-[560px] flex flex-col hover:border-primary/20">
-                <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border pb-4 mb-4">
-                  <div>
-                    <div className="flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider text-emerald-500">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                      Live · BTC/USD
-                    </div>
-                    <div className="mt-1 flex items-baseline gap-3">
-                      <h2 className="font-mono text-3xl font-bold text-foreground">
-                        $<AnimatedNumber value="67418" />
-                      </h2>
-                      <span className="font-mono text-sm font-bold text-up">+2.34%</span>
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    {["1H", "1D", "1W", "1M", "ALL"].map((t, i) => (
-                      <span
-                        key={t}
-                        className={`cursor-pointer rounded border px-2 py-1 text-xs font-mono transition-colors ${
-                          i === 1
-                            ? "border-primary bg-primary text-primary-foreground font-bold"
-                            : "border-border bg-secondary/40 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-                        }`}
-                      >
-                        {t}
-                      </span>
-                    ))}
-                  </div>
+              <div className="relative lg:col-span-2 overflow-hidden rounded-[2rem] border border-overlay-border bg-surface-elevated shadow-[var(--glow)] backdrop-blur-xl p-6 h-[640px] flex flex-col hover:border-primary/20">
+                <div className="mb-2 flex shrink-0 items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider text-emerald-500">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  Live · BTC/USD
                 </div>
 
-                <div className="relative flex-1 flex flex-col items-center justify-center">
-                  <div className="w-full px-2">
-                    <MiniSparkline
-                      color="#f7931a"
-                      points={[22, 30, 26, 34, 28, 38, 32, 42, 36, 48, 40, 55, 44, 60]}
-                      className="h-56 w-full md:h-64"
-                    />
-                  </div>
-                  <p className="mt-6 font-mono text-xs text-muted-foreground/50">
-                    Pro charts with 100+ indicators available upon sign in
-                  </p>
+                <div className="relative min-h-0 flex-1">
+                  <AssetChart seed="BTC" color="#f7931a" basePrice={67418.2} />
                 </div>
 
-                <div className="mt-6 grid grid-cols-2 gap-3 border-t border-border pt-6">
+                <div className="mt-6 grid shrink-0 grid-cols-2 gap-3 border-t border-border pt-6">
                   <button
                     onClick={() => setTrade({ action: "buy", symbol: "BTC", price: "$67,418.20" })}
                     className="rounded-lg bg-up/10 py-2.5 text-sm font-bold uppercase tracking-wide text-up hover:bg-up/20 transition-colors"
@@ -159,9 +140,37 @@ function CryptoPage() {
 
               {/* Trending pairs */}
               <div className="space-y-4">
+                
+
+                {/* Favorites — tokens starred on this page */}
+                <div className="rounded-xl border border-border bg-surface p-4">
+                  <div className="mb-3 flex items-center gap-2">
+                    <i className="fa-solid fa-star text-xs text-amber-400" />
+                    <span className="text-xs font-semibold uppercase tracking-wide text-foreground">
+                      My Favorites
+                    </span>
+                  </div>
+                  {favoriteAssets.length === 0 ? (
+                    <p className="py-2 text-center text-xs text-muted-foreground">
+                      Star a token below to add it here.
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {favoriteAssets.map((a) => (
+                        <div key={a.n} className="flex items-center gap-2.5">
+                          <FavoriteStar id={`crypto:${a.sym}`} />
+                          <span className="text-sm font-semibold text-foreground">{a.n}</span>
+                          <span className="ml-auto font-mono text-sm text-foreground">{a.p}</span>
+                          <span className={`font-mono text-xs ${a.up ? "text-up" : "text-down"}`}>{a.c}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <h2 className="font-mono text-sm uppercase tracking-wider text-muted-foreground mb-4">
                   Trending Pairs
                 </h2>
+
                 <SearchInput value={query} onChange={setQuery} placeholder="Search token or symbol..." />
                 {filteredAssets.length === 0 && (
                   <p className="py-6 text-center text-sm text-muted-foreground">No tokens found.</p>
@@ -172,6 +181,7 @@ function CryptoPage() {
                     className="relative overflow-hidden rounded-xl border border-overlay-border bg-surface p-4 shadow-sm backdrop-blur-md hover:border-primary/20"
                   >
                     <div className="flex items-center gap-4">
+                      <FavoriteStar id={`crypto:${a.sym}`} />
                       <span
                         className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full font-mono text-[11px] font-bold"
                         style={{ backgroundColor: `${a.color}18`, color: a.color }}
