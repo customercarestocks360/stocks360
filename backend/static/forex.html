@@ -1,0 +1,1051 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Stocks360 Forex Demo</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --border: #262b36; --text: #e6e9ef;
+    --muted: #98a2b3; --accent: #4f8cff; --ok: #3ddc97; --err: #ff6b6b; --warn: #ffb84d;
+
+    /* Chart roles, validated against this page's surface (#171a21): lightness band,
+       chroma floor, CVD separation and 3:1 contrast. The charts carry ONE series, so the
+       up/down colours below are only ever text — and always beside a sign and an arrow,
+       which is what makes their 7.1 CVD separation acceptable. */
+    --series-1: #3987e5;
+    --delta-up: #0ca30c;
+    --delta-down: #e66767;
+    --grid: #2c2c2a;
+    --axis: #383835;
+    --plot-muted: #898781;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px; background: var(--bg); color: var(--text);
+    font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .wrap { max-width: 1160px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin-bottom: 20px; font-size: 13px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .grid3 { display: grid; grid-template-columns: 1.15fr 1fr; gap: 16px; }
+  @media (max-width: 900px) { .grid2, .grid3 { grid-template-columns: 1fr; } }
+  .card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px; margin-bottom: 16px;
+  }
+  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em;
+    color: var(--muted); margin: 0 0 12px; display: flex; justify-content: space-between;
+    align-items: center; gap: 8px; }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 8px 0 4px; }
+  input, select {
+    width: 100%; padding: 8px 10px; border-radius: 6px; color: var(--text);
+    background: #0d0f14; border: 1px solid var(--border); font-size: 13px;
+  }
+  input:focus, select:focus { outline: none; border-color: var(--accent); }
+  button {
+    padding: 8px 12px; margin: 10px 6px 0 0; border-radius: 6px; cursor: pointer;
+    background: var(--accent); color: #fff; border: 0; font-size: 13px; font-weight: 500;
+  }
+  button.ghost { background: transparent; border: 1px solid var(--border); color: var(--text); }
+  button.danger { background: transparent; border: 1px solid #4a2b2b; color: var(--err); }
+  button.tiny { padding: 3px 8px; margin: 0; font-size: 11px; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  #status { margin: 0 0 16px; padding: 10px 12px; border-radius: 8px;
+    background: var(--panel); border: 1px solid var(--border); font-size: 13px; }
+  .row-inline { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }
+  .row-inline > div { flex: 1 1 150px; }
+  .ok { color: var(--ok); } .err { color: var(--err); } .dim { color: var(--muted); }
+  .warn { color: var(--warn); }
+
+  .wl { display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+    border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px;
+    background: #0d0f14; }
+  .wl.active { border-color: var(--accent); }
+  .wl .name { font-weight: 600; }
+  .wl .meta { color: var(--muted); font-size: 12px; }
+  .wl .spacer { flex: 1; }
+  .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok);
+    box-shadow: 0 0 0 3px rgba(61,220,151,.18); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: right; font-weight: 500; color: var(--muted); font-size: 11px;
+    text-transform: uppercase; letter-spacing: .05em; padding: 0 8px 6px;
+    border-bottom: 1px solid var(--grid); }
+  th:first-child, td:first-child { text-align: left; }
+  td { text-align: right; padding: 7px 8px; border-bottom: 1px solid #1a1d24;
+    font-variant-numeric: tabular-nums; }
+  tbody tr:last-child td { border-bottom: 0; }
+  tr.flash-up td { background: rgba(12,163,12,.14); }
+  tr.flash-down td { background: rgba(230,103,103,.14); }
+  tr td { transition: background .45s ease-out; }
+  .sym { font-weight: 600; font-variant-numeric: normal; white-space: nowrap; }
+  /* The arrow, sign and value are one token — never let them wrap apart. */
+  .delta, #quote-rows td:last-child { white-space: nowrap; }
+
+  .plot { position: relative; }
+  /* viewBox is set to the measured pixel width so 11px labels really are 11px. */
+  .plot svg { display: block; width: 100%; height: 210px; }
+  .plot.reloading { opacity: .55; }
+  .tip {
+    position: absolute; pointer-events: none; opacity: 0; transition: opacity .1s;
+    background: #0a0c10; border: 1px solid var(--border); border-radius: 6px;
+    padding: 6px 8px; font-size: 12px; white-space: nowrap; z-index: 5;
+    box-shadow: 0 4px 14px rgba(0,0,0,.4);
+  }
+  .tip .v { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .tip .k { color: var(--muted); font-size: 11px; }
+  .tip .key { display: inline-block; width: 12px; height: 2px; vertical-align: middle;
+    margin-right: 6px; }
+
+  /* Spread bars: one series, so one colour for every bar — bar length already encodes
+     magnitude and a value ramp would burn the free channel on nothing. */
+  .spread-row { display: grid; grid-template-columns: 84px 1fr auto; gap: 8px;
+    align-items: center; margin-bottom: 6px; font-size: 12px; }
+  .spread-track { height: 14px; position: relative; }
+  .spread-bar { height: 100%; background: var(--series-1); border-radius: 0 4px 4px 0;
+    min-width: 2px; }
+  .spread-row:hover .spread-bar { filter: brightness(1.2); }
+  .spread-val { font-variant-numeric: tabular-nums; color: var(--muted); }
+  .pairname { font-weight: 600; }
+
+  #log {
+    background: #0a0c10; border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px; max-height: 260px; overflow: auto;
+    font: 11px/1.5 ui-monospace, "Cascadia Code", Consolas, monospace; white-space: pre-wrap;
+  }
+  #log div { padding-bottom: 4px; margin-bottom: 4px; border-bottom: 1px solid #14171d; }
+  .chip { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 999px;
+    border: 1px solid var(--border); color: var(--muted); }
+  .chip.on { border-color: #24503c; color: var(--ok); }
+  .chip.off { border-color: #4a2b2b; color: var(--err); }
+  .chip.hold { border-color: #4a3b1f; color: var(--warn); }
+  .badge { font-size: 10px; padding: 1px 5px; border-radius: 4px; border: 1px solid #4a3b1f;
+    color: var(--warn); margin-left: 6px; font-variant-numeric: normal; }
+  .counts { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted);
+    margin-top: 10px; }
+  .counts b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .hidden { display: none; }
+  .note { font-size: 12px; color: var(--muted); margin-top: 10px; }
+  .banner { padding: 8px 12px; border-radius: 8px; font-size: 12px; margin-bottom: 12px;
+    border: 1px solid #4a3b1f; color: var(--warn); background: rgba(255,184,77,.06); }
+  .banner.open { border-color: #24503c; color: var(--ok); background: rgba(61,220,151,.06); }
+  .banner.err { border-color: #5a2a2a; color: var(--err); background: rgba(255,107,107,.06); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Stocks360 Forex Demo</h1>
+  <div class="sub">
+    Live FX quotes through the backend, and one WebSocket per watchlist instance — the same
+    stream contract as the crypto feed, over a polled upstream. Open via
+    <strong>http://localhost:8000/test/forex</strong> (<code>localhost</code>, not
+    <code>127.0.0.1</code> — Firebase only authorizes <code>localhost</code> by default).
+  </div>
+
+  <div id="status">Loading Firebase…</div>
+  <div class="banner" id="session-banner">Checking the FX session…</div>
+
+  <div class="grid2">
+    <div class="card">
+      <h2>1 · Sign in</h2>
+      <label for="email">Email</label>
+      <input id="email" type="email" autocomplete="username" placeholder="you@example.com" />
+      <label for="password">Password (min 6 chars)</label>
+      <input id="password" type="password" autocomplete="current-password" placeholder="••••••" />
+      <div>
+        <button id="btn-signup" class="ghost">Sign up</button>
+        <button id="btn-signin">Sign in</button>
+        <button id="btn-google" class="ghost">Google</button>
+        <button id="btn-signout" class="ghost">Sign out</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>2 · New watchlist instance</h2>
+      <label for="wl-name">Name (unique per user)</label>
+      <input id="wl-name" placeholder="Majors" value="Majors" />
+      <label for="pair-search">Pairs — filter, then pick several</label>
+      <input id="pair-search" placeholder="eur, jpy, xau…" />
+      <select id="pair-pick" multiple size="6" style="height:auto;margin-top:6px"></select>
+      <div>
+        <button id="btn-create">POST /forex/watchlists</button>
+        <button id="btn-reload-pairs" class="ghost">Reload pairs</button>
+      </div>
+      <div class="note" id="pair-note">Sign in to load the pair universe.</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>3 · Your instances <span class="dim" id="wl-count"></span></h2>
+    <div id="wl-list" class="dim">Sign in to load.</div>
+    <button id="btn-reload-wl" class="ghost">GET /forex/watchlists</button>
+  </div>
+
+  <div class="card">
+    <h2>
+      <span>4 · Live stream</span>
+      <span>
+        <span class="chip" id="chip-socket">socket closed</span>
+        <span class="chip" id="chip-upstream">upstream ?</span>
+      </span>
+    </h2>
+    <div id="stream-target" class="dim" style="margin-bottom:10px">
+      No instance connected — pick one above and hit Connect.
+    </div>
+
+    <div class="grid3">
+      <div>
+        <table>
+          <thead>
+            <tr>
+              <th>Pair</th><th>Bid</th><th>Ask</th><th>Spread</th>
+              <th>24h change</th><th>High</th><th>Low</th><th>Quoted</th>
+            </tr>
+          </thead>
+          <tbody id="quote-rows">
+            <tr><td colspan="8" class="dim" style="text-align:center">no data</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <div class="note" style="margin:0 0 8px">
+          Spread by pair, in pips — the FX analogue of depth. There is no order book to
+          show: FX is over-the-counter, so the spread is what the book would have told you.
+        </div>
+        <div id="spread-bars" class="dim">no data</div>
+        <button id="btn-spread-table" class="ghost tiny" style="margin-top:10px">Table view</button>
+        <div id="spread-table" class="hidden" style="margin-top:8px"></div>
+      </div>
+    </div>
+
+    <div class="counts">
+      <span>quotes <b id="c-quotes">0</b></span>
+      <span>snapshots <b id="c-snap">0</b></span>
+      <span>resyncs <b id="c-resync">0</b></span>
+      <span>heartbeats <b id="c-hb">0</b></span>
+      <span>dropped <b id="c-drop">0</b></span>
+      <span>last frame <b id="c-age">—</b></span>
+    </div>
+
+    <div class="row-inline" style="margin-top:14px">
+      <div>
+        <label for="live-pair">Edit the instance while the socket is open</label>
+        <input id="live-pair" placeholder="USD-JPY" />
+      </div>
+      <div style="flex:0 0 auto">
+        <button id="btn-add-pair" class="ghost">Add pair</button>
+        <button id="btn-del-pair" class="danger">Remove pair</button>
+      </div>
+      <div style="flex:0 0 auto">
+        <button id="btn-ping" class="ghost">ping</button>
+        <button id="btn-resync" class="ghost">resync</button>
+        <button id="btn-disconnect" class="ghost">Close socket</button>
+      </div>
+    </div>
+    <div class="note">
+      Adding or removing a pair re-binds the <em>open</em> socket — watch for a
+      <code>resynced</code> frame and a new row appearing, with no reconnect. A
+      <code>quote</code> frame means the price actually moved: the upstream is polled, so an
+      unchanged poll broadcasts nothing. While the market is shut you will see heartbeats
+      and no quotes, which is correct.
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>5 · Candles</h2>
+    <div class="row-inline">
+      <div>
+        <label for="md-pair">Pair</label>
+        <input id="md-pair" value="EUR-USD" />
+      </div>
+      <div>
+        <label for="md-series">Series</label>
+        <select id="md-series">
+          <option value="daily" selected>daily</option>
+          <option value="intraday">intraday</option>
+        </select>
+      </div>
+      <div>
+        <label for="md-limit">Candles</label>
+        <select id="md-limit">
+          <option>30</option><option selected>90</option><option>180</option>
+        </select>
+      </div>
+      <div style="flex:0 0 auto">
+        <button id="btn-load-md">Load</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>
+      <span id="spark-title">Close price</span>
+      <button id="btn-candle-table" class="ghost tiny">Table view</button>
+    </h2>
+    <div class="plot" id="spark-plot">
+      <svg id="spark" viewBox="0 0 720 210" role="img" aria-labelledby="spark-desc"></svg>
+      <div class="tip" id="spark-tip"></div>
+    </div>
+    <div id="spark-desc" class="note">Load a pair to draw the series.</div>
+    <div id="candle-table" class="hidden" style="max-height:260px;overflow:auto;margin-top:10px"></div>
+  </div>
+
+  <div class="card">
+    <h2>
+      <span>6 · Frame log</span>
+      <span>
+        <button id="btn-stats" class="ghost tiny">GET /forex/stream/stats</button>
+        <button id="btn-clear" class="ghost tiny">Clear</button>
+      </span>
+    </h2>
+    <div id="log"></div>
+  </div>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-app.js";
+import {
+  getAuth, onAuthStateChanged, createUserWithEmailAndPassword,
+  signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, signOut,
+} from "https://www.gstatic.com/firebasejs/12.4.0/firebase-auth.js";
+
+const $ = (id) => document.getElementById(id);
+const logEl = $("log"), statusEl = $("status");
+
+function log(tag, data, cls = "") {
+  const row = document.createElement("div");
+  const head = document.createElement("span");
+  head.className = `tag ${cls}`;
+  head.style.fontWeight = "600";
+  head.textContent = tag;                 // server text is untrusted → textContent
+  row.append(head, document.createTextNode("\n" + (typeof data === "string" ? data : JSON.stringify(data))));
+  logEl.prepend(row);
+  while (logEl.children.length > 120) logEl.lastChild.remove();
+}
+
+// ---------------------------------------------------------------- firebase ---
+const cfgRes = await fetch("/auth/config");
+if (!cfgRes.ok) {
+  statusEl.innerHTML = `<span class="err">Could not load /auth/config (${cfgRes.status})</span>`;
+  throw new Error(`GET /auth/config -> ${cfgRes.status}`);
+}
+const auth = getAuth(initializeApp(await cfgRes.json()));
+
+// Auth state is the single trigger for loading, not the sign-in buttons. Firebase
+// restores a session from IndexedDB on reload, in which case no button is ever clicked
+// and the page would sit on its placeholders while claiming to be signed in.
+// `booted` keeps the click path and the restore path from both loading.
+let booted = false;
+onAuthStateChanged(auth, (user) => {
+  statusEl.innerHTML = user
+    ? `<span class="ok">Signed in</span> as <strong></strong> <span class="dim">(uid ${user.uid})</span>`
+    : `<span class="dim">Not signed in — every forex call returns 401.</span>`;
+  if (user) {
+    statusEl.querySelector("strong").textContent = user.email ?? user.uid;
+    if (!booted) { booted = true; guard(afterSignIn); }
+  } else {
+    booted = false;
+    resetSignedOut();
+  }
+});
+
+const idToken = () => {
+  if (!auth.currentUser) throw new Error("Not signed in — sign in first.");
+  return auth.currentUser.getIdToken();
+};
+
+async function call(method, path, body) {
+  const headers = { Authorization: `Bearer ${await idToken()}` };
+  if (body !== undefined) headers["Content-Type"] = "application/json";
+  const res = await fetch(path, { method, headers, body: body && JSON.stringify(body) });
+  let payload = null;
+  if (res.status !== 204) { try { payload = await res.json(); } catch { payload = await res.text(); } }
+  log(`${method} ${path} → ${res.status}`, payload ?? "(no body)", res.ok ? "ok" : "err");
+  if (!res.ok) throw new Error(payload?.detail ?? `${method} ${path} -> ${res.status}`);
+  return payload;
+}
+
+// ------------------------------------------------------------- formatting ---
+const trimNum = (s) => String(s).includes(".")
+  ? String(s).replace(/0+$/, "").replace(/\.$/, "") : String(s);
+
+const fmtPrice = (s) => {
+  const n = Number(s);
+  if (!isFinite(n)) return String(s);
+  return n >= 1000 ? n.toLocaleString(undefined, { maximumFractionDigits: 2 }) : trimNum(s);
+};
+
+function ago(iso) {
+  const secs = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (secs < 90) return `${Math.max(0, Math.round(secs))}s ago`;
+  if (secs < 5400) return `${Math.round(secs / 60)}m ago`;
+  if (secs < 172800) return `${Math.round(secs / 3600)}h ago`;
+  return `${Math.round(secs / 86400)}d ago`;
+}
+
+/** Delta never relies on hue: it always carries a sign and an arrow glyph. */
+function deltaCell(pct) {
+  const n = Number(pct);
+  const up = n >= 0;
+  const el = document.createElement("span");
+  el.className = "delta";
+  el.style.color = up ? "var(--delta-up)" : "var(--delta-down)";
+  el.textContent = `${up ? "▲ +" : "▼ "}${n.toFixed(3)}%`;
+  return el;
+}
+
+// ---------------------------------------------------------------- pairs ---
+let universe = [];
+
+// The provider carries 540 pairs, mostly exotic. Alphabetically the majors are scattered
+// through the tail — USD-JPY sits past any sane truncation — so the unfiltered list leads
+// with them. Without this the most-wanted pairs look unsupported.
+const MAJORS = [
+  "EUR-USD", "GBP-USD", "USD-JPY", "USD-CHF", "AUD-USD", "USD-CAD", "NZD-USD",
+  "EUR-GBP", "EUR-JPY", "GBP-JPY", "EUR-CHF", "AUD-JPY", "XAU-USD", "XAG-USD",
+];
+const PICKER_LIMIT = 300;
+
+async function loadPairs() {
+  const rows = await call("GET", "/forex/pairs?limit=1000");
+  universe = rows.map((r) => r.symbol);
+  renderPairPicker();
+}
+
+function renderPairPicker() {
+  const needle = $("pair-search").value.trim().toUpperCase();
+  const known = new Set(universe);
+  const list = needle
+    ? universe.filter((s) => s.includes(needle))
+    : [...MAJORS.filter((m) => known.has(m)),
+       ...universe.filter((s) => !MAJORS.includes(s))];
+  const shown = list.slice(0, PICKER_LIMIT);
+
+  const sel = $("pair-pick");
+  const keep = new Set([...sel.selectedOptions].map((o) => o.value));
+  sel.replaceChildren();
+  for (const s of shown) {
+    const opt = document.createElement("option");
+    opt.value = s;
+    opt.textContent = s;                 // untrusted → textContent
+    if (keep.has(s)) opt.selected = true;
+    sel.append(opt);
+  }
+  // Say so when the list is cut short, rather than letting a pair look unsupported.
+  $("pair-note").textContent = shown.length < list.length
+    ? `${universe.length} pairs supported · ${list.length} match, showing the first `
+      + `${shown.length} (majors first) — type to narrow it.`
+    : `${universe.length} pairs supported · showing ${shown.length}.`;
+}
+$("pair-search").addEventListener("input", renderPairPicker);
+
+const SESSION_PLACEHOLDER = "Checking the FX session…";
+
+async function loadSession() {
+  const banner = $("session-banner");
+  try {
+    const s = await call("GET", "/forex/session");
+    banner.className = "banner" + (s.market_state === "open" ? " open" : "");
+    banner.textContent = `FX market ${s.market_state} — ${s.detail}`;
+    return s;
+  } catch (e) {
+    // Never leave the placeholder up on failure — "Checking…" reads as work in
+    // progress and hides the fact that the call already came back and failed.
+    banner.className = "banner err";
+    banner.textContent = `Could not read the FX session — ${e.message ?? e}`;
+    throw e;
+  }
+}
+
+// ------------------------------------------------------------ watchlists ---
+let watchlists = [];
+let connectedId = null;
+
+async function loadWatchlists() {
+  watchlists = await call("GET", "/forex/watchlists");
+  $("wl-count").textContent = `(${watchlists.length})`;
+  const host = $("wl-list");
+  host.replaceChildren();
+  if (!watchlists.length) {
+    host.className = "dim";
+    host.textContent = "None yet — create one above.";
+    return;
+  }
+  host.className = "";
+  for (const wl of watchlists) {
+    const row = document.createElement("div");
+    row.className = "wl" + (wl.id === connectedId ? " active" : "");
+    if (wl.id === connectedId) {
+      const dot = document.createElement("span");
+      dot.className = "live-dot";
+      dot.title = "socket open";
+      row.append(dot);
+    }
+    const name = document.createElement("span");
+    name.className = "name";
+    name.textContent = wl.name;
+    const meta = document.createElement("span");
+    meta.className = "meta";
+    meta.textContent = `v${wl.version} · ${wl.symbols.join(", ")}`;
+    const spacer = document.createElement("span");
+    spacer.className = "spacer";
+
+    const connect = document.createElement("button");
+    connect.className = "ghost tiny";
+    connect.textContent = wl.id === connectedId ? "Reconnect" : "Connect";
+    connect.onclick = () => guard(() => openSocket(wl));
+
+    const snap = document.createElement("button");
+    snap.className = "ghost tiny";
+    snap.textContent = "Snapshot";
+    snap.onclick = () => guard(async () => {
+      const q = await call("GET", `/forex/watchlists/${wl.id}/quotes`);
+      renderQuotes(q.quotes);
+      $("stream-target").textContent =
+        `REST snapshot of "${q.name}" (v${q.version}, market ${q.market_state}) — no socket open.`;
+    });
+
+    const del = document.createElement("button");
+    del.className = "danger tiny";
+    del.textContent = "Delete";
+    del.onclick = () => guard(async () => {
+      await call("DELETE", `/forex/watchlists/${wl.id}`);
+      await loadWatchlists();
+    });
+
+    row.append(name, meta, spacer, snap, connect, del);
+    host.append(row);
+  }
+}
+
+// ----------------------------------------------------------- quote table ---
+const quotes = new Map();
+
+function renderQuotes(list) {
+  quotes.clear();
+  for (const q of list ?? []) quotes.set(q.symbol, q);
+  redrawQuoteTable();
+  drawSpreads();
+}
+
+function quoteCells(q) {
+  return [
+    [q.symbol, "sym"],
+    [fmtPrice(q.bid)],
+    [fmtPrice(q.ask)],
+    [`${trimNum(q.spread_pips)} pips`],
+    [null],
+    [fmtPrice(q.high)],
+    [fmtPrice(q.low)],
+    [ago(q.quoted_at)],
+  ];
+}
+
+function fillRow(tr, q) {
+  quoteCells(q).forEach(([text, cls], i) => {
+    const td = tr.cells[i] ?? tr.insertCell();
+    if (cls) td.className = cls;
+    td.replaceChildren();
+    if (i === 4) td.append(deltaCell(q.change_percent));
+    else td.append(document.createTextNode(text));
+    // Staleness gets its own badge rather than a colour on the number.
+    if (i === 7 && q.stale) {
+      const b = document.createElement("span");
+      b.className = "badge";
+      b.textContent = "stale";
+      td.append(b);
+    }
+  });
+}
+
+function redrawQuoteTable() {
+  const body = $("quote-rows");
+  body.replaceChildren();
+  if (!quotes.size) {
+    const tr = body.insertRow();
+    const td = tr.insertCell();
+    td.colSpan = 8; td.className = "dim"; td.style.textAlign = "center";
+    td.textContent = "no data";
+    return;
+  }
+  for (const symbol of [...quotes.keys()].sort()) {
+    const tr = body.insertRow();
+    tr.id = `q-${symbol}`;
+    fillRow(tr, quotes.get(symbol));
+  }
+}
+
+function applyQuote(q) {
+  const prev = quotes.get(q.symbol);
+  quotes.set(q.symbol, q);
+  const tr = $(`q-${q.symbol}`);
+  if (!tr) { redrawQuoteTable(); drawSpreads(); return; }
+  fillRow(tr, q);
+  drawSpreads();
+  if (prev) {
+    const dir = Number(q.bid) - Number(prev.bid);
+    if (dir !== 0) {
+      const cls = dir > 0 ? "flash-up" : "flash-down";
+      tr.classList.add(cls);
+      setTimeout(() => tr.classList.remove(cls), 420);
+    }
+  }
+}
+
+// --------------------------------------------------------- spread by pair ---
+function drawSpreads() {
+  const host = $("spread-bars");
+  host.replaceChildren();
+  if (!quotes.size) {
+    host.className = "dim";
+    host.textContent = "no data";
+    return;
+  }
+  host.className = "";
+  const rows = [...quotes.values()].sort(
+    (a, b) => Number(b.spread_pips) - Number(a.spread_pips));
+  const max = Math.max(...rows.map((q) => Number(q.spread_pips)), 0.0001);
+
+  for (const q of rows) {
+    const row = document.createElement("div");
+    row.className = "spread-row";
+
+    const name = document.createElement("span");
+    name.className = "pairname";
+    name.textContent = q.symbol;
+
+    const track = document.createElement("div");
+    track.className = "spread-track";
+    const bar = document.createElement("div");
+    bar.className = "spread-bar";
+    bar.style.width = `${Math.max(1, (Number(q.spread_pips) / max) * 100)}%`;
+    track.append(bar);
+
+    // Few enough bars that every one carries its value — no tooltip-only data.
+    const val = document.createElement("span");
+    val.className = "spread-val";
+    val.textContent = `${trimNum(q.spread_pips)} pips`;
+
+    row.append(name, track, val);
+    row.title = `${q.symbol}: ask ${q.ask} − bid ${q.bid} = ${q.spread} `
+      + `(${q.spread_pips} pips at a pip size of ${q.pip_size})`;
+    host.append(row);
+  }
+}
+
+function spreadTable() {
+  const host = $("spread-table");
+  const t = document.createElement("table");
+  t.innerHTML = "<thead><tr><th>Pair</th><th>Bid</th><th>Ask</th><th>Spread</th>"
+    + "<th>Pips</th><th>Pip size</th></tr></thead>";
+  const tb = document.createElement("tbody");
+  for (const q of [...quotes.values()].sort((a, b) => a.symbol.localeCompare(b.symbol))) {
+    const tr = tb.insertRow();
+    for (const v of [q.symbol, fmtPrice(q.bid), fmtPrice(q.ask), trimNum(q.spread),
+                     trimNum(q.spread_pips), trimNum(q.pip_size)]) {
+      tr.insertCell().textContent = v;
+    }
+  }
+  t.append(tb);
+  host.replaceChildren(t);
+}
+
+// -------------------------------------------------------------- websocket ---
+let socket = null;
+const counts = { quotes: 0, snap: 0, resync: 0, hb: 0, drop: 0 };
+let lastFrameAt = null;
+
+const CLOSE_REASONS = {
+  4401: "unauthenticated — the token was missing, invalid or revoked",
+  4404: "no such watchlist for this user",
+  4429: "too many open sockets for this user",
+  4410: "the watchlist was deleted",
+  1012: "server restarting",
+  1000: "closed normally",
+  1005: "closed with no status",
+  1006: "connection lost",
+};
+
+function setCounts() {
+  $("c-quotes").textContent = counts.quotes;
+  $("c-snap").textContent = counts.snap;
+  $("c-resync").textContent = counts.resync;
+  $("c-hb").textContent = counts.hb;
+  $("c-drop").textContent = counts.drop;
+}
+
+setInterval(() => {
+  $("c-age").textContent = lastFrameAt ? `${((Date.now() - lastFrameAt) / 1000).toFixed(1)}s ago` : "—";
+  // Ages in the table drift as time passes even when nothing ticks.
+  for (const [symbol, q] of quotes) {
+    const tr = $(`q-${symbol}`);
+    if (tr && tr.cells[7]) {
+      tr.cells[7].replaceChildren(document.createTextNode(ago(q.quoted_at)));
+      if (q.stale) {
+        const b = document.createElement("span");
+        b.className = "badge";
+        b.textContent = "stale";
+        tr.cells[7].append(b);
+      }
+    }
+  }
+}, 1000);
+
+function chip(el, text, state) {
+  el.textContent = text;
+  el.className = "chip" + (state ? ` ${state}` : "");
+}
+
+async function openSocket(wl) {
+  if (socket) { socket.close(1000, "switching"); socket = null; }
+  const token = await idToken();
+  const scheme = location.protocol === "https:" ? "wss" : "ws";
+  const url = `${scheme}://${location.host}/forex/watchlists/${wl.id}/stream?token=${encodeURIComponent(token)}`;
+
+  chip($("chip-socket"), "connecting…");
+  const ws = new WebSocket(url);
+  socket = ws;
+  Object.keys(counts).forEach((k) => (counts[k] = 0));
+  setCounts();
+
+  ws.onopen = () => {
+    connectedId = wl.id;
+    chip($("chip-socket"), "socket open", "on");
+    $("stream-target").textContent = `Streaming "${wl.name}" — ${wl.stream_url}`;
+    log("ws open", wl.stream_url, "ok");
+    loadWatchlists();
+  };
+
+  ws.onmessage = (ev) => {
+    lastFrameAt = Date.now();
+    const f = JSON.parse(ev.data);
+    switch (f.type) {
+      case "subscribed":
+        chip($("chip-upstream"), `upstream ${f.state}`, f.state === "connected" ? "on" : "off");
+        log("frame subscribed", `${f.symbols.join(", ")} · ${f.detail ?? ""}`, "ok");
+        break;
+      case "snapshot":
+        counts.snap++;
+        renderQuotes(f.quotes);
+        log("frame snapshot", `${(f.quotes ?? []).length} quotes${f.detail ? " · " + f.detail : ""}`, "ok");
+        break;
+      case "quote":
+        counts.quotes++;
+        applyQuote(f.quote);
+        break;
+      case "resynced":
+        counts.resync++;
+        renderQuotes(f.quotes);
+        $("stream-target").textContent =
+          `Streaming "${wl.name}" v${f.version} — ${f.symbols.join(", ")}`;
+        log("frame resynced", `v${f.version} · ${f.symbols.join(", ")}`, "warn");
+        loadWatchlists();
+        break;
+      case "heartbeat":
+        counts.hb++;
+        counts.drop = f.dropped ?? counts.drop;
+        if (f.state) {
+          chip($("chip-upstream"), `upstream ${f.state}`, f.state === "connected" ? "on" : "off");
+        }
+        break;
+      case "upstream":
+        chip($("chip-upstream"), `upstream ${f.state}`, f.state === "disconnected" ? "off" : "on");
+        log("frame upstream", f.state, f.state === "disconnected" ? "err" : "ok");
+        break;
+      case "deleted":
+        log("frame deleted", f.detail ?? "watchlist deleted", "err");
+        break;
+      case "pong":
+        log("frame pong", `dropped=${f.dropped}`, "ok");
+        break;
+      case "error":
+        log("frame error", f.detail ?? "", "err");
+        break;
+      default:
+        log(`frame ${f.type}`, f);
+    }
+    setCounts();
+  };
+
+  ws.onclose = (ev) => {
+    if (socket === ws) socket = null;
+    if (connectedId === wl.id) connectedId = null;
+    const why = CLOSE_REASONS[ev.code] ?? ev.reason ?? "";
+    chip($("chip-socket"), `closed ${ev.code}`, "off");
+    $("stream-target").textContent = `Socket closed (${ev.code})${why ? " — " + why : ""}`;
+    log(`ws close ${ev.code}`, why || "(no reason given)", ev.code === 1000 ? "dim" : "err");
+    loadWatchlists();
+  };
+
+  ws.onerror = () => log("ws error", "see close code", "err");
+}
+
+const send = (obj) => {
+  if (!socket || socket.readyState !== WebSocket.OPEN) throw new Error("No open socket.");
+  socket.send(JSON.stringify(obj));
+  log("→ client", obj, "dim");
+};
+
+// ------------------------------------------------------------- sparkline ---
+const SPARK = { h: 210, l: 66, r: 84, t: 14, b: 26 };
+let candles = [];
+let lastSpark = null;
+
+function drawSparkline(pair, series, rows) {
+  candles = rows;
+  lastSpark = { pair, series, rows };
+  const svg = $("spark");
+  svg.replaceChildren();
+  $("spark-title").textContent = `${pair} close · ${series}`;
+  if (!rows.length) { $("spark-desc").textContent = "No candles for this pair."; return; }
+
+  const W = Math.max(340, Math.round($("spark-plot").clientWidth) || 720);
+  svg.setAttribute("viewBox", `0 0 ${W} ${SPARK.h}`);
+
+  const closes = rows.map((k) => Number(k.close));
+  const times = rows.map((k) => new Date(k.at));
+  const lo = Math.min(...closes), hi = Math.max(...closes);
+  const pad = (hi - lo) * 0.08 || (hi * 0.001 || 1);
+  const yMin = lo - pad, yMax = hi + pad;
+  const plotW = W - SPARK.l - SPARK.r;
+  const plotH = SPARK.h - SPARK.t - SPARK.b;
+  const x = (i) => SPARK.l + (rows.length === 1 ? plotW / 2 : (i / (rows.length - 1)) * plotW);
+  const y = (v) => SPARK.t + plotH - ((v - yMin) / (yMax - yMin)) * plotH;
+
+  const ns = "http://www.w3.org/2000/svg";
+  const add = (tag, attrs, parent = svg) => {
+    const el = document.createElementNS(ns, tag);
+    for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+    parent.append(el);
+    return el;
+  };
+  const text = (str, attrs) => {
+    const el = add("text", { "font-size": 11, fill: "var(--plot-muted)", ...attrs });
+    el.textContent = str;
+    return el;
+  };
+  const fmtRate = (v) => v >= 1000 ? v.toLocaleString(undefined, { maximumFractionDigits: 2 })
+    : v.toFixed(v < 10 ? 5 : 3);
+
+  // Solid hairline gridlines, one shade off the surface — never dashed.
+  for (let i = 0; i <= 3; i++) {
+    const v = yMin + ((yMax - yMin) * i) / 3;
+    const gy = y(v);
+    add("line", { x1: SPARK.l, x2: SPARK.l + plotW, y1: gy, y2: gy,
+      stroke: "var(--grid)", "stroke-width": 1, "vector-effect": "non-scaling-stroke" });
+    text(fmtRate(v), { x: SPARK.l - 8, y: gy + 4, "text-anchor": "end",
+      "font-variant-numeric": "tabular-nums" });
+  }
+  add("line", { x1: SPARK.l, x2: SPARK.l + plotW, y1: SPARK.t + plotH, y2: SPARK.t + plotH,
+    stroke: "var(--axis)", "stroke-width": 1, "vector-effect": "non-scaling-stroke" });
+
+  const fmtTime = (d) => d.toLocaleString(undefined,
+    { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  text(fmtTime(times[0]), { x: SPARK.l, y: SPARK.h - 8 });
+  text(fmtTime(times.at(-1)), { x: SPARK.l + plotW, y: SPARK.h - 8, "text-anchor": "middle" });
+
+  // One series: 2px stroke, no legend needed — the title names it.
+  add("path", {
+    d: closes.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(2)},${y(v).toFixed(2)}`).join(""),
+    fill: "none", stroke: "var(--series-1)", "stroke-width": 2,
+    "stroke-linejoin": "round", "stroke-linecap": "round",
+    "vector-effect": "non-scaling-stroke",
+  });
+
+  // Selective direct label: the endpoint only.
+  const lastY = y(closes.at(-1));
+  add("circle", { cx: x(closes.length - 1), cy: lastY, r: 4,
+    fill: "var(--series-1)", stroke: "var(--panel)", "stroke-width": 2 });
+  text(fmtRate(closes.at(-1)), {
+    x: SPARK.l + plotW + 8, y: lastY + 4, fill: "var(--text)", "font-weight": 600,
+    "font-variant-numeric": "tabular-nums",
+  });
+
+  const chg = ((closes.at(-1) - closes[0]) / closes[0]) * 100;
+  $("spark-desc").textContent =
+    `${rows.length} candles · ${fmtTime(times[0])} → ${fmtTime(times.at(-1))} · ` +
+    `range ${fmtRate(lo)}–${fmtRate(hi)} · ` +
+    `${chg >= 0 ? "▲ +" : "▼ "}${chg.toFixed(2)}% over the window`;
+
+  // Crosshair: the reader aims at a time, not at a 2px line.
+  const hair = add("line", { x1: 0, x2: 0, y1: SPARK.t, y2: SPARK.t + plotH,
+    stroke: "var(--axis)", "stroke-width": 1, opacity: 0, "vector-effect": "non-scaling-stroke" });
+  const dot = add("circle", { r: 4.5, fill: "var(--series-1)", stroke: "var(--panel)",
+    "stroke-width": 2, opacity: 0 });
+  const hit = add("rect", { x: SPARK.l, y: SPARK.t, width: plotW, height: plotH,
+    fill: "transparent", style: "cursor:crosshair" });
+
+  const tip = $("spark-tip");
+  hit.addEventListener("pointermove", (ev) => {
+    const box = svg.getBoundingClientRect();
+    const ratio = Math.min(1, Math.max(0, (ev.clientX - box.left - SPARK.l) / plotW));
+    const i = Math.round(ratio * (rows.length - 1));
+    const k = rows[i];
+    hair.setAttribute("x1", x(i)); hair.setAttribute("x2", x(i));
+    hair.setAttribute("opacity", 1);
+    dot.setAttribute("cx", x(i)); dot.setAttribute("cy", y(closes[i]));
+    dot.setAttribute("opacity", 1);
+
+    // Value leads, label follows.
+    tip.replaceChildren();
+    const v = document.createElement("div");
+    v.className = "v";
+    const key = document.createElement("span");
+    key.className = "key";
+    key.style.background = "var(--series-1)";
+    v.append(key, document.createTextNode(trimNum(k.close)));
+    const meta = document.createElement("div");
+    meta.className = "k";
+    meta.textContent = `close · ${fmtTime(new Date(k.at))}`;
+    const ohlc = document.createElement("div");
+    ohlc.className = "k";
+    ohlc.textContent = `O ${trimNum(k.open)} H ${trimNum(k.high)} L ${trimNum(k.low)}`;
+    tip.append(v, meta, ohlc);
+    tip.style.opacity = 1;
+    const tipW = tip.offsetWidth || 180;
+    const wantRight = x(i) + 12;
+    const left = wantRight + tipW > W - 4 ? x(i) - tipW - 12 : wantRight;
+    tip.style.left = `${Math.max(0, left)}px`;
+    tip.style.top = `${Math.max(0, y(closes[i]) - 52)}px`;
+  });
+  hit.addEventListener("pointerleave", () => {
+    tip.style.opacity = 0; hair.setAttribute("opacity", 0); dot.setAttribute("opacity", 0);
+  });
+}
+
+function candleTable() {
+  const host = $("candle-table");
+  const t = document.createElement("table");
+  t.innerHTML = "<thead><tr><th>At</th><th>Open</th><th>High</th><th>Low</th>"
+    + "<th>Close</th><th>Change</th></tr></thead>";
+  const tb = document.createElement("tbody");
+  for (const k of [...candles].reverse()) {
+    const tr = tb.insertRow();
+    for (const v of [new Date(k.at).toLocaleString(), trimNum(k.open), trimNum(k.high),
+                     trimNum(k.low), trimNum(k.close), trimNum(k.change)]) {
+      tr.insertCell().textContent = v;
+    }
+  }
+  t.append(tb);
+  host.replaceChildren(t);
+}
+
+async function loadCandles() {
+  const pair = $("md-pair").value.trim().toUpperCase();
+  const series = $("md-series").value;
+  const limit = $("md-limit").value;
+  $("spark-plot").classList.add("reloading");   // hold the frame, no skeleton flash
+  try {
+    const data = await call("GET", `/forex/candles/${pair}?series=${series}&limit=${limit}`);
+    drawSparkline(data.symbol, data.series, data.candles);
+    if (!$("candle-table").classList.contains("hidden")) candleTable();
+  } finally {
+    $("spark-plot").classList.remove("reloading");
+  }
+}
+
+// ----------------------------------------------------------------- wiring ---
+const guard = async (fn) => {
+  try { await fn(); } catch (e) { log("error", e.message ?? String(e), "err"); }
+};
+const on = (id, fn) => $(id).addEventListener("click", () => guard(fn));
+
+async function afterSignIn() {
+  await loadSession();
+  await loadPairs();
+  await loadWatchlists();
+  await guard(loadCandles);
+}
+
+// Signing out must not leave another user's data on screen, and the banner has to go
+// back to its placeholder or it would still claim a session it can no longer read.
+function resetSignedOut() {
+  if (socket) socket.close(1000, "sign out");
+  watchlists = [];
+  connectedId = null;
+  $("session-banner").className = "banner";
+  $("session-banner").textContent = SESSION_PLACEHOLDER;
+  $("wl-count").textContent = "(0)";
+}
+
+// These only authenticate — onAuthStateChanged does the loading, for the click and the
+// page-reload path alike, so neither has to remember to.
+on("btn-signup", async () => {
+  const cred = await createUserWithEmailAndPassword(
+    auth, $("email").value.trim(), $("password").value);
+  log("firebase createUser → ok", { uid: cred.user.uid }, "ok");
+});
+on("btn-signin", async () => {
+  const cred = await signInWithEmailAndPassword(
+    auth, $("email").value.trim(), $("password").value);
+  log("firebase signIn → ok", { uid: cred.user.uid }, "ok");
+});
+on("btn-google", async () => {
+  const cred = await signInWithPopup(auth, new GoogleAuthProvider());
+  log("firebase signInWithPopup → ok", { uid: cred.user.uid }, "ok");
+});
+on("btn-signout", async () => {
+  await signOut(auth);
+  log("firebase signOut → ok", "local session cleared", "ok");
+});
+
+on("btn-reload-pairs", loadPairs);
+on("btn-reload-wl", loadWatchlists);
+
+on("btn-create", async () => {
+  const symbols = [...$("pair-pick").selectedOptions].map((o) => o.value);
+  if (!symbols.length) throw new Error("Pick at least one pair.");
+  await call("POST", "/forex/watchlists", { name: $("wl-name").value.trim(), symbols });
+  await loadWatchlists();
+});
+
+on("btn-add-pair", async () => {
+  if (!connectedId) throw new Error("Connect a socket first.");
+  const pair = $("live-pair").value.trim().toUpperCase();
+  if (!pair) throw new Error("Type a pair.");
+  await call("POST", `/forex/watchlists/${connectedId}/symbols`, { symbols: [pair] });
+});
+on("btn-del-pair", async () => {
+  if (!connectedId) throw new Error("Connect a socket first.");
+  const pair = $("live-pair").value.trim().toUpperCase();
+  if (!pair) throw new Error("Type a pair.");
+  await call("DELETE", `/forex/watchlists/${connectedId}/symbols/${pair}`);
+});
+
+on("btn-ping", () => send({ action: "ping" }));
+on("btn-resync", () => send({ action: "resync" }));
+on("btn-disconnect", () => {
+  if (!socket) throw new Error("No open socket.");
+  socket.close(1000, "client closed");
+});
+
+on("btn-load-md", loadCandles);
+on("btn-stats", () => call("GET", "/forex/stream/stats"));
+
+const toggle = (btnId, hostId, render) => on(btnId, () => {
+  const host = $(hostId);
+  const showing = host.classList.toggle("hidden");
+  $(btnId).textContent = showing ? "Table view" : "Hide table";
+  if (!showing) render();
+});
+toggle("btn-candle-table", "candle-table", candleTable);
+toggle("btn-spread-table", "spread-table", spreadTable);
+
+$("btn-clear").addEventListener("click", () => { logEl.replaceChildren(); });
+
+let sparkWidth = 0;
+new ResizeObserver(() => {
+  const w = Math.round($("spark-plot").clientWidth);
+  if (lastSpark && w && w !== sparkWidth) {
+    sparkWidth = w;
+    drawSparkline(lastSpark.pair, lastSpark.series, lastSpark.rows);
+  }
+}).observe($("spark-plot"));
+
+chip($("chip-socket"), "socket closed", "off");
+chip($("chip-upstream"), "upstream ?");
+</script>
+</body>
+</html>

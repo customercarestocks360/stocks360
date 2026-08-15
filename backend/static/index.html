@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Stocks360 Auth Test</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --border: #262b36; --text: #e6e9ef;
+    --muted: #98a2b3; --accent: #4f8cff; --ok: #3ddc97; --err: #ff6b6b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px; background: var(--bg); color: var(--text);
+    font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin-bottom: 20px; font-size: 13px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 700px) { .grid { grid-template-columns: 1fr; } }
+  .card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px;
+  }
+  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em;
+    color: var(--muted); margin: 0 0 12px; }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 8px 0 4px; }
+  input {
+    width: 100%; padding: 8px 10px; border-radius: 6px; color: var(--text);
+    background: #0d0f14; border: 1px solid var(--border); font-size: 13px;
+  }
+  input:focus { outline: none; border-color: var(--accent); }
+  button {
+    padding: 8px 12px; margin: 10px 6px 0 0; border-radius: 6px; cursor: pointer;
+    background: var(--accent); color: #fff; border: 0; font-size: 13px; font-weight: 500;
+  }
+  button.ghost { background: transparent; border: 1px solid var(--border); color: var(--text); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  #status { margin: 18px 0 8px; padding: 10px 12px; border-radius: 8px;
+    background: var(--panel); border: 1px solid var(--border); font-size: 13px; }
+  #log {
+    background: #0a0c10; border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px; margin-top: 12px; max-height: 420px; overflow: auto;
+    font: 12px/1.5 ui-monospace, "Cascadia Code", Consolas, monospace; white-space: pre-wrap;
+  }
+  .row { margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid #1a1d24; }
+  .row:last-child { border-bottom: 0; }
+  .tag { font-weight: 600; }
+  .ok { color: var(--ok); } .err { color: var(--err); } .dim { color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Stocks360 Auth Test</h1>
+  <div class="sub">
+    Sign in client-side with the Firebase Web SDK, then exercise the backend endpoints
+    with the resulting ID token. Open via <strong>http://localhost:8000/test</strong>
+    (<code>localhost</code>, not <code>127.0.0.1</code> — Firebase only authorizes
+    <code>localhost</code> by default).
+  </div>
+
+  <div id="status">Loading Firebase…</div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Email / Password</h2>
+      <label for="email">Email</label>
+      <input id="email" type="email" autocomplete="username" placeholder="you@example.com" />
+      <label for="password">Password (min 6 chars)</label>
+      <input id="password" type="password" autocomplete="current-password" placeholder="••••••" />
+      <div>
+        <button id="btn-signup">Sign up (backend)</button>
+        <button id="btn-signin">Sign in</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Google OAuth</h2>
+      <div class="sub" style="margin:0 0 8px">
+        Opens the Google consent popup, then sends the ID token to the backend.
+      </div>
+      <button id="btn-google">Sign in with Google</button>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <h2>Backend calls</h2>
+    <button id="btn-login" class="ghost">POST /auth/login</button>
+    <button id="btn-me" class="ghost">GET /auth/me</button>
+    <button id="btn-logout" class="ghost">POST /auth/logout (revoke)</button>
+    <button id="btn-token" class="ghost">Show ID token</button>
+    <button id="btn-clear" class="ghost">Clear log</button>
+  </div>
+
+  <div id="log"></div>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-app.js";
+import {
+  getAuth, onAuthStateChanged, signInWithEmailAndPassword, signInWithPopup,
+  GoogleAuthProvider, signOut,
+} from "https://www.gstatic.com/firebasejs/12.4.0/firebase-auth.js";
+
+const logEl = document.getElementById("log");
+const statusEl = document.getElementById("status");
+
+// Config comes from the backend's .env via GET /auth/config — never hardcoded here.
+const configRes = await fetch("/auth/config");
+if (!configRes.ok) {
+  statusEl.innerHTML = `<span class="err">Could not load /auth/config (${configRes.status})</span>`;
+  throw new Error(`GET /auth/config -> ${configRes.status}`);
+}
+const firebaseConfig = await configRes.json();
+
+const auth = getAuth(initializeApp(firebaseConfig));
+
+function log(tag, data, cls = "") {
+  const row = document.createElement("div");
+  row.className = "row";
+  const body = typeof data === "string" ? data : JSON.stringify(data, null, 2);
+  row.innerHTML = `<span class="tag ${cls}">${tag}</span>\n${body
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;")}`;
+  logEl.prepend(row);
+}
+
+onAuthStateChanged(auth, (user) => {
+  statusEl.innerHTML = user
+    ? `<span class="ok">Signed in</span> as <strong>${user.email ?? user.uid}</strong>
+       <span class="dim">(uid ${user.uid})</span>`
+    : `<span class="dim">Not signed in</span>`;
+});
+
+async function idToken(forceRefresh = false) {
+  const user = auth.currentUser;
+  if (!user) throw new Error("Not signed in — sign in first.");
+  return user.getIdToken(forceRefresh);
+}
+
+async function call(method, path, { body, token } = {}) {
+  const headers = {};
+  if (body) headers["Content-Type"] = "application/json";
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  const res = await fetch(path, { method, headers, body: body ? JSON.stringify(body) : undefined });
+  let payload;
+  try { payload = await res.json(); } catch { payload = await res.text(); }
+  log(`${method} ${path} → ${res.status}`, payload, res.ok ? "ok" : "err");
+  return { res, payload };
+}
+
+const on = (id, fn) => document.getElementById(id).addEventListener("click", async () => {
+  try { await fn(); } catch (e) { log("error", e.message ?? String(e), "err"); }
+});
+
+on("btn-signup", async () => {
+  const email = document.getElementById("email").value.trim();
+  const password = document.getElementById("password").value;
+  await call("POST", "/auth/signup", { body: { email, password } });
+});
+
+on("btn-signin", async () => {
+  const email = document.getElementById("email").value.trim();
+  const password = document.getElementById("password").value;
+  const cred = await signInWithEmailAndPassword(auth, email, password);
+  log("firebase signInWithEmailAndPassword → ok", { uid: cred.user.uid, email: cred.user.email }, "ok");
+  await call("POST", "/auth/login", { body: { id_token: await idToken() } });
+});
+
+on("btn-google", async () => {
+  const cred = await signInWithPopup(auth, new GoogleAuthProvider());
+  log("firebase signInWithPopup → ok", { uid: cred.user.uid, email: cred.user.email }, "ok");
+  await call("POST", "/auth/login", { body: { id_token: await idToken() } });
+});
+
+on("btn-login", async () => {
+  await call("POST", "/auth/login", { body: { id_token: await idToken() } });
+});
+
+on("btn-me", async () => {
+  await call("GET", "/auth/me", { token: await idToken() });
+});
+
+on("btn-logout", async () => {
+  await call("POST", "/auth/logout", { token: await idToken() });
+  await signOut(auth);
+  log("firebase signOut → ok", "local session cleared", "ok");
+});
+
+on("btn-token", async () => {
+  const t = await idToken();
+  log("current ID token", t, "dim");
+});
+
+on("btn-clear", () => { logEl.innerHTML = ""; });
+
+statusEl.innerHTML = `<span class="dim">Firebase loaded. Not signed in.</span>`;
+</script>
+</body>
+</html>

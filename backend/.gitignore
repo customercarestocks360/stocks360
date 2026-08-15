@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+
+# secrets — never commit
+.env
+*.env
+!.env.example
+secrets/
+*serviceAccount*.json
+*firebase-adminsdk*.json
+*credentials*.json
+

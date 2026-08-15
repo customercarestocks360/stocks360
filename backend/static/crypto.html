@@ -1,0 +1,1063 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Stocks360 Crypto Demo</title>
+<style>
+  :root {
+    /* Page chrome, matching the sibling test pages. */
+    --bg: #0f1115; --panel: #171a21; --border: #262b36; --text: #e6e9ef;
+    --muted: #98a2b3; --accent: #4f8cff; --ok: #3ddc97; --err: #ff6b6b; --warn: #ffb84d;
+
+    /* Chart roles. Validated against this page's own surface (#171a21) in dark mode:
+       lightness band, chroma floor, CVD separation (worst pair ΔE 8.6, above the 8
+       target), normal-vision floor and 3:1 contrast all pass. Do not hand-tweak these
+       without re-running the validator. */
+    --series-1: #3987e5;      /* the single sparkline series */
+    --bid: #008300;           /* buy side */
+    --ask: #e66767;           /* sell side */
+    --delta-up: #0ca30c;      /* delta text, always paired with a sign + glyph */
+    --delta-down: #e66767;
+    --grid: #2c2c2a;          /* hairline gridlines, one shade off the surface */
+    --axis: #383835;
+    --plot-muted: #898781;    /* axis + tick ink */
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px; background: var(--bg); color: var(--text);
+    font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .wrap { max-width: 1160px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin-bottom: 20px; font-size: 13px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .grid3 { display: grid; grid-template-columns: 1.1fr 1fr; gap: 16px; }
+  @media (max-width: 900px) { .grid2, .grid3 { grid-template-columns: 1fr; } }
+  .card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px; margin-bottom: 16px;
+  }
+  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em;
+    color: var(--muted); margin: 0 0 12px; display: flex; justify-content: space-between;
+    align-items: center; gap: 8px; }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 8px 0 4px; }
+  input, select {
+    width: 100%; padding: 8px 10px; border-radius: 6px; color: var(--text);
+    background: #0d0f14; border: 1px solid var(--border); font-size: 13px;
+  }
+  input:focus, select:focus { outline: none; border-color: var(--accent); }
+  button {
+    padding: 8px 12px; margin: 10px 6px 0 0; border-radius: 6px; cursor: pointer;
+    background: var(--accent); color: #fff; border: 0; font-size: 13px; font-weight: 500;
+  }
+  button.ghost { background: transparent; border: 1px solid var(--border); color: var(--text); }
+  button.danger { background: transparent; border: 1px solid #4a2b2b; color: var(--err); }
+  button.tiny { padding: 3px 8px; margin: 0; font-size: 11px; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  #status { margin: 0 0 16px; padding: 10px 12px; border-radius: 8px;
+    background: var(--panel); border: 1px solid var(--border); font-size: 13px; }
+  .row-inline { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }
+  .row-inline > div { flex: 1 1 150px; }
+  .ok { color: var(--ok); } .err { color: var(--err); } .dim { color: var(--muted); }
+  .warn { color: var(--warn); }
+
+  /* ---- watchlist list ---- */
+  .wl { display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+    border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px;
+    background: #0d0f14; }
+  .wl.active { border-color: var(--accent); }
+  .wl .name { font-weight: 600; }
+  .wl .meta { color: var(--muted); font-size: 12px; }
+  .wl .spacer { flex: 1; }
+  .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok);
+    box-shadow: 0 0 0 3px rgba(61,220,151,.18); }
+
+  /* ---- tables ---- */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: right; font-weight: 500; color: var(--muted); font-size: 11px;
+    text-transform: uppercase; letter-spacing: .05em; padding: 0 8px 6px;
+    border-bottom: 1px solid var(--grid); }
+  th:first-child, td:first-child { text-align: left; }
+  td { text-align: right; padding: 7px 8px; border-bottom: 1px solid #1a1d24;
+    font-variant-numeric: tabular-nums; }
+  tbody tr:last-child td { border-bottom: 0; }
+  tr.flash-up td { background: rgba(12,163,12,.14); }
+  tr.flash-down td { background: rgba(230,103,103,.14); }
+  tr td { transition: background .45s ease-out; }
+  .sym { font-weight: 600; font-variant-numeric: normal; }
+
+  /* ---- chart chrome ---- */
+  .plot { position: relative; }
+  /* The viewBox is set to the measured pixel width so 11px label text is really 11px —
+     a scaled viewBox shrinks the type along with the geometry. */
+  .plot svg { display: block; width: 100%; height: 210px; }
+  .plot.reloading { opacity: .55; }        /* hold the frame on refetch, no skeleton */
+  .tip {
+    position: absolute; pointer-events: none; opacity: 0; transition: opacity .1s;
+    background: #0a0c10; border: 1px solid var(--border); border-radius: 6px;
+    padding: 6px 8px; font-size: 12px; white-space: nowrap; z-index: 5;
+    box-shadow: 0 4px 14px rgba(0,0,0,.4);
+  }
+  .tip .v { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .tip .k { color: var(--muted); font-size: 11px; }
+  .tip .key { display: inline-block; width: 12px; height: 2px; vertical-align: middle;
+    margin-right: 6px; }
+
+  /* ---- depth ladder ---- */
+  .ladder { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 700px) { .ladder { grid-template-columns: 1fr; } }
+  .side-title { font-size: 11px; text-transform: uppercase; letter-spacing: .05em;
+    color: var(--muted); margin-bottom: 6px; display: flex; gap: 6px; align-items: center; }
+  .side-title i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+  .lvl { position: relative; height: 20px; margin-bottom: 2px; cursor: default; }
+  /* A recessive wash, not a saturated fill: the bar is a background depth cue behind
+     the numbers, so it never competes with them or reads as a solid block. */
+  .lvl .bar { position: absolute; top: 0; bottom: 0; opacity: .30; }
+  .lvl.bid .bar { right: 0; background: var(--bid); border-radius: 4px 0 0 4px; }
+  .lvl.ask .bar { left: 0; background: var(--ask); border-radius: 0 4px 4px 0; }
+  .lvl .txt { position: relative; display: flex; justify-content: space-between;
+    padding: 0 6px; font-size: 12px; line-height: 20px; font-variant-numeric: tabular-nums; }
+  .lvl:hover .bar { opacity: .58; }
+  .imbalance { display: flex; height: 6px; border-radius: 3px; overflow: hidden;
+    margin: 10px 0 4px; gap: 2px; }
+  .imbalance i { display: block; }
+
+  #log {
+    background: #0a0c10; border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px; max-height: 260px; overflow: auto;
+    font: 11px/1.5 ui-monospace, "Cascadia Code", Consolas, monospace; white-space: pre-wrap;
+  }
+  #log div { padding-bottom: 4px; margin-bottom: 4px; border-bottom: 1px solid #14171d; }
+  .chip { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 999px;
+    border: 1px solid var(--border); color: var(--muted); }
+  .chip.on { border-color: #24503c; color: var(--ok); }
+  .chip.off { border-color: #4a2b2b; color: var(--err); }
+  .counts { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted);
+    margin-top: 10px; }
+  .counts b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .hidden { display: none; }
+  .note { font-size: 12px; color: var(--muted); margin-top: 10px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Stocks360 Crypto Demo</h1>
+  <div class="sub">
+    Live Binance market data through the backend, and one WebSocket per watchlist
+    instance. Open via <strong>http://localhost:8000/test/crypto</strong>
+    (<code>localhost</code>, not <code>127.0.0.1</code> — Firebase only authorizes
+    <code>localhost</code> by default).
+  </div>
+
+  <div id="status">Loading Firebase…</div>
+
+  <div class="grid2">
+    <div class="card">
+      <h2>1 · Sign in</h2>
+      <label for="email">Email</label>
+      <input id="email" type="email" autocomplete="username" placeholder="you@example.com" />
+      <label for="password">Password (min 6 chars)</label>
+      <input id="password" type="password" autocomplete="current-password" placeholder="••••••" />
+      <div>
+        <button id="btn-signup" class="ghost">Sign up</button>
+        <button id="btn-signin">Sign in</button>
+        <button id="btn-google" class="ghost">Google</button>
+        <button id="btn-signout" class="ghost">Sign out</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>2 · New watchlist instance</h2>
+      <label for="wl-name">Name (unique per user)</label>
+      <input id="wl-name" placeholder="Majors" value="Majors" />
+      <label for="sym-search">Symbols — filter, then pick several</label>
+      <input id="sym-search" placeholder="btc, eth, sol…" />
+      <select id="sym-pick" multiple size="6" style="height:auto;margin-top:6px"></select>
+      <div>
+        <button id="btn-create">POST /crypto/watchlists</button>
+        <button id="btn-reload-symbols" class="ghost">Reload symbols</button>
+      </div>
+      <div class="note" id="sym-note">Sign in to load the symbol universe.</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>3 · Your instances <span class="dim" id="wl-count"></span></h2>
+    <div id="wl-list" class="dim">Sign in to load.</div>
+    <button id="btn-reload-wl" class="ghost">GET /crypto/watchlists</button>
+  </div>
+
+  <div class="card">
+    <h2>
+      <span>4 · Live stream</span>
+      <span>
+        <span class="chip" id="chip-socket">socket closed</span>
+        <span class="chip" id="chip-upstream">upstream ?</span>
+      </span>
+    </h2>
+    <div id="stream-target" class="dim" style="margin-bottom:10px">
+      No instance connected — pick one above and hit Connect.
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Symbol</th><th>Last</th><th>24h change</th><th>High</th><th>Low</th>
+          <th>Bid</th><th>Ask</th><th>Quote volume</th>
+        </tr>
+      </thead>
+      <tbody id="quote-rows">
+        <tr><td colspan="8" class="dim" style="text-align:center">no data</td></tr>
+      </tbody>
+    </table>
+
+    <div class="counts">
+      <span>quotes <b id="c-quotes">0</b></span>
+      <span>snapshots <b id="c-snap">0</b></span>
+      <span>resyncs <b id="c-resync">0</b></span>
+      <span>heartbeats <b id="c-hb">0</b></span>
+      <span>dropped <b id="c-drop">0</b></span>
+      <span>last frame <b id="c-age">—</b></span>
+    </div>
+
+    <div class="row-inline" style="margin-top:14px">
+      <div>
+        <label for="live-symbol">Edit the instance while the socket is open</label>
+        <input id="live-symbol" placeholder="DOGEUSDT" />
+      </div>
+      <div style="flex:0 0 auto">
+        <button id="btn-add-sym" class="ghost">Add symbol</button>
+        <button id="btn-del-sym" class="danger">Remove symbol</button>
+      </div>
+      <div style="flex:0 0 auto">
+        <button id="btn-ping" class="ghost">ping</button>
+        <button id="btn-resync" class="ghost">resync</button>
+        <button id="btn-disconnect" class="ghost">Close socket</button>
+      </div>
+    </div>
+    <div class="note">
+      Adding or removing a symbol here re-binds the <em>open</em> socket — watch for a
+      <code>resynced</code> frame and the new row starting to tick, with no reconnect.
+    </div>
+  </div>
+
+  <!-- Filters scope both charts below, in one row above them. -->
+  <div class="card">
+    <h2>5 · Market data</h2>
+    <div class="row-inline">
+      <div>
+        <label for="md-symbol">Symbol</label>
+        <input id="md-symbol" value="BTCUSDT" />
+      </div>
+      <div>
+        <label for="md-interval">Candle interval</label>
+        <select id="md-interval">
+          <option>1m</option><option>5m</option><option>15m</option>
+          <option selected>1h</option><option>4h</option><option>1d</option>
+        </select>
+      </div>
+      <div>
+        <label for="md-limit">Candles</label>
+        <select id="md-limit">
+          <option>60</option><option selected>120</option><option>240</option>
+        </select>
+      </div>
+      <div>
+        <label for="md-depth">Book depth</label>
+        <select id="md-depth">
+          <option>5</option><option>10</option><option selected>20</option><option>50</option>
+        </select>
+      </div>
+      <div style="flex:0 0 auto">
+        <button id="btn-load-md">Load</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid3">
+    <div class="card">
+      <h2>
+        <span id="spark-title">Close price</span>
+        <button id="btn-kline-table" class="ghost tiny">Table view</button>
+      </h2>
+      <div class="plot" id="spark-plot">
+        <svg id="spark" viewBox="0 0 720 210" role="img" aria-labelledby="spark-desc"></svg>
+        <div class="tip" id="spark-tip"></div>
+      </div>
+      <div id="spark-desc" class="note">Load a symbol to draw the series.</div>
+      <div id="kline-table" class="hidden" style="max-height:260px;overflow:auto;margin-top:10px"></div>
+    </div>
+
+    <div class="card">
+      <h2>
+        <span id="book-title">Order book</span>
+        <button id="btn-book-table" class="ghost tiny">Table view</button>
+      </h2>
+      <div class="plot" id="book-plot">
+        <div class="ladder">
+          <div>
+            <div class="side-title"><i style="background:var(--bid)"></i> Bids · buy side</div>
+            <div id="bids"></div>
+          </div>
+          <div>
+            <div class="side-title"><i style="background:var(--ask)"></i> Asks · sell side</div>
+            <div id="asks"></div>
+          </div>
+        </div>
+        <div class="tip" id="book-tip"></div>
+      </div>
+      <div class="side-title" style="margin:14px 0 0">Depth split · bids vs asks</div>
+      <div class="imbalance" id="book-imbalance"></div>
+      <div class="note" id="book-desc">Bar length is cumulative quantity within each side.</div>
+      <div id="book-table" class="hidden" style="max-height:260px;overflow:auto;margin-top:10px"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>
+      <span>6 · Frame log</span>
+      <span>
+        <button id="btn-stats" class="ghost tiny">GET /crypto/stream/stats</button>
+        <button id="btn-clear" class="ghost tiny">Clear</button>
+      </span>
+    </h2>
+    <div id="log"></div>
+  </div>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-app.js";
+import {
+  getAuth, onAuthStateChanged, createUserWithEmailAndPassword,
+  signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, signOut,
+} from "https://www.gstatic.com/firebasejs/12.4.0/firebase-auth.js";
+
+const $ = (id) => document.getElementById(id);
+const logEl = $("log"), statusEl = $("status");
+
+function log(tag, data, cls = "") {
+  const row = document.createElement("div");
+  const head = document.createElement("span");
+  head.className = `tag ${cls}`;
+  head.style.fontWeight = "600";
+  // Server text and symbol names are untrusted — insert as text, never as markup.
+  head.textContent = tag;
+  row.append(head, document.createTextNode("\n" + (typeof data === "string" ? data : JSON.stringify(data))));
+  logEl.prepend(row);
+  while (logEl.children.length > 120) logEl.lastChild.remove();
+}
+
+// ---------------------------------------------------------------- firebase ---
+const cfgRes = await fetch("/auth/config");
+if (!cfgRes.ok) {
+  statusEl.innerHTML = `<span class="err">Could not load /auth/config (${cfgRes.status})</span>`;
+  throw new Error(`GET /auth/config -> ${cfgRes.status}`);
+}
+const auth = getAuth(initializeApp(await cfgRes.json()));
+
+// Auth state is the single trigger for loading, not the sign-in buttons. Firebase
+// restores a session from IndexedDB on reload, in which case no button is ever clicked
+// and the page would sit empty while claiming to be signed in.
+let booted = false;
+onAuthStateChanged(auth, (user) => {
+  statusEl.innerHTML = user
+    ? `<span class="ok">Signed in</span> as <strong></strong> <span class="dim">(uid ${user.uid})</span>`
+    : `<span class="dim">Not signed in — every crypto call returns 401.</span>`;
+  if (user) {
+    statusEl.querySelector("strong").textContent = user.email ?? user.uid;
+    if (!booted) { booted = true; guard(afterSignIn); }
+  } else {
+    booted = false;
+    resetSignedOut();
+  }
+});
+
+const idToken = () => {
+  if (!auth.currentUser) throw new Error("Not signed in — sign in first.");
+  return auth.currentUser.getIdToken();
+};
+
+async function call(method, path, body) {
+  const headers = { Authorization: `Bearer ${await idToken()}` };
+  if (body !== undefined) headers["Content-Type"] = "application/json";
+  const res = await fetch(path, { method, headers, body: body && JSON.stringify(body) });
+  let payload = null;
+  if (res.status !== 204) { try { payload = await res.json(); } catch { payload = await res.text(); } }
+  log(`${method} ${path} → ${res.status}`, payload ?? "(no body)", res.ok ? "ok" : "err");
+  if (!res.ok) throw new Error(payload?.detail ?? `${method} ${path} -> ${res.status}`);
+  return payload;
+}
+
+// ------------------------------------------------------------- formatting ---
+/** Trailing zeros carry no information; dropping them is lossless. */
+const trimNum = (s) => String(s).includes(".")
+  ? String(s).replace(/0+$/, "").replace(/\.$/, "") : String(s);
+
+const fmtPrice = (s) => {
+  const n = Number(s);
+  if (!isFinite(n)) return String(s);
+  return n >= 1000 ? n.toLocaleString(undefined, { maximumFractionDigits: 2 }) : trimNum(s);
+};
+const fmtCompact = (s) => {
+  const n = Number(s);
+  if (!isFinite(n)) return String(s);
+  for (const [d, u] of [[1e9, "B"], [1e6, "M"], [1e3, "K"]]) {
+    if (Math.abs(n) >= d) return (n / d).toFixed(2) + u;
+  }
+  return n.toFixed(2);
+};
+/** Delta never relies on hue: it always carries a sign and an arrow glyph. */
+function deltaCell(pct) {
+  const n = Number(pct);
+  const up = n >= 0;
+  const el = document.createElement("span");
+  el.style.color = up ? "var(--delta-up)" : "var(--delta-down)";
+  el.textContent = `${up ? "▲ +" : "▼ "}${n.toFixed(2)}%`;
+  return el;
+}
+
+// -------------------------------------------------------------- symbols ---
+let universe = [];
+
+async function loadSymbols() {
+  const rows = await call("GET", "/crypto/symbols?quote_asset=USDT&limit=2000");
+  universe = rows.map((r) => r.symbol);
+  $("sym-note").textContent = `${universe.length} USDT spot symbols loaded.`;
+  renderSymbolPicker();
+}
+
+function renderSymbolPicker() {
+  const needle = $("sym-search").value.trim().toUpperCase();
+  const shown = (needle ? universe.filter((s) => s.includes(needle)) : universe).slice(0, 300);
+  const sel = $("sym-pick");
+  const keep = new Set([...sel.selectedOptions].map((o) => o.value));
+  sel.replaceChildren();
+  for (const s of shown) {
+    const opt = document.createElement("option");
+    opt.value = s;
+    opt.textContent = s;                 // untrusted → textContent
+    if (keep.has(s)) opt.selected = true;
+    sel.append(opt);
+  }
+}
+$("sym-search").addEventListener("input", renderSymbolPicker);
+
+// ------------------------------------------------------------ watchlists ---
+let watchlists = [];
+let connectedId = null;
+
+async function loadWatchlists() {
+  watchlists = await call("GET", "/crypto/watchlists");
+  $("wl-count").textContent = `(${watchlists.length})`;
+  const host = $("wl-list");
+  host.replaceChildren();
+  if (!watchlists.length) {
+    host.className = "dim";
+    host.textContent = "None yet — create one above.";
+    return;
+  }
+  host.className = "";
+  for (const wl of watchlists) {
+    const row = document.createElement("div");
+    row.className = "wl" + (wl.id === connectedId ? " active" : "");
+
+    if (wl.id === connectedId) {
+      const dot = document.createElement("span");
+      dot.className = "live-dot";
+      dot.title = "socket open";
+      row.append(dot);
+    }
+    const name = document.createElement("span");
+    name.className = "name";
+    name.textContent = wl.name;          // untrusted → textContent
+    const meta = document.createElement("span");
+    meta.className = "meta";
+    meta.textContent = `v${wl.version} · ${wl.symbols.join(", ")}`;
+    const spacer = document.createElement("span");
+    spacer.className = "spacer";
+
+    const connect = document.createElement("button");
+    connect.className = "ghost tiny";
+    connect.textContent = wl.id === connectedId ? "Reconnect" : "Connect";
+    connect.onclick = () => openSocket(wl);
+
+    const quotes = document.createElement("button");
+    quotes.className = "ghost tiny";
+    quotes.textContent = "Snapshot";
+    quotes.onclick = () => guard(async () => {
+      const q = await call("GET", `/crypto/watchlists/${wl.id}/quotes`);
+      renderQuotes(q.quotes);
+      $("stream-target").textContent =
+        `REST snapshot of "${q.name}" (v${q.version}) — no socket open.`;
+    });
+
+    const del = document.createElement("button");
+    del.className = "danger tiny";
+    del.textContent = "Delete";
+    del.onclick = () => guard(async () => {
+      await call("DELETE", `/crypto/watchlists/${wl.id}`);
+      await loadWatchlists();
+    });
+
+    row.append(name, meta, spacer, quotes, connect, del);
+    host.append(row);
+  }
+}
+
+// ----------------------------------------------------------- quote table ---
+const quotes = new Map();   // symbol -> latest quote
+
+function renderQuotes(list) {
+  quotes.clear();
+  for (const q of list ?? []) quotes.set(q.symbol, q);
+  redrawQuoteTable();
+}
+
+function redrawQuoteTable() {
+  const body = $("quote-rows");
+  body.replaceChildren();
+  if (!quotes.size) {
+    const tr = body.insertRow();
+    const td = tr.insertCell();
+    td.colSpan = 8; td.className = "dim"; td.style.textAlign = "center";
+    td.textContent = "no data";
+    return;
+  }
+  for (const symbol of [...quotes.keys()].sort()) {
+    const q = quotes.get(symbol);
+    const tr = body.insertRow();
+    tr.id = `q-${symbol}`;
+    const cells = [
+      [symbol, "sym"],
+      [fmtPrice(q.last_price)],
+      [null],
+      [fmtPrice(q.high)],
+      [fmtPrice(q.low)],
+      [q.bid ? fmtPrice(q.bid) : "—"],
+      [q.ask ? fmtPrice(q.ask) : "—"],
+      [fmtCompact(q.quote_volume)],
+    ];
+    cells.forEach(([text, cls], i) => {
+      const td = tr.insertCell();
+      if (cls) td.className = cls;
+      if (i === 2) td.append(deltaCell(q.price_change_percent));
+      else td.textContent = text;
+    });
+  }
+}
+
+function applyQuote(q) {
+  const prev = quotes.get(q.symbol);
+  quotes.set(q.symbol, q);
+  const tr = $(`q-${q.symbol}`);
+  if (!tr) { redrawQuoteTable(); return; }
+  tr.cells[1].textContent = fmtPrice(q.last_price);
+  tr.cells[2].replaceChildren(deltaCell(q.price_change_percent));
+  tr.cells[3].textContent = fmtPrice(q.high);
+  tr.cells[4].textContent = fmtPrice(q.low);
+  tr.cells[5].textContent = q.bid ? fmtPrice(q.bid) : "—";
+  tr.cells[6].textContent = q.ask ? fmtPrice(q.ask) : "—";
+  tr.cells[7].textContent = fmtCompact(q.quote_volume);
+
+  if (prev) {
+    const dir = Number(q.last_price) - Number(prev.last_price);
+    if (dir !== 0) {
+      const cls = dir > 0 ? "flash-up" : "flash-down";
+      tr.classList.add(cls);
+      setTimeout(() => tr.classList.remove(cls), 420);
+    }
+  }
+}
+
+// -------------------------------------------------------------- websocket ---
+let socket = null;
+const counts = { quotes: 0, snap: 0, resync: 0, hb: 0, drop: 0 };
+let lastFrameAt = null;
+
+const CLOSE_REASONS = {
+  4401: "unauthenticated — the token was missing, invalid or revoked",
+  4404: "no such watchlist for this user",
+  4429: "too many open sockets for this user",
+  4410: "the watchlist was deleted",
+  1012: "server restarting",
+  1000: "closed normally",
+  1005: "closed with no status",
+  1006: "connection lost",
+};
+
+function setCounts() {
+  $("c-quotes").textContent = counts.quotes;
+  $("c-snap").textContent = counts.snap;
+  $("c-resync").textContent = counts.resync;
+  $("c-hb").textContent = counts.hb;
+  $("c-drop").textContent = counts.drop;
+}
+
+setInterval(() => {
+  $("c-age").textContent = lastFrameAt ? `${((Date.now() - lastFrameAt) / 1000).toFixed(1)}s ago` : "—";
+}, 500);
+
+function chip(el, text, state) {
+  el.textContent = text;
+  el.className = "chip" + (state ? ` ${state}` : "");
+}
+
+async function openSocket(wl) {
+  if (socket) { socket.close(1000, "switching"); socket = null; }
+  const token = await idToken();
+  const scheme = location.protocol === "https:" ? "wss" : "ws";
+  const url = `${scheme}://${location.host}/crypto/watchlists/${wl.id}/stream?token=${encodeURIComponent(token)}`;
+
+  chip($("chip-socket"), "connecting…");
+  const ws = new WebSocket(url);
+  socket = ws;
+  Object.keys(counts).forEach((k) => (counts[k] = 0));
+  setCounts();
+
+  ws.onopen = () => {
+    connectedId = wl.id;
+    chip($("chip-socket"), "socket open", "on");
+    $("stream-target").textContent = `Streaming "${wl.name}" — ${wl.stream_url}`;
+    log("ws open", wl.stream_url, "ok");
+    loadWatchlists();
+  };
+
+  ws.onmessage = (ev) => {
+    lastFrameAt = Date.now();
+    const f = JSON.parse(ev.data);
+    switch (f.type) {
+      case "subscribed":
+        chip($("chip-upstream"), `upstream ${f.state}`, f.state === "connected" ? "on" : "off");
+        log("frame subscribed", f, "ok");
+        break;
+      case "snapshot":
+        counts.snap++;
+        renderQuotes(f.quotes);
+        log("frame snapshot", `${(f.quotes ?? []).length} quotes${f.detail ? " · " + f.detail : ""}`, "ok");
+        break;
+      case "quote":
+        counts.quotes++;
+        applyQuote(f.quote);
+        break;
+      case "resynced":
+        counts.resync++;
+        renderQuotes(f.quotes);
+        $("stream-target").textContent =
+          `Streaming "${wl.name}" v${f.version} — ${f.symbols.join(", ")}`;
+        log("frame resynced", `v${f.version} · ${f.symbols.join(", ")}`, "warn");
+        loadWatchlists();
+        break;
+      case "heartbeat":
+        counts.hb++;
+        counts.drop = f.dropped ?? counts.drop;
+        break;
+      case "upstream":
+        chip($("chip-upstream"), `upstream ${f.state}`, f.state === "disconnected" ? "off" : "on");
+        log("frame upstream", f.state, f.state === "disconnected" ? "err" : "ok");
+        break;
+      case "deleted":
+        log("frame deleted", f.detail ?? "watchlist deleted", "err");
+        break;
+      case "pong":
+        log("frame pong", `dropped=${f.dropped}`, "ok");
+        break;
+      case "error":
+        log("frame error", f.detail ?? "", "err");
+        break;
+      default:
+        log(`frame ${f.type}`, f);
+    }
+    setCounts();
+  };
+
+  ws.onclose = (ev) => {
+    if (socket === ws) socket = null;
+    if (connectedId === wl.id) connectedId = null;
+    const why = CLOSE_REASONS[ev.code] ?? ev.reason ?? "";
+    chip($("chip-socket"), `closed ${ev.code}`, "off");
+    $("stream-target").textContent = `Socket closed (${ev.code})${why ? " — " + why : ""}`;
+    log(`ws close ${ev.code}`, why || "(no reason given)", ev.code === 1000 ? "dim" : "err");
+    loadWatchlists();
+  };
+
+  ws.onerror = () => log("ws error", "see close code", "err");
+}
+
+const send = (obj) => {
+  if (!socket || socket.readyState !== WebSocket.OPEN) throw new Error("No open socket.");
+  socket.send(JSON.stringify(obj));
+  log("→ client", obj, "dim");
+};
+
+// ------------------------------------------------------------- sparkline ---
+const SPARK = { h: 210, l: 62, r: 84, t: 14, b: 26 };
+let klines = [];
+let lastSpark = null;
+
+function drawSparkline(symbol, interval, rows) {
+  klines = rows;
+  lastSpark = { symbol, interval, rows };
+  const svg = $("spark");
+  svg.replaceChildren();
+  $("spark-title").textContent = `${symbol} close · ${interval}`;
+  if (!rows.length) return;
+
+  // 1:1 with the rendered pixels, so 11px text is 11px and the right margin really does
+  // hold the endpoint label.
+  const W = Math.max(340, Math.round($("spark-plot").clientWidth) || 720);
+  svg.setAttribute("viewBox", `0 0 ${W} ${SPARK.h}`);
+
+  const closes = rows.map((k) => Number(k.close));
+  const times = rows.map((k) => new Date(k.close_time));
+  const lo = Math.min(...closes), hi = Math.max(...closes);
+  const pad = (hi - lo) * 0.08 || (hi * 0.001 || 1);
+  const yMin = lo - pad, yMax = hi + pad;
+  const plotW = W - SPARK.l - SPARK.r;
+  const plotH = SPARK.h - SPARK.t - SPARK.b;
+  const x = (i) => SPARK.l + (rows.length === 1 ? plotW / 2 : (i / (rows.length - 1)) * plotW);
+  const y = (v) => SPARK.t + plotH - ((v - yMin) / (yMax - yMin)) * plotH;
+
+  const ns = "http://www.w3.org/2000/svg";
+  const add = (tag, attrs, parent = svg) => {
+    const el = document.createElementNS(ns, tag);
+    for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+    parent.append(el);
+    return el;
+  };
+  const text = (str, attrs) => {
+    const el = add("text", { "font-size": 11, fill: "var(--plot-muted)", ...attrs });
+    el.textContent = str;
+    return el;
+  };
+
+  // Gridlines: solid hairlines, one shade off the surface, never dashed.
+  for (let i = 0; i <= 3; i++) {
+    const v = yMin + ((yMax - yMin) * i) / 3;
+    const gy = y(v);
+    add("line", { x1: SPARK.l, x2: SPARK.l + plotW, y1: gy, y2: gy,
+      stroke: "var(--grid)", "stroke-width": 1, "vector-effect": "non-scaling-stroke" });
+    text(fmtPrice(v.toPrecision(8)), { x: SPARK.l - 8, y: gy + 4, "text-anchor": "end",
+      "font-variant-numeric": "tabular-nums" });
+  }
+  add("line", { x1: SPARK.l, x2: SPARK.l + plotW, y1: SPARK.t + plotH, y2: SPARK.t + plotH,
+    stroke: "var(--axis)", "stroke-width": 1, "vector-effect": "non-scaling-stroke" });
+
+  const fmtTime = (d) => d.toLocaleString(undefined,
+    { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  text(fmtTime(times[0]), { x: SPARK.l, y: SPARK.h - 8 });
+  text(fmtTime(times.at(-1)), { x: SPARK.l + plotW, y: SPARK.h - 8, "text-anchor": "middle" });
+
+  // One series: 2px stroke, no legend needed — the title names it.
+  add("path", {
+    d: closes.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(2)},${y(v).toFixed(2)}`).join(""),
+    fill: "none", stroke: "var(--series-1)", "stroke-width": 2,
+    "stroke-linejoin": "round", "stroke-linecap": "round",
+    "vector-effect": "non-scaling-stroke",
+  });
+
+  // Selective direct label: the endpoint only, never a number on every point.
+  const lastY = y(closes.at(-1));
+  add("circle", { cx: x(closes.length - 1), cy: lastY, r: 4,
+    fill: "var(--series-1)", stroke: "var(--panel)", "stroke-width": 2 });
+  text(fmtPrice(String(closes.at(-1))), {
+    x: SPARK.l + plotW + 8, y: lastY + 4, fill: "var(--text)", "font-weight": 600,
+    "font-variant-numeric": "tabular-nums",
+  });
+
+  const first = closes[0], last = closes.at(-1);
+  const chg = ((last - first) / first) * 100;
+  $("spark-desc").textContent =
+    `${rows.length} candles · ${fmtTime(times[0])} → ${fmtTime(times.at(-1))} · ` +
+    `range ${fmtPrice(String(lo))}–${fmtPrice(String(hi))} · ` +
+    `${chg >= 0 ? "▲ +" : "▼ "}${chg.toFixed(2)}% over the window`;
+
+  // Crosshair layer: the reader aims at a time, not at a 2px line.
+  const hair = add("line", { x1: 0, x2: 0, y1: SPARK.t, y2: SPARK.t + plotH,
+    stroke: "var(--axis)", "stroke-width": 1, opacity: 0, "vector-effect": "non-scaling-stroke" });
+  const dot = add("circle", { r: 4.5, fill: "var(--series-1)", stroke: "var(--panel)",
+    "stroke-width": 2, opacity: 0 });
+  const hit = add("rect", { x: SPARK.l, y: SPARK.t, width: plotW, height: plotH,
+    fill: "transparent", style: "cursor:crosshair" });
+
+  const tip = $("spark-tip");
+  const move = (ev) => {
+    const box = svg.getBoundingClientRect();
+    const ratio = Math.min(1, Math.max(0, (ev.clientX - box.left - SPARK.l) / plotW));
+    const i = Math.round(ratio * (rows.length - 1));
+    const k = rows[i];
+    hair.setAttribute("x1", x(i)); hair.setAttribute("x2", x(i));
+    hair.setAttribute("opacity", 1);
+    dot.setAttribute("cx", x(i)); dot.setAttribute("cy", y(closes[i]));
+    dot.setAttribute("opacity", 1);
+
+    // Value leads, label follows. Untrusted values go in as text.
+    tip.replaceChildren();
+    const v = document.createElement("div");
+    v.className = "v";
+    const key = document.createElement("span");
+    key.className = "key";
+    key.style.background = "var(--series-1)";
+    v.append(key, document.createTextNode(fmtPrice(k.close)));
+    const meta = document.createElement("div");
+    meta.className = "k";
+    meta.textContent = `close · ${fmtTime(new Date(k.close_time))}`;
+    const ohlc = document.createElement("div");
+    ohlc.className = "k";
+    ohlc.textContent = `O ${fmtPrice(k.open)} H ${fmtPrice(k.high)} L ${fmtPrice(k.low)}`;
+    tip.append(v, meta, ohlc);
+    tip.style.opacity = 1;
+    // Flip to the left of the crosshair near the right edge, so it never covers the
+    // endpoint label or spills out of the card.
+    const tipW = tip.offsetWidth || 180;
+    const wantRight = x(i) + 12;
+    const left = wantRight + tipW > W - 4 ? x(i) - tipW - 12 : wantRight;
+    tip.style.left = `${Math.max(0, left)}px`;
+    tip.style.top = `${Math.max(0, y(closes[i]) - 52)}px`;
+  };
+  hit.addEventListener("pointermove", move);
+  hit.addEventListener("pointerleave", () => {
+    tip.style.opacity = 0; hair.setAttribute("opacity", 0); dot.setAttribute("opacity", 0);
+  });
+}
+
+function klineTable() {
+  const host = $("kline-table");
+  const t = document.createElement("table");
+  t.innerHTML = "<thead><tr><th>Close time</th><th>Open</th><th>High</th><th>Low</th>" +
+    "<th>Close</th><th>Volume</th></tr></thead>";
+  const tb = document.createElement("tbody");
+  for (const k of [...klines].reverse()) {
+    const tr = tb.insertRow();
+    for (const v of [new Date(k.close_time).toLocaleString(), fmtPrice(k.open),
+                     fmtPrice(k.high), fmtPrice(k.low), fmtPrice(k.close), fmtCompact(k.volume)]) {
+      tr.insertCell().textContent = v;
+    }
+  }
+  t.append(tb);
+  host.replaceChildren(t);
+}
+
+// ---------------------------------------------------------- depth ladder ---
+let book = null;
+
+function drawBook(symbol, data) {
+  book = data;
+  $("book-title").textContent = `${symbol} order book`;
+  const sides = [["bids", data.bids, "bid"], ["asks", data.asks, "ask"]];
+  const cum = (levels) => {
+    let run = 0;
+    return levels.map((l) => (run += Number(l.quantity)));
+  };
+  const totals = { bids: cum(data.bids), asks: cum(data.asks) };
+  // Each side is scaled to its OWN total, so the bar shows how depth accumulates down
+  // that side of the book. A single shared scale looks fairer but reads far worse: one
+  // large top-of-book order pins every row on the heavier side at ~100% (a solid block)
+  // and flattens the other side into identical stubs. Cross-side size is a single
+  // comparison, so it is given as the imbalance bar and totals below instead.
+  const sideMax = { bids: totals.bids.at(-1) || 1, asks: totals.asks.at(-1) || 1 };
+  const tip = $("book-tip");
+
+  for (const [key, levels, cls] of sides) {
+    const host = $(key);
+    host.replaceChildren();
+    levels.forEach((lvl, i) => {
+      const row = document.createElement("div");
+      row.className = `lvl ${cls}`;
+      const bar = document.createElement("div");
+      bar.className = "bar";
+      bar.style.width = `${(totals[key][i] / sideMax[key]) * 100}%`;
+      const txt = document.createElement("div");
+      txt.className = "txt";
+      const price = document.createElement("span");
+      price.textContent = fmtPrice(lvl.price);
+      const qty = document.createElement("span");
+      qty.textContent = trimNum(lvl.quantity);
+      txt.append(price, qty);
+      row.append(bar, txt);
+
+      // The mark is the hit target, and it lifts on hover (see CSS).
+      row.addEventListener("pointerenter", () => {
+        tip.replaceChildren();
+        const v = document.createElement("div");
+        v.className = "v";
+        const k = document.createElement("span");
+        k.className = "key";
+        k.style.background = `var(--${cls})`;
+        v.append(k, document.createTextNode(`${trimNum(lvl.quantity)} @ ${fmtPrice(lvl.price)}`));
+        const meta = document.createElement("div");
+        meta.className = "k";
+        meta.textContent = `${cls === "bid" ? "Bid" : "Ask"} · level ${i + 1} · ` +
+          `cumulative ${totals[key][i].toFixed(4)}`;
+        tip.append(v, meta);
+        tip.style.opacity = 1;
+        const pb = $("book-plot").getBoundingClientRect();
+        const rb = row.getBoundingClientRect();
+        tip.style.left = `${Math.max(0, Math.min(pb.width - 200, rb.left - pb.left + 20))}px`;
+        tip.style.top = `${rb.top - pb.top - 34}px`;
+      });
+      row.addEventListener("pointerleave", () => { tip.style.opacity = 0; });
+      host.append(row);
+    });
+  }
+
+  const spread = Number(data.asks[0].price) - Number(data.bids[0].price);
+  const mid = (Number(data.asks[0].price) + Number(data.bids[0].price)) / 2;
+  const bidTotal = sideMax.bids, askTotal = sideMax.asks;
+  const share = (bidTotal / (bidTotal + askTotal)) * 100;
+
+  // The one cross-side comparison, given its own mark and stated in words.
+  const bar = $("book-imbalance");
+  bar.replaceChildren();
+  const left = document.createElement("i");
+  left.style.cssText = `background:var(--bid);width:${share}%`;
+  const right = document.createElement("i");
+  right.style.cssText = `background:var(--ask);flex:1`;
+  bar.append(left, right);
+
+  $("book-desc").textContent =
+    `Bar length is cumulative quantity within each side · ` +
+    `${share.toFixed(1)}% of the shown depth is bids ` +
+    `(${bidTotal.toFixed(4)} vs ${askTotal.toFixed(4)}) · ` +
+    `spread ${trimNum(spread.toFixed(8))} (${((spread / mid) * 100).toFixed(4)}%) · ` +
+    `update id ${data.last_update_id}`;
+}
+
+function bookTable() {
+  const host = $("book-table");
+  const t = document.createElement("table");
+  t.innerHTML = "<thead><tr><th>Side</th><th>Price</th><th>Quantity</th></tr></thead>";
+  const tb = document.createElement("tbody");
+  for (const [side, levels] of [["Bid", book.bids], ["Ask", book.asks]]) {
+    for (const l of levels) {
+      const tr = tb.insertRow();
+      tr.insertCell().textContent = side;
+      tr.insertCell().textContent = fmtPrice(l.price);
+      tr.insertCell().textContent = trimNum(l.quantity);
+    }
+  }
+  t.append(tb);
+  host.replaceChildren(t);
+}
+
+async function loadMarketData() {
+  const symbol = $("md-symbol").value.trim().toUpperCase();
+  const interval = $("md-interval").value;
+  const limit = $("md-limit").value;
+  const depth = $("md-depth").value;
+  // Hold the previous render at reduced opacity rather than flashing a skeleton.
+  $("spark-plot").classList.add("reloading");
+  $("book-plot").classList.add("reloading");
+  try {
+    const [series, depthData] = await Promise.all([
+      call("GET", `/crypto/klines/${symbol}?interval=${interval}&limit=${limit}`),
+      call("GET", `/crypto/orderbook/${symbol}?limit=${depth}`),
+    ]);
+    drawSparkline(symbol, interval, series.klines);
+    drawBook(symbol, depthData);
+    if (!$("kline-table").classList.contains("hidden")) klineTable();
+    if (!$("book-table").classList.contains("hidden")) bookTable();
+  } finally {
+    $("spark-plot").classList.remove("reloading");
+    $("book-plot").classList.remove("reloading");
+  }
+}
+
+// ----------------------------------------------------------------- wiring ---
+const guard = async (fn) => {
+  try { await fn(); } catch (e) { log("error", e.message ?? String(e), "err"); }
+};
+const on = (id, fn) => $(id).addEventListener("click", () => guard(fn));
+
+on("btn-signup", async () => {
+  const cred = await createUserWithEmailAndPassword(
+    auth, $("email").value.trim(), $("password").value);
+  log("firebase createUser → ok", { uid: cred.user.uid }, "ok");
+});
+on("btn-signin", async () => {
+  const cred = await signInWithEmailAndPassword(
+    auth, $("email").value.trim(), $("password").value);
+  log("firebase signIn → ok", { uid: cred.user.uid }, "ok");
+});
+on("btn-google", async () => {
+  const cred = await signInWithPopup(auth, new GoogleAuthProvider());
+  log("firebase signInWithPopup → ok", { uid: cred.user.uid }, "ok");
+});
+on("btn-signout", async () => {
+  await signOut(auth);
+  log("firebase signOut → ok", "local session cleared", "ok");
+});
+
+async function afterSignIn() {
+  await loadSymbols();
+  await loadWatchlists();
+  await guard(loadMarketData);
+}
+
+// Signing out must not leave another user's instances on screen.
+function resetSignedOut() {
+  if (socket) socket.close(1000, "sign out");
+  watchlists = [];
+  connectedId = null;
+  $("wl-count").textContent = "(0)";
+}
+
+on("btn-reload-symbols", loadSymbols);
+on("btn-reload-wl", loadWatchlists);
+
+on("btn-create", async () => {
+  const symbols = [...$("sym-pick").selectedOptions].map((o) => o.value);
+  if (!symbols.length) throw new Error("Pick at least one symbol.");
+  await call("POST", "/crypto/watchlists", { name: $("wl-name").value.trim(), symbols });
+  await loadWatchlists();
+});
+
+on("btn-add-sym", async () => {
+  if (!connectedId) throw new Error("Connect a socket first.");
+  const symbol = $("live-symbol").value.trim().toUpperCase();
+  if (!symbol) throw new Error("Type a symbol.");
+  await call("POST", `/crypto/watchlists/${connectedId}/symbols`, { symbols: [symbol] });
+});
+on("btn-del-sym", async () => {
+  if (!connectedId) throw new Error("Connect a socket first.");
+  const symbol = $("live-symbol").value.trim().toUpperCase();
+  if (!symbol) throw new Error("Type a symbol.");
+  await call("DELETE", `/crypto/watchlists/${connectedId}/symbols/${symbol}`);
+});
+
+on("btn-ping", () => send({ action: "ping" }));
+on("btn-resync", () => send({ action: "resync" }));
+on("btn-disconnect", () => {
+  if (!socket) throw new Error("No open socket.");
+  socket.close(1000, "client closed");
+});
+
+on("btn-load-md", loadMarketData);
+on("btn-stats", () => call("GET", "/crypto/stream/stats"));
+
+const toggle = (btnId, hostId, render) => on(btnId, () => {
+  const host = $(hostId);
+  const showing = host.classList.toggle("hidden");
+  $(btnId).textContent = showing ? "Table view" : "Hide table";
+  if (!showing) render();
+});
+toggle("btn-kline-table", "kline-table", klineTable);
+toggle("btn-book-table", "book-table", bookTable);
+
+$("btn-clear").addEventListener("click", () => { logEl.replaceChildren(); });
+
+// The viewBox is measured in pixels, so it has to be re-measured when the card resizes.
+let sparkWidth = 0;
+new ResizeObserver(() => {
+  const w = Math.round($("spark-plot").clientWidth);
+  if (lastSpark && w && w !== sparkWidth) {
+    sparkWidth = w;
+    drawSparkline(lastSpark.symbol, lastSpark.interval, lastSpark.rows);
+  }
+}).observe($("spark-plot"));
+
+chip($("chip-socket"), "socket closed", "off");
+chip($("chip-upstream"), "upstream ?");
+</script>
+</body>
+</html>
