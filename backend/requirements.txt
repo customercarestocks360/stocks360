@@ -1,0 +1,11 @@
+fastapi==0.141.1
+uvicorn[standard]==0.52.2
+firebase-admin==7.5.0
+email-validator==2.3.0
+pymongo==4.17.0
+python-dotenv==1.2.2
+# Crypto market data: httpx for the upstream REST calls, websockets for the upstream
+# stream. Both arrive transitively today (firebase-admin, uvicorn[standard]) but the app
+# imports them directly, so they are pinned rather than left to chance.
+httpx==0.28.1
+websockets==17.0.1

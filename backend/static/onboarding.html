@@ -1,0 +1,504 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Stocks360 Onboarding Test</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --border: #262b36; --text: #e6e9ef;
+    --muted: #98a2b3; --accent: #4f8cff; --ok: #3ddc97; --err: #ff6b6b; --warn: #ffb84d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px; background: var(--bg); color: var(--text);
+    font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .wrap { max-width: 1040px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin-bottom: 20px; font-size: 13px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 820px) { .grid { grid-template-columns: 1fr; } }
+  .card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px; margin-bottom: 16px;
+  }
+  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em;
+    color: var(--muted); margin: 0 0 12px; }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 8px 0 4px; }
+  input, select, textarea {
+    width: 100%; padding: 8px 10px; border-radius: 6px; color: var(--text);
+    background: #0d0f14; border: 1px solid var(--border); font-size: 13px;
+  }
+  textarea { font: 12px/1.6 ui-monospace, "Cascadia Code", Consolas, monospace; resize: vertical; }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
+  button {
+    padding: 8px 12px; margin: 10px 6px 0 0; border-radius: 6px; cursor: pointer;
+    background: var(--accent); color: #fff; border: 0; font-size: 13px; font-weight: 500;
+  }
+  button.ghost { background: transparent; border: 1px solid var(--border); color: var(--text); }
+  button.bad { background: transparent; border: 1px solid #4a2b2b; color: var(--err); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  #status { margin: 0 0 16px; padding: 10px 12px; border-radius: 8px;
+    background: var(--panel); border: 1px solid var(--border); font-size: 13px; }
+  #log {
+    background: #0a0c10; border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px; max-height: 460px; overflow: auto;
+    font: 12px/1.5 ui-monospace, "Cascadia Code", Consolas, monospace; white-space: pre-wrap;
+  }
+  .row { margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid #1a1d24; }
+  .row:last-child { border-bottom: 0; }
+  .tag { font-weight: 600; }
+  .ok { color: var(--ok); } .err { color: var(--err); } .dim { color: var(--muted); }
+  .warn { color: var(--warn); }
+  .bar { height: 6px; background: #0d0f14; border: 1px solid var(--border);
+    border-radius: 4px; overflow: hidden; margin: 4px 0 12px; }
+  .bar > i { display: block; height: 100%; background: var(--accent); width: 0; transition: width .2s; }
+  .steps { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }
+  .pill { font-size: 11px; padding: 3px 8px; border-radius: 999px;
+    border: 1px solid var(--border); color: var(--muted); }
+  .pill.done { border-color: #24503c; color: var(--ok); }
+  .pill.next { border-color: var(--accent); color: var(--accent); }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; font-size: 13px; }
+  .kv b { color: var(--muted); font-weight: 400; }
+  .hint { font: 11px/1.6 ui-monospace, Consolas, monospace; color: var(--muted);
+    background: #0a0c10; border: 1px solid var(--border); border-radius: 6px;
+    padding: 8px; margin-top: 8px; max-height: 190px; overflow: auto; white-space: pre-wrap; }
+  .note { font-size: 12px; color: var(--warn); margin-top: 10px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Stocks360 Onboarding Test</h1>
+  <div class="sub">
+    Exercises <code>POST /onboarding/step</code>, <code>GET /onboarding/session</code> and
+    <code>POST /onboarding/submit</code>. Open via
+    <strong>http://localhost:8000/test/onboarding</strong> (<code>localhost</code>, not
+    <code>127.0.0.1</code> — Firebase only authorizes <code>localhost</code> by default).
+    Every call here is authenticated with the signed-in user's ID token.
+  </div>
+
+  <div id="status">Loading Firebase…</div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>1 · Sign in</h2>
+      <label for="email">Email</label>
+      <input id="email" type="email" autocomplete="username" placeholder="you@example.com" />
+      <label for="password">Password (min 6 chars)</label>
+      <input id="password" type="password" autocomplete="current-password" placeholder="••••••" />
+      <div>
+        <button id="btn-signup" class="ghost">Sign up</button>
+        <button id="btn-signin">Sign in</button>
+        <button id="btn-google" class="ghost">Google</button>
+        <button id="btn-signout" class="ghost">Sign out</button>
+      </div>
+      <div class="note">
+        A submitted application is frozen and the identity document is unique per account,
+        so use a <strong>fresh email</strong> for each full run — or clear that uid from
+        <code>onboarding_sessions</code> / <code>kyc_profiles</code> and change the PAN.
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>2 · Session</h2>
+      <div class="bar"><i id="bar"></i></div>
+      <div class="steps" id="pills"></div>
+      <div class="kv" id="session-kv"><b>state</b><span class="dim">not loaded</span></div>
+      <div>
+        <button id="btn-session" class="ghost">GET /onboarding/session</button>
+        <button id="btn-userme" class="ghost">GET /users/me</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>3 · Submit a step</h2>
+    <div class="grid" style="gap:16px">
+      <div>
+        <label for="step">Step</label>
+        <select id="step"></select>
+        <div>
+          <button id="btn-sample" class="ghost">Reset to sample</button>
+          <button id="btn-send">POST /onboarding/step</button>
+        </div>
+        <div class="note" style="color:var(--muted)">
+          The body is sent exactly as typed, so you can break it on purpose to see the
+          <code>422</code>.
+        </div>
+      </div>
+      <div>
+        <label for="body">Request body (JSON)</label>
+        <textarea id="body" rows="14" spellcheck="false"></textarea>
+      </div>
+    </div>
+    <label>Expected fields for this step <span class="dim">(read live from /openapi.json)</span></label>
+    <div class="hint" id="hint">…</div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>4 · Run the whole funnel</h2>
+      <div class="sub" style="margin:0 0 4px">
+        Posts all ten steps with valid sample data, in order, then optionally submits.
+        Watch the log for each response.
+      </div>
+      <label for="products">Products to request</label>
+      <select id="products" multiple size="10" style="height:auto"></select>
+      <div>
+        <button id="btn-run">Run 10 steps</button>
+        <button id="btn-submit">POST /onboarding/submit</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>5 · Prove the guards fire</h2>
+      <div class="sub" style="margin:0 0 4px">
+        Each button sends a deliberately bad request. Expected status is in the label —
+        run these on a <em>fresh</em> user, in order, since some depend on funnel position.
+      </div>
+      <div id="guards"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Log</h2>
+    <button id="btn-clear" class="ghost" style="margin:0 0 12px">Clear</button>
+    <div id="log"></div>
+  </div>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-app.js";
+import {
+  getAuth, onAuthStateChanged, createUserWithEmailAndPassword,
+  signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, signOut,
+} from "https://www.gstatic.com/firebasejs/12.4.0/firebase-auth.js";
+
+const $ = (id) => document.getElementById(id);
+const logEl = $("log"), statusEl = $("status");
+
+function log(tag, data, cls = "") {
+  const row = document.createElement("div");
+  row.className = "row";
+  const body = typeof data === "string" ? data : JSON.stringify(data, null, 2);
+  row.innerHTML = `<span class="tag ${cls}">${tag}</span>\n${body
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;")}`;
+  logEl.prepend(row);
+}
+
+// ---------------------------------------------------------------- firebase ---
+const configRes = await fetch("/auth/config");
+if (!configRes.ok) {
+  statusEl.innerHTML = `<span class="err">Could not load /auth/config (${configRes.status})</span>`;
+  throw new Error(`GET /auth/config -> ${configRes.status}`);
+}
+const auth = getAuth(initializeApp(await configRes.json()));
+
+onAuthStateChanged(auth, (user) => {
+  statusEl.innerHTML = user
+    ? `<span class="ok">Signed in</span> as <strong>${user.email ?? user.uid}</strong>
+       <span class="dim">(uid ${user.uid})</span>`
+    : `<span class="dim">Not signed in — onboarding calls will return 401.</span>`;
+});
+
+const idToken = () => {
+  if (!auth.currentUser) throw new Error("Not signed in — sign in first.");
+  return auth.currentUser.getIdToken();
+};
+
+async function call(method, path, { body, raw } = {}) {
+  const headers = { Authorization: `Bearer ${await idToken()}` };
+  if (body !== undefined || raw !== undefined) headers["Content-Type"] = "application/json";
+  const res = await fetch(path, {
+    method, headers, body: raw !== undefined ? raw : body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  let payload;
+  try { payload = await res.json(); } catch { payload = await res.text(); }
+  log(`${method} ${path} → ${res.status}`, payload, res.ok ? "ok" : "err");
+  return { res, payload };
+}
+
+// ------------------------------------------------------------ openapi hints ---
+// The field list is read from the live schema, so it cannot drift from the API.
+let schemas = {};
+try {
+  schemas = (await (await fetch("/openapi.json")).json()).components.schemas ?? {};
+} catch { log("warning", "Could not load /openapi.json — field hints unavailable", "warn"); }
+
+function deref(s) {
+  if (!s) return {};
+  if (s.$ref) return deref(schemas[s.$ref.split("/").pop()]);
+  if (s.allOf?.length === 1) return deref(s.allOf[0]);
+  if (s.anyOf) {
+    const real = s.anyOf.filter((x) => x.type !== "null");
+    if (real.length === 1) return { ...deref(real[0]), nullable: real.length !== s.anyOf.length };
+  }
+  return s;
+}
+
+function typeLabel(s, depth = 0) {
+  const d = deref(s);
+  if (d.enum) return d.enum.join(" | ");
+  if (d.type === "array") return `[ ${typeLabel(d.items, depth + 1)} ]`;
+  if (d.properties) {
+    const inner = Object.keys(d.properties);
+    return depth > 0 ? `{ ${inner.join(", ")} }`
+      : "{\n" + inner.map((k) => `      ${k}: ${typeLabel(d.properties[k], depth + 1)}`).join("\n") + "\n    }";
+  }
+  let t = d.type ?? "?";
+  if (d.format) t += `(${d.format})`;
+  if (d.pattern) t += `  ${d.pattern}`;
+  if (d.minimum !== undefined || d.maximum !== undefined) t += `  ${d.minimum ?? ""}..${d.maximum ?? ""}`;
+  return t + (d.nullable ? " | null" : "");
+}
+
+const stepSchemaName = (step) =>
+  step.split("_").map((w) => w[0].toUpperCase() + w.slice(1)).join("") + "Step";
+
+function renderHint(step) {
+  const schema = schemas[stepSchemaName(step)];
+  if (!schema) return ($("hint").textContent = "schema unavailable");
+  const required = new Set(schema.required ?? []);
+  $("hint").textContent = Object.entries(schema.properties)
+    .filter(([k]) => k !== "step")
+    .map(([k, v]) => `${required.has(k) ? "*" : " "} ${k}: ${typeLabel(v)}`)
+    .join("\n") + "\n\n* = required. Unlisted keys are rejected (extra=\"forbid\").";
+}
+
+const enumValues = (name) => schemas[name]?.enum ?? [];
+
+// -------------------------------------------------------------- sample data ---
+const ADDRESS = {
+  line1: "12 MG Road", city: "Bengaluru", state: "Karnataka",
+  postal_code: "560001", country: "IN",
+};
+
+// One PAN per account is enforced by a unique index, so vary it per test run.
+const randomPan = () => {
+  const L = () => "ABCDEFGHIJKLMNOPQRSTUVWXYZ"[Math.floor(Math.random() * 26)];
+  const D = () => Math.floor(Math.random() * 10);
+  return `${L()}${L()}${L()}${L()}${L()}${D()}${D()}${D()}${D()}${L()}`;
+};
+let pan = randomPan();
+
+const SAMPLES = {
+  contact: () => ({
+    step: "contact", mobile_country_code: "+91", mobile_number: "9876543210",
+    country_of_residence: "IN", nationality: "IN",
+  }),
+  personal: () => ({
+    step: "personal", first_name: "Asha", last_name: "Iyer", date_of_birth: "1994-03-11",
+    gender: "female", place_of_birth_country: "IN",
+  }),
+  address: () => ({ step: "address", residential: ADDRESS, permanent_same_as_residential: true }),
+  identity: () => ({
+    step: "identity", document_type: "pan", document_number: pan, issuing_country: "IN",
+  }),
+  tax: () => ({
+    step: "tax", tax_residency_country: "IN", tax_identification_number: pan,
+    is_us_person: false, pep_status: "none", source_of_funds: "salary",
+  }),
+  financial: () => ({
+    step: "financial", occupation: "salaried_private", employer_name: "Acme Corp",
+    income_currency: "INR", annual_income_band: "100k_500k", net_worth_band: "100k_500k",
+    investment_experience_years: 4, risk_tolerance: "high",
+    investment_objectives: ["long_term_growth", "speculation"],
+  }),
+  markets: () => ({ step: "markets", products: selectedProducts(), base_currency: "INR" }),
+  funding: () => ({
+    step: "funding", primary_method: "bank_transfer",
+    bank_account: {
+      account_holder_name: "Asha Iyer", account_number: "50100123456789",
+      account_type: "savings", bank_name: "HDFC Bank", routing_type: "ifsc",
+      routing_code: "HDFC0001234", currency: "INR",
+    },
+  }),
+  security: () => ({
+    step: "security", two_factor_method: "totp", anti_phishing_code: "Kite42",
+    withdrawal_whitelist_only: true, notify_on_new_device: true,
+  }),
+  // Consent must cover whatever products were picked, so it is derived the same way.
+  agreements: () => ({
+    step: "agreements",
+    accepted: requiredAgreements(selectedProducts()).map((d) => ({ document: d, version: "2026-01-15" })),
+  }),
+};
+
+const STEP_ORDER = Object.keys(SAMPLES);
+
+// Mirrors AGREEMENTS_BY_PRODUCT / ALWAYS_REQUIRED_AGREEMENTS in schemas/onboarding.py.
+const AGREEMENTS_BY_PRODUCT = {
+  domestic_equity_delivery: ["risk_disclosure_securities"],
+  domestic_equity_intraday: ["risk_disclosure_securities", "risk_disclosure_derivatives"],
+  domestic_derivatives: ["risk_disclosure_derivatives"],
+  foreign_equity: ["risk_disclosure_securities", "cross_border_remittance"],
+  mutual_funds: ["risk_disclosure_securities"],
+  commodities: ["risk_disclosure_derivatives"],
+  forex: ["risk_disclosure_derivatives", "cross_border_remittance"],
+  crypto_spot: ["risk_disclosure_crypto"],
+  crypto_derivatives: ["risk_disclosure_crypto", "risk_disclosure_derivatives"],
+  crypto_staking: ["risk_disclosure_crypto"],
+};
+const requiredAgreements = (products) => [
+  ...new Set(["terms_of_service", "privacy_policy", "tax_declaration",
+    ...products.flatMap((p) => AGREEMENTS_BY_PRODUCT[p] ?? [])]),
+];
+
+const selectedProducts = () => [...$("products").selectedOptions].map((o) => o.value);
+
+// ------------------------------------------------------------------- render ---
+for (const step of STEP_ORDER) {
+  $("step").insertAdjacentHTML("beforeend", `<option value="${step}">${step}</option>`);
+}
+
+const DEFAULT_PRODUCTS = ["domestic_equity_delivery", "foreign_equity", "crypto_spot", "crypto_derivatives"];
+for (const p of enumValues("Product")) {
+  const sel = DEFAULT_PRODUCTS.includes(p) ? " selected" : "";
+  $("products").insertAdjacentHTML("beforeend", `<option value="${p}"${sel}>${p}</option>`);
+}
+
+function loadSample() {
+  const step = $("step").value;
+  $("body").value = JSON.stringify(SAMPLES[step](), null, 2);
+  renderHint(step);
+}
+$("step").addEventListener("change", loadSample);
+loadSample();
+
+function renderSession(s) {
+  $("bar").style.width = `${s.progress_percent}%`;
+  const done = new Set(s.completed_steps);
+  $("pills").innerHTML = STEP_ORDER.map((st) => {
+    const cls = done.has(st) ? "done" : st === s.current_step ? "next" : "";
+    return `<span class="pill ${cls}">${st}</span>`;
+  }).join("");
+  const rows = {
+    status: s.status, kyc_tier: s.kyc_tier, progress: `${s.progress_percent}%`,
+    current_step: s.current_step ?? "—", ready_to_submit: s.ready_to_submit,
+    expires_at: s.expires_at ?? "—", submitted_at: s.submitted_at ?? "—",
+  };
+  $("session-kv").innerHTML = Object.entries(rows)
+    .map(([k, v]) => `<b>${k}</b><span>${v}</span>`).join("");
+}
+
+// -------------------------------------------------------------------- wiring ---
+const on = (id, fn) => $(id).addEventListener("click", async () => {
+  try { await fn(); } catch (e) { log("error", e.message ?? String(e), "err"); }
+});
+
+on("btn-signup", async () => {
+  const cred = await createUserWithEmailAndPassword(
+    auth, $("email").value.trim(), $("password").value);
+  log("firebase createUser → ok", { uid: cred.user.uid, email: cred.user.email }, "ok");
+  pan = randomPan();  // a new account needs an unused identity document
+  loadSample();
+});
+
+on("btn-signin", async () => {
+  const cred = await signInWithEmailAndPassword(
+    auth, $("email").value.trim(), $("password").value);
+  log("firebase signIn → ok", { uid: cred.user.uid, email: cred.user.email }, "ok");
+  await refreshSession();
+});
+
+on("btn-google", async () => {
+  const cred = await signInWithPopup(auth, new GoogleAuthProvider());
+  log("firebase signInWithPopup → ok", { uid: cred.user.uid, email: cred.user.email }, "ok");
+  await refreshSession();
+});
+
+on("btn-signout", async () => {
+  await signOut(auth);
+  log("firebase signOut → ok", "local session cleared", "ok");
+});
+
+async function refreshSession() {
+  const { res, payload } = await call("GET", "/onboarding/session");
+  if (res.ok) renderSession(payload);
+  return payload;
+}
+
+on("btn-session", refreshSession);
+on("btn-userme", () => call("GET", "/users/me"));
+on("btn-sample", loadSample);
+
+on("btn-send", async () => {
+  // Sent verbatim so an invalid body reaches the API instead of being fixed here.
+  const { res } = await call("POST", "/onboarding/step", { raw: $("body").value });
+  if (res.ok) await refreshSession();
+});
+
+on("btn-run", async () => {
+  if (!selectedProducts().length) throw new Error("Pick at least one product.");
+  for (const step of STEP_ORDER) {
+    const { res, payload } = await call("POST", "/onboarding/step", { body: SAMPLES[step]() });
+    if (!res.ok) {
+      log("funnel halted", `at step "${step}" — ${payload.detail ?? "see above"}`, "warn");
+      return;
+    }
+    renderSession(payload);
+  }
+  log("funnel complete", "all ten steps accepted — POST /onboarding/submit next", "ok");
+});
+
+on("btn-submit", async () => {
+  const { res } = await call("POST", "/onboarding/submit");
+  if (res.ok) await refreshSession();
+});
+
+// -------------------------------------------------------------------- guards ---
+const GUARDS = [
+  ["409 out of order", "Run on a fresh user before any step",
+    () => SAMPLES.identity()],
+  ["422 unknown field", "extra=\"forbid\" rejects a smuggled key",
+    () => ({ ...SAMPLES.contact(), role: "admin" })],
+  ["422 under 18", "date_of_birth is checked for a plausible adult age",
+    () => ({ ...SAMPLES.personal(), date_of_birth: "2015-01-01" })],
+  ["422 bad PAN", "Per-document format check",
+    () => ({ ...SAMPLES.identity(), document_number: "ABCDE12345" })],
+  ["422 PAN with expiry", "A PAN does not carry an expiry date",
+    () => ({ ...SAMPLES.identity(), expiry_date: "2030-01-01" })],
+  ["422 bad IFSC", "Routing code is validated against its scheme",
+    () => {
+      const s = SAMPLES.funding();
+      return { ...s, bank_account: { ...s.bank_account, routing_code: "HDFCX001234" } };
+    }],
+  ["409 leverage on low risk", "Needs the financial step submitted as low-risk first",
+    () => ({ ...SAMPLES.markets(), products: ["crypto_derivatives"] })],
+  ["409 consent too narrow", "Required set is derived from the chosen products",
+    () => ({ step: "agreements", accepted: [{ document: "terms_of_service", version: "2026-01-15" }] })],
+];
+
+for (const [label, why, build] of GUARDS) {
+  const btn = document.createElement("button");
+  btn.className = "bad";
+  btn.textContent = label;
+  btn.title = why;
+  btn.addEventListener("click", async () => {
+    try { await call("POST", "/onboarding/step", { body: build() }); }
+    catch (e) { log("error", e.message ?? String(e), "err"); }
+  });
+  $("guards").append(btn);
+}
+
+// A low-risk profile is needed for the leverage guard, so offer it as one click.
+const lowRisk = document.createElement("button");
+lowRisk.className = "ghost";
+lowRisk.textContent = "set financial → low risk";
+lowRisk.title = "Overwrites the financial step so the leverage guard has something to reject";
+lowRisk.addEventListener("click", async () => {
+  try {
+    await call("POST", "/onboarding/step", {
+      body: { ...SAMPLES.financial(), risk_tolerance: "low", annual_income_band: "lt_25k",
+              net_worth_band: "lt_25k", investment_experience_years: 0,
+              investment_objectives: ["capital_preservation"] },
+    });
+  } catch (e) { log("error", e.message ?? String(e), "err"); }
+});
+$("guards").append(lowRisk);
+
+$("btn-clear").addEventListener("click", () => { logEl.innerHTML = ""; });
+</script>
+</body>
+</html>
