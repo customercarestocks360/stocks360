@@ -24,6 +24,14 @@ CLOCK_SKEW_SECONDS = max(0, min(60, int(os.getenv("FIREBASE_CLOCK_SKEW_SECONDS",
 # Firebase Web SDK config, kept here rather than hardcoded in the client so the
 # values live in one place and can differ per environment. Served to browsers by
 # GET /auth/config. Public by design — the service account key is the real secret.
+# How long a successful revocation check is trusted before Firebase is asked again.
+# `verify_id_token(check_revoked=True)` costs a network round-trip to Google — measured at
+# ~384ms median here, against ~0.9ms for the local signature check — and every protected
+# route pays it. Caching per uid bounds how stale a revocation can be: a logout on THIS
+# process evicts immediately, so the window only applies to other instances behind a load
+# balancer. 0 disables the cache and checks every request.
+FIREBASE_REVOCATION_TTL_SECONDS = max(0, min(300, int(os.getenv("FIREBASE_REVOCATION_TTL_SECONDS", "30"))))
+
 FIREBASE_WEB_CONFIG = {
     "apiKey": os.getenv("FIREBASE_API_KEY"),
     "authDomain": os.getenv("FIREBASE_AUTH_DOMAIN"),
@@ -39,6 +47,38 @@ FIREBASE_WEB_CONFIG = {
 _missing = [k for k, v in FIREBASE_WEB_CONFIG.items() if not v and k != "measurementId"]
 if _missing:
     raise RuntimeError(f"Missing Firebase web config in .env: {', '.join(sorted(_missing))}")
+
+# --- Deployment posture ---
+def _bool(name: str, default: bool) -> bool:
+    return os.getenv(name, str(default)).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _csv(name: str) -> list[str]:
+    return [v.strip() for v in os.getenv(name, "").split(",") if v.strip()]
+
+
+# How many reverse proxies sit in front of this app. X-Forwarded-For is client-supplied
+# and trivially forged, and the recorded IP is not decoration — it goes into the KYC
+# consent record and the login audit trail. With 0 the header is ignored entirely and the
+# socket peer is used. With N>0 the Nth address from the RIGHT is taken: the rightmost
+# entries are appended by proxies you control, everything left of them is attacker text.
+TRUSTED_PROXY_HOPS = max(0, min(10, int(os.getenv("TRUSTED_PROXY_HOPS", "0") or 0)))
+
+# The interactive docs describe every route, its shape and its limits. Useful while
+# building, unnecessary attack-surface intelligence once published.
+DOCS_ENABLED = _bool("DOCS_ENABLED", True)
+
+# Exact origins allowed to call this API from a browser. Empty means no CORS middleware,
+# which is the safe default: same-origin only. A wildcard is refused outright below —
+# `*` with credentials is precisely the misconfiguration that makes a session-riding
+# attack work, and it is the first thing anyone reaches for when a frontend 'just won't
+# connect'.
+CORS_ALLOW_ORIGINS = _csv("CORS_ALLOW_ORIGINS")
+if "*" in CORS_ALLOW_ORIGINS:
+    raise RuntimeError(
+        "CORS_ALLOW_ORIGINS=* is not allowed: this API is credentialed, so a wildcard "
+        "origin would let any site call it with a user's token. List exact origins."
+    )
 
 # --- MongoDB ---
 MONGODB_URI = os.getenv("MONGODB_URI")

@@ -2,11 +2,14 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 from app.api.router import api_router
+from app.core.config import CORS_ALLOW_ORIGINS, DOCS_ENABLED
 from app.core.database import close, connect, ensure_indexes
 from app.core.errors import register as register_error_handlers
+from app.core.logging import install_credential_redaction
 from app.crypto import upstream as crypto_upstream
 from app.crypto.hub import hub as crypto_hub
 from app.forex import upstream as forex_upstream
@@ -19,6 +22,8 @@ STATIC_DIR = Path(__file__).resolve().parents[1] / "static"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Before anything can log a request line carrying ?token=.
+    install_credential_redaction()
     connect()
     ensure_indexes()
     crypto_upstream.start()
@@ -39,7 +44,49 @@ async def lifespan(app: FastAPI):
     close()
 
 
-app = FastAPI(title="Stocks360 API", lifespan=lifespan)
+app = FastAPI(
+    title="Stocks360 API",
+    lifespan=lifespan,
+    # Swagger, ReDoc and the raw schema enumerate every route, parameter and limit. That
+    # is a build-time convenience, not something to publish; DOCS_ENABLED=false removes
+    # all three rather than leaving the schema reachable behind a hidden UI.
+    docs_url="/docs" if DOCS_ENABLED else None,
+    redoc_url="/redoc" if DOCS_ENABLED else None,
+    openapi_url="/openapi.json" if DOCS_ENABLED else None,
+)
+
+
+@app.middleware("http")
+async def security_headers(request, call_next):
+    """Headers that cost nothing and close off whole classes of browser attack.
+
+    This API serves JSON and a handful of static demo pages. nosniff stops a browser
+    second-guessing a JSON content type into something executable, DENY stops the pages
+    being framed for clickjacking, and no-referrer keeps URLs (which may carry a token on
+    the WebSocket fallback path) out of Referer headers sent to third parties.
+    """
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    # Only meaningful over HTTPS; harmless on the plain-HTTP dev server, and it must be
+    # present from the first production response for the policy to ever take hold.
+    response.headers.setdefault(
+        "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
+    )
+    return response
+
+
+# Same-origin only unless origins are named explicitly. Credentials are on because the
+# API is token-authenticated, which is exactly why config.py refuses a wildcard.
+if CORS_ALLOW_ORIGINS:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=CORS_ALLOW_ORIGINS,
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type"],
+    )
 
 register_error_handlers(app)
 app.include_router(api_router)

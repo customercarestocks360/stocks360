@@ -22,7 +22,6 @@ from pymongo.errors import DuplicateKeyError
 from starlette.websockets import WebSocketDisconnect
 
 from app.auth.dependencies import get_current_user
-from app.auth.service import verify_token
 from app.core.config import (
     FOREX_HEARTBEAT_SECONDS,
     FOREX_MAX_SOCKETS_PER_USER,
@@ -54,11 +53,11 @@ from app.schemas.forex import (
     fx_session_state,
     split_pairs,
 )
+from app.streaming.ws_auth import accepted_subprotocol, authenticate
 from app.schemas.streaming import (
     WS_CLOSE_DELETED,
     WS_CLOSE_NOT_FOUND,
     WS_CLOSE_TOO_MANY,
-    WS_CLOSE_UNAUTHENTICATED,
     ClientCommand,
     StreamFrameType,
     StreamStats,
@@ -468,29 +467,6 @@ async def _send(ws: WebSocket, frame: ForexFrame) -> None:
     await ws.send_text(frame.model_dump_json(exclude_none=True))
 
 
-async def _authenticate(ws: WebSocket, token: str | None) -> dict | None:
-    """Browsers cannot set headers on a WebSocket, so the token comes by query param;
-    non-browser clients may still send the usual bearer header."""
-    if token is None:
-        header = ws.headers.get("authorization", "")
-        if header.lower().startswith("bearer "):
-            token = header.split(" ", 1)[1]
-    if not token:
-        await ws.close(code=WS_CLOSE_UNAUTHENTICATED, reason="Missing token")
-        return None
-    try:
-        # verify_token is blocking (it may call Firebase), so keep it off the loop.
-        return await asyncio.to_thread(verify_token, token, True)
-    except HTTPException as exc:
-        code = (
-            WS_CLOSE_UNAUTHENTICATED
-            if exc.status_code == status.HTTP_401_UNAUTHORIZED
-            else status.WS_1011_INTERNAL_ERROR
-        )
-        await ws.close(code=code, reason=str(exc.detail)[:120])
-        return None
-
-
 async def _reader(ws: WebSocket, sub: Subscriber, uid: str) -> None:
     """Handle client commands. Only the pump writes to the socket, so everything this
     produces is queued rather than sent — two tasks writing concurrently would interleave
@@ -569,9 +545,9 @@ async def watchlist_stream(
     Close codes: 4401 unauthenticated, 4404 no such watchlist for this user,
     4429 too many open sockets, 4410 watchlist deleted.
     """
-    await ws.accept()
+    await ws.accept(subprotocol=accepted_subprotocol(ws))
 
-    claims = await _authenticate(ws, token)
+    claims = await authenticate(ws, token)
     if claims is None:
         return
     uid = claims["uid"]

@@ -18,7 +18,6 @@ from pymongo.errors import DuplicateKeyError
 from starlette.websockets import WebSocketDisconnect
 
 from app.auth.dependencies import get_current_user
-from app.auth.service import verify_token
 from app.core.config import (
     CRYPTO_HEARTBEAT_SECONDS,
     CRYPTO_MAX_SOCKETS_PER_USER,
@@ -28,11 +27,11 @@ from app.core.config import (
 from app.crypto import repository, upstream
 from app.crypto.hub import hub
 from app.schemas.common import NOT_FOUND, UNAUTHORIZED, UNAVAILABLE
+from app.streaming.ws_auth import accepted_subprotocol, authenticate
 from app.schemas.streaming import (
     WS_CLOSE_DELETED,
     WS_CLOSE_NOT_FOUND,
     WS_CLOSE_TOO_MANY,
-    WS_CLOSE_UNAUTHENTICATED,
     ClientCommand,
     StreamFrameType,
     StreamStats,
@@ -446,34 +445,9 @@ async def _snapshot(symbols: list[str]) -> tuple[list[Quote], list[str]]:
 # --------------------------------------------------------------------------- #
 
 
-async def _send(ws: WebSocket, frame: StreamFrame) -> None:
+async def _send(ws: WebSocket, frame: CryptoFrame) -> None:
     # exclude_none keeps frames small — most fields are irrelevant to any given type.
     await ws.send_text(frame.model_dump_json(exclude_none=True))
-
-
-async def _authenticate(ws: WebSocket, token: str | None) -> dict | None:
-    """Browsers cannot set headers on a WebSocket, so the token comes by query param;
-    non-browser clients may still send the usual bearer header."""
-    if token is None:
-        header = ws.headers.get("authorization", "")
-        if header.lower().startswith("bearer "):
-            token = header.split(" ", 1)[1]
-    if not token:
-        await ws.close(code=WS_CLOSE_UNAUTHENTICATED, reason="Missing token")
-        return None
-    try:
-        # verify_token is blocking (it may call Firebase), so keep it off the loop.
-        return await asyncio.to_thread(verify_token, token, True)
-    except HTTPException as exc:
-        # A 503 from here means Firebase's certificates were unreachable, which is our
-        # problem, not a bad token — don't tell the client to sign in again.
-        code = (
-            WS_CLOSE_UNAUTHENTICATED
-            if exc.status_code == status.HTTP_401_UNAUTHORIZED
-            else status.WS_1011_INTERNAL_ERROR
-        )
-        await ws.close(code=code, reason=str(exc.detail)[:120])
-        return None
 
 
 async def _reader(ws: WebSocket, sub: Subscriber, uid: str) -> None:
@@ -546,9 +520,9 @@ async def watchlist_stream(
     Close codes: 4401 unauthenticated, 4404 no such watchlist for this user,
     4429 too many open sockets, 4410 watchlist deleted.
     """
-    await ws.accept()
+    await ws.accept(subprotocol=accepted_subprotocol(ws))
 
-    claims = await _authenticate(ws, token)
+    claims = await authenticate(ws, token)
     if claims is None:
         return
     uid = claims["uid"]

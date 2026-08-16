@@ -491,6 +491,56 @@ constrained types:
   otherwise derives it from local time, so a server behind Google's clock would let a
   token survive its own logout.
 
+## Before you publish
+
+| Setting | Dev | Production |
+|---|---|---|
+| `DOCS_ENABLED` | `true` | **`false`** — `/docs`, `/redoc` and `/openapi.json` publish every route, parameter and limit |
+| `CORS_ALLOW_ORIGINS` | empty | exact origins, comma-separated. `*` is refused at startup |
+| `TRUSTED_PROXY_HOPS` | `0` | number of proxies in front of the app (`1` behind one nginx/ALB/Cloudflare) |
+| `FIREBASE_REVOCATION_TTL_SECONDS` | `30` | `30`, or `0` to trade ~400x latency for instant multi-instance revocation |
+
+Still open before real customers — deliberately not built, since each needs a decision:
+
+- **Rate limiting.** `POST /auth/signup` creates a Firebase user for anyone who asks, and
+  every authenticated route will now happily serve from a warm token cache. Put a limiter
+  at the edge (nginx `limit_req`, Cloudflare) or in front of the auth dependency.
+- **Yahoo is unlicensed.** Fine for a demo, not for paying users. Swap
+  `app/stocks/upstream.py` for Alpaca/Finnhub or a broker feed.
+- **KYC data at rest.** `kyc_profiles` stores full PAN, TIN and bank account numbers.
+  Atlas encrypts the disk, but anyone with a read connection string sees plaintext.
+  Consider field-level encryption (Atlas CSFLE) and a retention policy.
+
+### Auth latency
+
+`verify_id_token` does two very different jobs. Signature, expiry, audience and issuer
+are checked locally against cached Google certificates — **~0.6ms**. `check_revoked=True`
+additionally calls Google to compare the token's `iat` against the user's `validSince` —
+**~384ms measured**, on every single protected request.
+
+So a successful revocation check is cached per uid for
+`FIREBASE_REVOCATION_TTL_SECONDS`. The signature is *always* verified, every request, so
+a tampered or expired token is still rejected in full — only the network round-trip is
+skipped. `revoke_tokens()` evicts the entry, which is why logout still takes effect
+immediately rather than after the TTL. Behind a load balancer that guarantee holds only
+for the instance that served the logout; the others catch up within the TTL.
+
+## Credentials in logs
+
+Browsers cannot set an `Authorization` header on a WebSocket handshake, so the stream
+routes accept `?token=<jwt>`. Uvicorn's access log writes the full request line, which
+put a live bearer credential into plaintext logs — replayable by anyone who could read
+them, for the token's remaining hour.
+
+Two changes, because either alone is insufficient:
+
+- `app/streaming/ws_auth.py` prefers `Sec-WebSocket-Protocol: bearer, <token>` — the one
+  header a browser *will* set on a handshake — so the token need not be in the URL at
+  all. `?token=` still works for clients that cannot do this.
+- `app/core/logging.py` installs a filter on the uvicorn loggers that rewrites any
+  `token=`/`access_token=`/`Bearer …` value to `[REDACTED]`, so the guarantee does not
+  depend on every client choosing the better path.
+
 ## When MongoDB goes away
 
 The database can disappear long after a clean startup — a dropped network, a paused Atlas
