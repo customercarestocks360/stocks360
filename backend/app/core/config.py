@@ -1,3 +1,6 @@
+import base64
+import binascii
+import json
 import os
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -12,10 +15,79 @@ FIREBASE_PROJECT_ID = os.getenv("FIREBASE_PROJECT_ID")
 if not FIREBASE_PROJECT_ID:
     raise RuntimeError("FIREBASE_PROJECT_ID is not set — copy .env.example to .env")
 
-_creds = Path(os.getenv("FIREBASE_CREDENTIALS", "secrets/firebase-admin.json"))
-FIREBASE_CREDENTIALS_PATH = _creds if _creds.is_absolute() else BASE_DIR / _creds
-if not FIREBASE_CREDENTIALS_PATH.is_file():
-    raise RuntimeError(f"Firebase service account key not found at {FIREBASE_CREDENTIALS_PATH}")
+_SERVICE_ACCOUNT_REQUIRED_KEYS = ("type", "project_id", "private_key", "client_email")
+
+
+def _service_account_from_env() -> dict | None:
+    """Read the Admin service account out of `FIREBASE_SERVICE_ACCOUNT`, if it is set.
+
+    The key is accepted either base64-encoded or as the raw JSON object. Base64 is the
+    form to prefer: it is one line with no quoting or newline escaping to get wrong, so
+    it survives a `.env` file, a Docker `-e`, a CI secret box and a copy-paste equally.
+    Returning None means "not configured here", and the caller falls back to a key file.
+    """
+    raw = (os.getenv("FIREBASE_SERVICE_ACCOUNT") or "").strip()
+    # Tolerate a value that was wrapped in quotes to survive a shell or a secrets UI.
+    if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in "\"'":
+        raw = raw[1:-1].strip()
+    if not raw:
+        return None
+
+    if not raw.startswith("{"):
+        try:
+            raw = base64.b64decode(raw, validate=True).decode("utf-8")
+        except (binascii.Error, UnicodeDecodeError, ValueError) as exc:
+            raise RuntimeError(
+                "FIREBASE_SERVICE_ACCOUNT is neither a JSON object nor valid base64. "
+                "Encode the service account JSON with: "
+                'python -c "import base64,sys;'
+                'print(base64.b64encode(open(sys.argv[1],\'rb\').read()).decode())" key.json'
+            ) from exc
+
+    try:
+        info = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"FIREBASE_SERVICE_ACCOUNT does not contain valid JSON: {exc}") from exc
+    # Valid JSON that is not a service account (an array, a bare string, the web config by
+    # mistake) reads as "every field missing", which is what the message below says.
+    if not isinstance(info, dict):
+        info = {}
+    missing = [k for k in _SERVICE_ACCOUNT_REQUIRED_KEYS if not info.get(k)]
+    if missing:
+        raise RuntimeError(
+            "FIREBASE_SERVICE_ACCOUNT must be the Admin service account JSON — missing "
+            f"required field(s): {', '.join(missing)}"
+        )
+
+    # A PEM pasted through a `.env` line or a secrets form usually arrives with literal
+    # backslash-n instead of real newlines, which fails inside the crypto library with an
+    # error that says nothing about where the key came from.
+    if "\\n" in info["private_key"]:
+        info["private_key"] = info["private_key"].replace("\\n", "\n")
+
+    if info["project_id"] != FIREBASE_PROJECT_ID:
+        raise RuntimeError(
+            f"FIREBASE_SERVICE_ACCOUNT is for project {info['project_id']!r} but "
+            f"FIREBASE_PROJECT_ID is {FIREBASE_PROJECT_ID!r} — tokens would never verify"
+        )
+    return info
+
+
+# Two ways in, checked in this order:
+#   1. FIREBASE_SERVICE_ACCOUNT — the whole key inside `.env`, so repo + `.env` is a
+#      complete, runnable handoff with no second file to pass around out of band.
+#   2. FIREBASE_CREDENTIALS — a path to the key file on disk, the original arrangement.
+FIREBASE_CREDENTIALS_INFO = _service_account_from_env()
+FIREBASE_CREDENTIALS_PATH: Path | None = None
+if FIREBASE_CREDENTIALS_INFO is None:
+    _creds = Path(os.getenv("FIREBASE_CREDENTIALS", "secrets/firebase-admin.json"))
+    FIREBASE_CREDENTIALS_PATH = _creds if _creds.is_absolute() else BASE_DIR / _creds
+    if not FIREBASE_CREDENTIALS_PATH.is_file():
+        raise RuntimeError(
+            "No Firebase Admin credentials. Set FIREBASE_SERVICE_ACCOUNT in .env to the "
+            "base64-encoded service account JSON, or put the key file at "
+            f"{FIREBASE_CREDENTIALS_PATH}"
+        )
 
 # Tolerance for clock drift between this server and Google. Without it, a server
 # running even a few seconds behind rejects every freshly-issued token with

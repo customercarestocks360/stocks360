@@ -5,18 +5,32 @@ FastAPI + Firebase Auth (Admin SDK). Email/password and Google OAuth.
 ## Setup
 
 ```
-cp .env.example .env                       # then put the service account key at secrets/
+cp .env.example .env                       # fill in FIREBASE_SERVICE_ACCOUNT and MONGODB_URI
 .venv\Scripts\python.exe -m uvicorn app.main:app --reload
 ```
 
-`secrets/` and `.env` are gitignored — never commit the service account key.
+A populated `.env` is the only thing needed — there is no second file to obtain. The Admin
+service account goes into `FIREBASE_SERVICE_ACCOUNT` as one base64 line, so handing someone
+the repo plus a `.env` gives them a server that starts. To produce the value from a key file:
+
+```
+python -c "import base64,sys;print(base64.b64encode(open(sys.argv[1],'rb').read()).decode())" secrets/firebase-admin.json
+```
+
+Raw JSON is accepted in that variable too, and `\n` inside `private_key` is unescaped for
+you. Leave it empty and startup falls back to a key file at `FIREBASE_CREDENTIALS` — same
+behaviour as before, for anyone who prefers the file on disk.
+
+`secrets/` and `.env` are gitignored — never commit the service account key. `.env.example`
+**is** committed, so `FIREBASE_SERVICE_ACCOUNT` is deliberately blank there.
 
 All Firebase config lives in `.env` — nothing is hardcoded in the app or the test page.
 
 | Env var | Purpose |
 |---|---|
 | `FIREBASE_PROJECT_ID` | Firebase project (`stock360bitntech`) |
-| `FIREBASE_CREDENTIALS` | Path to Admin service account key, default `secrets/firebase-admin.json` |
+| `FIREBASE_SERVICE_ACCOUNT` | Admin service account key inline — base64 of the JSON, or the raw JSON. Preferred: makes `.env` self-sufficient. Must match `FIREBASE_PROJECT_ID` |
+| `FIREBASE_CREDENTIALS` | Fallback path to the Admin key file when the above is empty, default `secrets/firebase-admin.json` |
 | `FIREBASE_CLOCK_SKEW_SECONDS` | Clock-drift tolerance, 0–60, default `30` |
 | `FIREBASE_API_KEY` | Web SDK — from the console's web-app snippet |
 | `FIREBASE_AUTH_DOMAIN` | Web SDK |
@@ -126,7 +140,8 @@ app/
 │   └── money.py        # quantisation and the fee, in one place
 └── health/routes.py
 static/index.html       # browser test page
-secrets/                # service account key (gitignored)
+secrets/                # optional service account key file (gitignored) — only used when
+                        # FIREBASE_SERVICE_ACCOUNT is empty in .env
 ```
 
 New feature = folder with `routes.py` (+ `service.py`/`repository.py`/`dependencies.py` as needed), schemas in `schemas/<feature>.py`, then include its router in `api/router.py`.
