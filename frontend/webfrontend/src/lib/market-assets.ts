@@ -44,6 +44,22 @@ export function changeFor(asset: Asset, time: TimeOption) {
   return time === "1h" ? asset.c1h : time === "4h" ? asset.c4h : asset.c24h;
 }
 
+/** Splits "$229.87" / "₹3,102.40" into its leading currency symbol and numeric value. */
+export function parsePrice(price: string) {
+  const symbol = price.match(/^[^0-9.,-]+/)?.[0] ?? "";
+  const value = parseFloat(price.replace(/[^0-9.-]/g, "")) || 0;
+  return { symbol, value };
+}
+
+/** Absolute change for a time window, formatted with the asset's own currency symbol. */
+export function changeAbsFor(asset: Asset, time: TimeOption) {
+  const { symbol, value } = parsePrice(asset.price);
+  const pct = changeFor(asset, time);
+  const abs = (value * pct) / (100 + pct);
+  const sign = abs >= 0 ? "+" : "-";
+  return `${sign}${symbol}${Math.abs(abs).toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
+}
+
 export function findAsset(sym: string) {
   return ASSETS.find((a) => a.sym === sym)!;
 }

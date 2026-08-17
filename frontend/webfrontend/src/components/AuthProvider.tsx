@@ -186,8 +186,39 @@ const DEFAULT_LOCAL: LocalState = {
   orders: [],
 };
 
+<<<<<<< HEAD
+const AuthContext = createContext<
+  AuthState & {
+    login: (email?: string) => void;
+    logout: () => void;
+    submitKyc: (profile: KycProfile) => void;
+    requestDeposit: (method: DepositMethod, amount: number, network?: string) => void;
+    requestWithdrawal: (method: DepositMethod, amount: number, destination?: string, network?: string) => void;
+    settleDeposit: (id: string, outcome: "complete" | "cancel") => void;
+    settleWithdrawal: (id: string, outcome: "complete" | "cancel") => void;
+    convertBalance: (from: DepositMethod, to: DepositMethod, amount: number) => void;
+    setName: (name: string) => void;
+    placeOrder: (order: Omit<Order, "id" | "date">) => void;
+    cancelOrder: (id: string) => void;
+  }
+>({
+  ...DEFAULT_STATE,
+  login: () => {},
+  logout: () => {},
+  submitKyc: () => {},
+  requestDeposit: () => {},
+  requestWithdrawal: () => {},
+  settleDeposit: () => {},
+  settleWithdrawal: () => {},
+  convertBalance: () => {},
+  setName: () => {},
+  placeOrder: () => {},
+  cancelOrder: () => {},
+});
+=======
 /** Module scope, so the memoised reducers below cannot capture a per-render copy of it. */
 const newId = () => `${Date.now()}-${Math.round(Math.random() * 1e6)}`;
+>>>>>>> f1a281c5171fd0d31410635d355a38090dd23004
 
 const STORAGE_PREFIX = "stocks360-auth";
 /**
@@ -564,6 +595,132 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    * see `lockedAmount`. Deposits carry no such lock since nothing has left
    * the user's balance yet.
    */
+<<<<<<< HEAD
+  const requestDeposit = (method: DepositMethod, amount: number, network?: string) =>
+    setState((s) => {
+      if (amount <= 0) return s;
+      return {
+        ...s,
+        transactions: [
+          {
+            id: newId(),
+            method,
+            amount,
+            date: new Date().toISOString(),
+            kind: "deposit",
+            status: "pending",
+            network: network ?? NETWORK_OF[method],
+          },
+          ...s.transactions,
+        ],
+      };
+    });
+
+  const requestWithdrawal = (method: DepositMethod, amount: number, destination?: string, network?: string) =>
+    setState((s) => {
+      const available = s.balances[method] - lockedAmount(s.transactions, method);
+      if (amount <= 0 || amount > available) return s;
+      return {
+        ...s,
+        transactions: [
+          {
+            id: newId(),
+            method,
+            amount,
+            date: new Date().toISOString(),
+            kind: "withdraw",
+            status: "pending",
+            network: network ?? NETWORK_OF[method],
+            ...(destination ? { destination } : {}),
+          },
+          ...s.transactions,
+        ],
+      };
+    });
+
+  const settleDeposit = (id: string, outcome: "complete" | "cancel") =>
+    setState((s) => {
+      const tx = s.transactions.find((t) => t.id === id);
+      if (!tx || txKind(tx) !== "deposit" || txStatus(tx) !== "pending") return s;
+      return {
+        ...s,
+        balances:
+          outcome === "complete"
+            ? { ...s.balances, [tx.method]: s.balances[tx.method] + tx.amount }
+            : s.balances,
+        transactions: s.transactions.map((t) =>
+          t.id === id ? { ...t, status: outcome === "complete" ? "completed" : "cancelled" } : t,
+        ),
+      };
+    });
+
+  const settleWithdrawal = (id: string, outcome: "complete" | "cancel") =>
+    setState((s) => {
+      const tx = s.transactions.find((t) => t.id === id);
+      if (!tx || txKind(tx) !== "withdraw" || txStatus(tx) !== "pending") return s;
+      return {
+        ...s,
+        balances:
+          outcome === "complete"
+            ? { ...s.balances, [tx.method]: Math.max(s.balances[tx.method] - tx.amount, 0) }
+            : s.balances,
+        transactions: s.transactions.map((t) =>
+          t.id === id ? { ...t, status: outcome === "complete" ? "completed" : "cancelled" } : t,
+        ),
+      };
+    });
+  /** Moves money straight between the two wallet balances — no transaction record, since nothing left the account. */
+  const convertBalance = (from: DepositMethod, to: DepositMethod, amount: number) =>
+    setState((s) => {
+      if (from === to || amount <= 0) return s;
+      const available = s.balances[from] - lockedAmount(s.transactions, from);
+      if (amount > available) return s;
+      return {
+        ...s,
+        balances: {
+          ...s.balances,
+          [from]: s.balances[from] - amount,
+          [to]: s.balances[to] + convertedAmount(from, to, amount),
+        },
+      };
+    });
+
+  const setName = (name: string) => setState((s) => ({ ...s, name }));
+  const placeOrder = (order: Omit<Order, "id" | "date">) =>
+    setState((s) => ({
+      ...s,
+      orders: [
+        { id: `${Date.now()}-${Math.round(Math.random() * 1e6)}`, date: new Date().toISOString(), ...order },
+        ...s.orders,
+      ],
+    }));
+
+  const cancelOrder = (id: string) =>
+    setState((s) => ({
+      ...s,
+      orders: s.orders.map((o) => (o.id === id && orderStatus(o) === "open" ? { ...o, status: "cancelled" } : o)),
+    }));
+
+  return (
+    <AuthContext.Provider
+      value={{
+        ...state,
+        login,
+        logout,
+        submitKyc,
+        requestDeposit,
+        requestWithdrawal,
+        settleDeposit,
+        settleWithdrawal,
+        convertBalance,
+        setName,
+        placeOrder,
+        cancelOrder,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+=======
   const requestDeposit = useCallback(
     (method: DepositMethod, amount: number, network?: string) =>
       updateLocal((s) => {
@@ -585,6 +742,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         };
       }),
     [updateLocal],
+>>>>>>> f1a281c5171fd0d31410635d355a38090dd23004
   );
 
   const requestWithdrawal = useCallback(

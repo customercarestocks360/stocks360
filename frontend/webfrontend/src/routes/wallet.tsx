@@ -103,7 +103,7 @@ function WalletPage() {
   const [gate, setGate] = useState<"login" | "kyc" | null>(null);
 
   const locked = useMemo(
-    () => ({ INR: lockedAmount(transactions, "INR"), USDT: lockedAmount(transactions, "USDT") }),
+    () => ({ USDT: lockedAmount(transactions, "USDT") }),
     [transactions],
   );
 
@@ -119,17 +119,6 @@ function WalletPage() {
 
   const rows: WalletRow[] = useMemo(() => {
     const cash: WalletRow[] = [
-      {
-        key: "INR",
-        sym: "INR",
-        name: "Indian Rupee",
-        color: "#f59e0b",
-        icon: "fa-indian-rupee-sign",
-        available: balances.INR - locked.INR,
-        locked: locked.INR,
-        valueInr: balances.INR,
-        tradeTo: null,
-      },
       {
         key: "USDT",
         sym: "USDT",
@@ -215,7 +204,7 @@ function WalletPage() {
             <button
               type="button"
               onClick={() => openPanel("deposit")}
-              className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90"
+              className="flex items-center gap-2 rounded-lg bg-[#d4af37] px-4 py-2.5 text-sm font-semibold text-black shadow-[0_0_0_1px_rgba(0,0,0,0.05)] transition-opacity hover:opacity-90"
             >
               <i className="fa-solid fa-download text-xs" />
               Deposit
@@ -239,9 +228,9 @@ function WalletPage() {
           <div className="mt-2 font-mono text-4xl font-bold tracking-tight text-foreground">
             {inr(totalInr)}
           </div>
-          {locked.INR + locked.USDT > 0 && (
+          {locked.USDT > 0 && (
             <div className="mt-2 text-xs text-muted-foreground">
-              {inr(locked.INR + locked.USDT * USDT_TO_INR)} locked in pending withdrawals
+              {inr(locked.USDT * USDT_TO_INR)} locked in pending withdrawals
             </div>
           )}
         </div>

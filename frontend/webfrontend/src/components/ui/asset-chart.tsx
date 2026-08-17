@@ -165,8 +165,6 @@ export function AssetChart({
   exchange = "NASDAQ",
   watchlist = [],
   onSelectSymbol,
-  onBuy,
-  onSell,
   marketStatusLabel = "Market Open",
 }: {
   seed: string;
@@ -177,8 +175,6 @@ export function AssetChart({
   exchange?: string;
   watchlist?: WatchlistItem[];
   onSelectSymbol?: (item: WatchlistItem) => void;
-  onBuy?: () => void;
-  onSell?: () => void;
   marketStatusLabel?: string;
 }) {
   const [timeframe, setTimeframe] = useState<Timeframe>("1D");
@@ -1163,16 +1159,6 @@ export function AssetChart({
             <span className="font-mono text-[10px] text-muted-foreground">{data.length} bars</span>
           </div>
           <div className="flex items-center gap-2">
-            {onBuy && (
-              <button type="button" onClick={onBuy} className="rounded-md bg-up/10 px-4 py-1.5 text-sm font-bold text-up transition-colors hover:bg-up/20">
-                Buy
-              </button>
-            )}
-            {onSell && (
-              <button type="button" onClick={onSell} className="rounded-md bg-down/10 px-4 py-1.5 text-sm font-bold text-down transition-colors hover:bg-down/20">
-                Sell
-              </button>
-            )}
             <HoverTip label="Exit full screen (Esc)">
               <button
                 type="button"

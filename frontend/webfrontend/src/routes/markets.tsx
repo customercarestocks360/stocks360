@@ -4,12 +4,17 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { useFavorites } from "@/components/FavoritesProvider";
 import { FavoriteStar } from "@/components/ui/favorite-star";
 import { SearchInput } from "@/components/ui/marketing";
+import { Sparkline } from "@/components/ui/sparkline";
+import { RangeBar52W, ChangeCell, VolDiffBadge } from "@/components/ui/market-cells";
+import { deriveMarketStats } from "@/lib/market-stats";
 import {
   ASSETS,
   CATEGORY_PICKS,
   TIME_OPTIONS,
   TYPE_ROUTES,
   changeFor,
+  changeAbsFor,
+  parsePrice,
   findAsset,
   favKey,
   type Asset,
@@ -160,11 +165,12 @@ function MarketsPage() {
             )}
 
             <div className="overflow-x-auto rounded-2xl border border-border bg-card">
-              <table className="w-full min-w-[720px] border-collapse text-sm">
+              <table className="w-full min-w-[1080px] border-collapse text-sm">
                 <thead>
-                  <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
-                    <th className="px-5 py-3 font-medium">Name</th>
-                    <th className="px-5 py-3 font-medium">Price</th>
+                  <tr className="border-b border-border bg-secondary/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
+                    <th className="px-5 py-3 font-medium">Company</th>
+                    <th className="px-5 py-3 font-medium">Chart</th>
+                    <th className="px-5 py-3 font-medium">Market price</th>
                     <th className="px-5 py-3 font-medium">
                       <div className="flex items-center gap-2">
                         <div className="relative inline-block">
@@ -203,7 +209,7 @@ function MarketsPage() {
                           onClick={toggleSort}
                           className="flex items-center gap-1 text-xs font-medium uppercase tracking-wide text-muted-foreground hover:text-foreground"
                         >
-                          Change
+                          Price change
                           <i
                             className={`fa-solid text-[10px] ${
                               sortDir === "asc"
@@ -216,40 +222,62 @@ function MarketsPage() {
                         </button>
                       </div>
                     </th>
-                    <th className="px-5 py-3 font-medium">24h Volume</th>
-                    <th className="px-5 py-3 font-medium">Market Cap</th>
-                    <th className="px-5 py-3 text-right font-medium">Trade</th>
+                    <th className="px-5 py-3 font-medium">Volume</th>
+                    <th className="px-5 py-3 font-medium">1W avg vol diff</th>
+                    <th className="px-5 py-3 font-medium">52W</th>
+                    <th className="px-5 py-3 text-right font-medium">Action</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {sortedAssets.map((a) => (
-                    <tr key={a.sym} className="border-b border-border last:border-b-0 hover:bg-secondary/30">
-                      <td className="px-5 py-4">
-                        <div className="flex items-center gap-3">
-                          <FavoriteStar id={favKey(a)} />
-                          <AssetIcon asset={a} />
-                          <div>
-                            <div className="font-semibold text-foreground">{a.sym}</div>
-                            <div className="text-xs text-muted-foreground">{a.name}</div>
+                  {sortedAssets.map((a) => {
+                    const pct = changeFor(a, time);
+                    const up = pct >= 0;
+                    const { value: priceNum } = parsePrice(a.price);
+                    const stats = deriveMarketStats(a.sym, priceNum);
+                    return (
+                      <tr key={a.sym} className="border-b border-border last:border-b-0 hover:bg-secondary/30">
+                        <td className="px-5 py-4">
+                          <div className="flex items-center gap-3">
+                            <AssetIcon asset={a} />
+                            <div>
+                              <Link
+                                to={TYPE_ROUTES[a.type]}
+                                className="font-semibold text-foreground hover:text-primary hover:underline"
+                              >
+                                {a.name}
+                              </Link>
+                              <div className="text-xs text-muted-foreground">{a.sym}</div>
+                            </div>
                           </div>
-                        </div>
-                      </td>
-                      <td className="px-5 py-4 font-mono text-foreground">{a.price}</td>
-                      <td className="px-5 py-4">
-                        <ChangeBadge value={changeFor(a, time)} />
-                      </td>
-                      <td className="px-5 py-4 font-mono text-muted-foreground">{a.volume}</td>
-                      <td className="px-5 py-4 font-mono text-muted-foreground">{a.marketCap}</td>
-                      <td className="px-5 py-4 text-right">
-                        <Link
-                          to={TYPE_ROUTES[a.type]}
-                          className="inline-block rounded-lg bg-primary px-3.5 py-1.5 text-xs font-bold uppercase tracking-wide text-primary-foreground transition-opacity hover:opacity-90"
-                        >
-                          Trade
-                        </Link>
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                        <td className="px-5 py-4">
+                          <Sparkline seed={`${a.sym}:${time}`} up={up} />
+                        </td>
+                        <td className="px-5 py-4 font-mono text-foreground">{a.price}</td>
+                        <td className="px-5 py-4">
+                          <ChangeCell absStr={changeAbsFor(a, time)} pct={pct} />
+                        </td>
+                        <td className="px-5 py-4 font-mono text-muted-foreground">{a.volume}</td>
+                        <td className="px-5 py-4">
+                          <VolDiffBadge pct={stats.avgVolDiffPct} />
+                        </td>
+                        <td className="px-5 py-4">
+                          <RangeBar52W low={stats.low52w} high={stats.high52w} price={priceNum} />
+                        </td>
+                        <td className="px-5 py-4">
+                          <div className="flex items-center justify-end gap-2">
+                            <FavoriteStar id={favKey(a)} className="flex h-8 w-8 items-center justify-center rounded-lg border border-border" />
+                            <Link
+                              to={TYPE_ROUTES[a.type]}
+                              className="inline-block rounded-lg bg-primary px-3.5 py-1.5 text-xs font-bold uppercase tracking-wide text-primary-foreground transition-opacity hover:opacity-90"
+                            >
+                              Trade
+                            </Link>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

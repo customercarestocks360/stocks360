@@ -193,7 +193,7 @@ function Login() {
               </div>
             </div>
 
-            <div className="label-mono mt-4 text-center">Protected by 2FA · SOC 2 Type II</div>
+
           </div>
         </div>
       </div>
