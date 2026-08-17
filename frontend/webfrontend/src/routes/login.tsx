@@ -1,8 +1,8 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Input } from "@/components/ui/input";
 import SpecularButton from "@/components/ui/specular-button";
-import { OrbitRing, GoogleIcon, OtpVerification } from "@/components/ui/marketing";
+import { OrbitRing, GoogleIcon } from "@/components/ui/marketing";
 import { useAuth } from "@/components/AuthProvider";
 
 export const Route = createFileRoute("/login")({
@@ -22,9 +22,52 @@ export const Route = createFileRoute("/login")({
 
 function Login() {
   const navigate = useNavigate();
-  const { login } = useAuth();
-  const [step, setStep] = useState<"credentials" | "otp">("credentials");
-  const [identifier, setIdentifier] = useState("");
+  const { signInWithEmail, signInWithGoogle, isLoggedIn, authReady, authError } = useAuth();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [pending, setPending] = useState<"email" | "google" | null>(null);
+
+  // A restored session makes this page a no-op — send them where they were going instead of
+  // showing a form that would only append a second login event.
+  useEffect(() => {
+    if (authReady && isLoggedIn) void navigate({ to: "/", replace: true });
+  }, [authReady, isLoggedIn, navigate]);
+
+  const handleEmailSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (pending) return;
+    setError("");
+    setPending("email");
+    try {
+      // Firebase checks the password, then the backend verifies the resulting ID token and
+      // records the login. Either both happen or the user is not signed in.
+      await signInWithEmail(email, password);
+      await navigate({ to: "/" });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not sign you in. Please try again.");
+    } finally {
+      setPending(null);
+    }
+  };
+
+  const handleGoogle = async () => {
+    if (pending) return;
+    setError("");
+    setPending("google");
+    try {
+      const signedIn = await signInWithGoogle();
+      if (signedIn) await navigate({ to: "/" });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Google sign-in failed. Please try again.");
+    } finally {
+      setPending(null);
+    }
+  };
+
+  // The credential error takes precedence: it is the one the user just caused.
+  const message = error || authError || "";
+  const busy = pending !== null;
 
   return (
     <div className="h-dvh overflow-hidden bg-background text-foreground pt-safe pb-safe">
@@ -40,16 +83,6 @@ function Login() {
         </div>
 
         <div className="relative mx-auto flex h-full items-center justify-center px-6 py-4">
-          {step === "otp" ? (
-            <OtpVerification
-              onBack={() => setStep("credentials")}
-              onVerified={() => {
-                login(identifier);
-                navigate({ to: "/" });
-              }}
-              destination={identifier ? `${identifier}` : "your registered email address"}
-            />
-          ) : (
           <div className="relative w-full max-w-lg">
             {/* Glow blobs behind the card */}
             <div className="absolute -top-16 -left-16 h-56 w-56 rounded-full bg-primary/20 blur-3xl pointer-events-none" />
@@ -68,10 +101,12 @@ function Login() {
 
               <button
                 type="button"
-                className="flex w-full items-center justify-center gap-3 rounded-xl border border-border bg-white py-3 text-sm font-semibold text-[#1f1f1f] shadow-sm transition-all hover:shadow-md hover:-translate-y-0.5 active:translate-y-0"
+                onClick={handleGoogle}
+                disabled={busy}
+                className="flex w-full items-center justify-center gap-3 rounded-xl border border-border bg-white py-3 text-sm font-semibold text-[#1f1f1f] shadow-sm transition-all hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0 disabled:hover:shadow-sm"
               >
                 <GoogleIcon />
-                Continue with Google
+                {pending === "google" ? "Opening Google…" : "Continue with Google"}
               </button>
 
               <div className="my-5 flex items-center gap-3 text-xs font-mono uppercase tracking-widest text-muted-foreground">
@@ -80,22 +115,18 @@ function Login() {
                 <span className="h-px flex-1 bg-border" />
               </div>
 
-              <form
-                className="space-y-4"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  setStep("otp");
-                }}
-              >
+              <form className="space-y-4" onSubmit={handleEmailSubmit}>
                 <label className="block text-sm font-medium text-foreground">
-                  Email or Phone Number
+                  Email address
                   <Input
-                    value={identifier}
-                    onChange={(e) => setIdentifier(e.target.value)}
-                    placeholder="Enter your email or phone number"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="yourEmail@example.com"
                     className="mt-2 rounded-xl border-border bg-background/60 py-5 focus-visible:ring-primary/40"
-                    type="text"
+                    type="email"
+                    autoComplete="email"
                     required
+                    disabled={busy}
                   />
                 </label>
                 <label className="block text-sm font-medium text-foreground">
@@ -109,11 +140,22 @@ function Login() {
                     </Link>
                   </div>
                   <Input
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
                     placeholder="Enter your password"
                     className="mt-2 rounded-xl border-border bg-background/60 py-5 focus-visible:ring-primary/40"
                     type="password"
+                    autoComplete="current-password"
+                    required
+                    disabled={busy}
                   />
                 </label>
+
+                {message && (
+                  <p role="alert" className="text-xs font-medium text-destructive">
+                    {message}
+                  </p>
+                )}
 
                 <SpecularButton
                   type="submit"
@@ -133,15 +175,19 @@ function Login() {
                   followMouse
                   proximity={250}
                   autoAnimate={false}
-                  className="w-full uppercase tracking-[0.25em] font-bold"
+                  disabled={busy}
+                  className="w-full uppercase tracking-[0.25em] font-bold disabled:opacity-50"
                 >
-                  Sign in
+                  {pending === "email" ? "Signing in…" : "Sign in"}
                 </SpecularButton>
               </form>
 
               <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-5 text-sm text-muted-foreground">
                 <p>New to Stocks360?</p>
-                <Link to="/signup" className="font-medium text-primary transition-colors hover:text-primary/80">
+                <Link
+                  to="/signup"
+                  className="font-medium text-primary transition-colors hover:text-primary/80"
+                >
                   Create account
                 </Link>
               </div>
@@ -149,7 +195,6 @@ function Login() {
 
 
           </div>
-          )}
         </div>
       </div>
     </div>
