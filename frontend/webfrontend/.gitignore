@@ -16,9 +16,18 @@ dist-ssr
 .nitro
 *.local
 
+# Vercel — .vercel/output is nitro's build artifact, .vercel/project.json is local link state
+.vercel
+
 # Wrangler / Cloudflare
 .wrangler/
 .dev.vars
+
+# This project is npm-managed. A second lockfile makes Vercel guess the package manager,
+# and a stale guess installs the wrong dependency tree.
+pnpm-lock.yaml
+yarn.lock
+bun.lockb
 
 # Editor directories and files
 .vscode/*

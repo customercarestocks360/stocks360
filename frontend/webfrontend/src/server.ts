@@ -1,14 +1,20 @@
 import "./lib/error-capture";
 
+import { createServerEntry } from "@tanstack/react-start/server-entry";
+
 import { consumeLastCapturedError } from "./lib/error-capture";
 import { renderErrorPage } from "./lib/error-page";
 
 type ServerEntry = {
-  fetch: (request: Request, env: unknown, ctx: unknown) => Promise<Response> | Response;
+  fetch: (request: Request) => Promise<Response> | Response;
 };
 
 let serverEntryPromise: Promise<ServerEntry> | undefined;
 
+/**
+ * Imported lazily so a throw during the entry's own module evaluation lands in the catch
+ * below and renders the error page, rather than taking the whole worker down at startup.
+ */
 async function getServerEntry(): Promise<ServerEntry> {
   if (!serverEntryPromise) {
     serverEntryPromise = import("@tanstack/react-start/server-entry").then(
@@ -44,11 +50,13 @@ function isH3SwallowedErrorBody(body: string): boolean {
   }
 }
 
-export default {
-  async fetch(request: Request, env: unknown, ctx: unknown) {
+// createServerEntry is what makes this recognisable to nitro as the server entry, so the
+// same handler serves `vite dev`, `node .output/server/index.mjs` and the Vercel function.
+export default createServerEntry({
+  async fetch(request: Request) {
     try {
       const handler = await getServerEntry();
-      const response = await handler.fetch(request, env, ctx);
+      const response = await handler.fetch(request);
       return await normalizeCatastrophicSsrResponse(response);
     } catch (error) {
       console.error(error);
@@ -58,4 +66,4 @@ export default {
       });
     }
   },
-};
+});

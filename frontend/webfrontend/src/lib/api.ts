@@ -7,13 +7,9 @@
  * exact shape CSRF needs, and omitting it costs nothing here.
  */
 
-const DEFAULT_API_BASE_URL = "http://127.0.0.1:8000";
+import { API_BASE_URL } from "@/lib/config";
 
-/** Trailing slashes stripped, so `${API_BASE_URL}${path}` can never produce `//auth/me`. */
-export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? DEFAULT_API_BASE_URL).replace(
-  /\/+$/,
-  "",
-);
+export { API_BASE_URL };
 
 /**
  * Long enough for a cold Firebase + Atlas round-trip (the backend pays ~400ms to Google on
