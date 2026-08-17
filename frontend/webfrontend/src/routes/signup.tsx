@@ -1,8 +1,8 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Input } from "@/components/ui/input";
 import SpecularButton from "@/components/ui/specular-button";
-import { OrbitRing, GoogleIcon, OtpVerification } from "@/components/ui/marketing";
+import { OrbitRing, GoogleIcon } from "@/components/ui/marketing";
 import { useAuth } from "@/components/AuthProvider";
 
 export const Route = createFileRoute("/signup")({
@@ -21,28 +21,76 @@ export const Route = createFileRoute("/signup")({
   component: Signup,
 });
 
+/** Firebase's own floor, and the bound `SignupRequest.password` declares on the backend. */
+const MIN_PASSWORD_LENGTH = 6;
+const MAX_PASSWORD_LENGTH = 128;
+
 function Signup() {
   const navigate = useNavigate();
-  const { login } = useAuth();
-  const [step, setStep] = useState<"details" | "otp">("details");
+  const { signUpWithEmail, signInWithGoogle, isLoggedIn, authReady, authError } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
+  const [pending, setPending] = useState<"email" | "google" | null>(null);
 
-  const handleDetailsSubmit = (e: FormEvent) => {
+  useEffect(() => {
+    if (authReady && isLoggedIn) void navigate({ to: "/", replace: true });
+  }, [authReady, isLoggedIn, navigate]);
+
+  const handleDetailsSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (password.length < 6) {
-      setError("Password must be at least 6 characters.");
+    if (pending) return;
+
+    // Checked here as well as by the backend, purely so the user hears about it without a
+    // round-trip. The backend's bounds are the ones that actually enforce anything.
+    if (password.length < MIN_PASSWORD_LENGTH) {
+      setError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
+      return;
+    }
+    if (password.length > MAX_PASSWORD_LENGTH) {
+      setError(`Password must be at most ${MAX_PASSWORD_LENGTH} characters.`);
       return;
     }
     if (password !== confirmPassword) {
       setError("Passwords don't match.");
       return;
     }
+
     setError("");
-    setStep("otp");
+    setPending("email");
+    try {
+      // POST /auth/signup creates the account, then the Web SDK signs in and
+      // POST /auth/login records it.
+      await signUpWithEmail(email, password);
+      await navigate({ to: "/" });
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Could not create your account. Please try again.",
+      );
+    } finally {
+      setPending(null);
+    }
   };
+
+  const handleGoogle = async () => {
+    if (pending) return;
+    setError("");
+    setPending("google");
+    try {
+      // Google needs no separate signup: the first successful sign-in creates the Firebase
+      // user, and POST /auth/login mirrors it into MongoDB.
+      const signedIn = await signInWithGoogle();
+      if (signedIn) await navigate({ to: "/" });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Google sign-in failed. Please try again.");
+    } finally {
+      setPending(null);
+    }
+  };
+
+  const message = error || authError || "";
+  const busy = pending !== null;
 
   return (
     <div className="h-dvh overflow-hidden bg-background text-foreground pt-safe pb-safe">
@@ -61,16 +109,6 @@ function Signup() {
         <div className="absolute left-1/2 top-1/2 -z-0 h-[360px] w-[360px] translate-x-[10%] translate-y-[35%] rounded-full bg-[#3b82f6]/10 blur-3xl" />
 
         <div className="relative mx-auto flex h-full items-center justify-center px-6 py-4">
-          {step === "otp" ? (
-            <OtpVerification
-              onBack={() => setStep("details")}
-              onVerified={() => {
-                login(email);
-                navigate({ to: "/" });
-              }}
-              destination={`the email ${email}`}
-            />
-          ) : (
           <div className="relative max-h-[94vh] w-full max-w-lg overflow-hidden rounded-3xl border border-border bg-card/80 p-7 shadow-2xl backdrop-blur-xl sm:p-9">
             <div className="absolute top-0 right-0 h-56 w-56 opacity-[0.08] pointer-events-none">
               <div className="h-full w-full rounded-full bg-primary blur-3xl" />
@@ -86,10 +124,12 @@ function Signup() {
 
               <button
                 type="button"
-                className="mt-6 flex w-full items-center justify-center gap-3 rounded-xl border border-border bg-white py-3 text-sm font-semibold text-[#1f1f1f] shadow-sm transition-all hover:shadow-md hover:-translate-y-0.5 active:translate-y-0"
+                onClick={handleGoogle}
+                disabled={busy}
+                className="mt-6 flex w-full items-center justify-center gap-3 rounded-xl border border-border bg-white py-3 text-sm font-semibold text-[#1f1f1f] shadow-sm transition-all hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0 disabled:hover:shadow-sm"
               >
                 <GoogleIcon />
-                Continue with Google
+                {pending === "google" ? "Opening Google…" : "Continue with Google"}
               </button>
 
               <div className="my-5 flex items-center gap-3 text-xs font-mono uppercase tracking-widest text-muted-foreground">
@@ -107,7 +147,9 @@ function Signup() {
                     placeholder="yourEmail@example.com"
                     className="mt-2 rounded-xl"
                     type="email"
+                    autoComplete="email"
                     required
+                    disabled={busy}
                   />
                 </label>
                 <label className="block text-sm font-medium text-foreground">
@@ -115,10 +157,14 @@ function Signup() {
                   <Input
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Enter your password"
+                    placeholder="At least 6 characters"
                     className="mt-2 rounded-xl"
                     type="password"
+                    autoComplete="new-password"
+                    minLength={MIN_PASSWORD_LENGTH}
+                    maxLength={MAX_PASSWORD_LENGTH}
                     required
+                    disabled={busy}
                   />
                 </label>
                 <label className="block text-sm font-medium text-foreground">
@@ -129,11 +175,18 @@ function Signup() {
                     placeholder="Enter your password again"
                     className="mt-2 rounded-xl"
                     type="password"
+                    autoComplete="new-password"
+                    maxLength={MAX_PASSWORD_LENGTH}
                     required
+                    disabled={busy}
                   />
                 </label>
 
-                {error && <p className="text-xs font-medium text-destructive">{error}</p>}
+                {message && (
+                  <p role="alert" className="text-xs font-medium text-destructive">
+                    {message}
+                  </p>
+                )}
 
                 <SpecularButton
                   type="submit"
@@ -153,9 +206,10 @@ function Signup() {
                   followMouse
                   proximity={250}
                   autoAnimate={false}
-                  className="w-full uppercase tracking-[0.2em] font-bold"
+                  disabled={busy}
+                  className="w-full uppercase tracking-[0.2em] font-bold disabled:opacity-50"
                 >
-                  Create account
+                  {pending === "email" ? "Creating account…" : "Create account"}
                 </SpecularButton>
               </form>
 
@@ -170,13 +224,15 @@ function Signup() {
 
               <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-5 text-sm text-muted-foreground">
                 <p>Already have an account?</p>
-                <Link to="/login" className="font-medium text-primary transition-colors hover:text-primary/80">
+                <Link
+                  to="/login"
+                  className="font-medium text-primary transition-colors hover:text-primary/80"
+                >
                   Log in
                 </Link>
               </div>
             </div>
           </div>
-          )}
         </div>
       </div>
     </div>

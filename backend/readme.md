@@ -777,8 +777,13 @@ access list or a paused cluster. Add the current IP under **Network Access**, an
 
 Two browser pages, both served from the API origin so the calls are same-origin and no
 CORS config is needed. Use `localhost`, not `127.0.0.1`, since Firebase only authorizes
-`localhost` by default. Signing in from a different origin (e.g. the Vite dev server on
-`:5173`) will need CORS middleware added.
+`localhost` by default.
+
+The `webfrontend` app calls this API cross-origin, so `.env` now ships
+`CORS_ALLOW_ORIGINS=http://localhost:5173` for its Vite dev server. That value is read at
+import, so **changing it needs a process restart** — `--reload` only watches Python files.
+Any other origin the app is served from has to be added there, exactly, scheme and port
+included.
 
 | Page | Covers |
 |---|---|

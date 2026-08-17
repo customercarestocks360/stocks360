@@ -331,9 +331,10 @@ function AccountPage() {
     }
   }, [marketTab, favoriteAssets]);
 
-  const handleLogout = () => {
-    logout();
-    navigate({ to: "/" });
+  // Async now that signing out revokes refresh tokens server-side.
+  const handleLogout = async () => {
+    await logout();
+    await navigate({ to: "/" });
   };
 
   if (!isLoggedIn) {
@@ -707,7 +708,7 @@ function AccountPage() {
                       </Link>
                       <button
                         type="button"
-                        onClick={handleLogout}
+                        onClick={() => void handleLogout()}
                         className="flex items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                       >
                         <i className="fa-solid fa-arrow-right-from-bracket w-4" />

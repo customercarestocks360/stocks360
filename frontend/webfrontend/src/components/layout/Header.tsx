@@ -32,10 +32,12 @@ export function Header() {
     closeProfileTimer.current = setTimeout(() => setProfileOpen(false), 300);
   };
 
-  const handleLogout = () => {
+  // Async now that signing out revokes refresh tokens server-side. Navigating only once
+  // that has resolved keeps a stale token from riding along into the next page's requests.
+  const handleLogout = async () => {
     setProfileOpen(false);
-    logout();
-    navigate({ to: "/" });
+    await logout();
+    await navigate({ to: "/" });
   };
 
   return (
@@ -173,7 +175,7 @@ export function Header() {
                     )}
                   </div>
                   <button
-                    onClick={handleLogout}
+                    onClick={() => void handleLogout()}
                     className="mt-1 flex w-full items-center gap-2 rounded-md border-t border-border px-2.5 py-2 pt-2.5 text-left text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                   >
                     <i className="fa-solid fa-arrow-right-from-bracket w-4" />
