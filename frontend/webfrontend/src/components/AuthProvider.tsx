@@ -149,7 +149,7 @@ export type KycProfile = {
   };
   financial: {
     occupation: string;
-    employer_name: string;
+    employer_designation: string;
     income_currency: string;
     annual_income_band: string;
     net_worth_band: string;

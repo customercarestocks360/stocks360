@@ -205,7 +205,7 @@ function KycPage() {
   });
   const [financial, setFinancial] = useState<Financial>({
     occupation: "salaried_private",
-    employer_name: "",
+    employer_designation: "",
     income_currency: "INR",
     annual_income_band: "100k_500k",
     net_worth_band: "100k_500k",
@@ -263,27 +263,7 @@ function KycPage() {
     );
   }
 
-  if (kycCompleted && !celebrate) {
-    return (
-      <AuthPageShell>
-        <div className="relative w-full max-w-md rounded-3xl border border-border bg-card/80 p-8 text-center shadow-2xl backdrop-blur-xl">
-          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-up/10 text-up">
-            <i className="fa-solid fa-circle-check text-lg" />
-          </div>
-          <h1 className="mt-4 text-xl font-bold text-foreground">You're already verified</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Your have completed 90% of the details.
-          </p>
-          <Link
-            to="/"
-            className="mt-6 inline-block rounded-xl bg-primary px-5 py-2.5 text-sm font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90"
-          >
-            Back to home
-          </Link>
-        </div>
-      </AuthPageShell>
-    );
-  }
+
 
   const validateStep = (): string => {
     if (currentStepKey === "contact") {
@@ -306,11 +286,11 @@ function KycPage() {
         return "Enter a valid PAN (e.g. ABCDE1234F).";
     }
     if (currentStepKey === "tax") {
-      if (!tax.tax_identification_number.trim()) return "Tax identification number is required.";
+      // Tax identification number is optional — not every jurisdiction issues one.
     }
     if (currentStepKey === "financial") {
-      if (financial.occupation.startsWith("salaried") && !financial.employer_name.trim())
-        return "Employer name is required.";
+      if (financial.occupation.startsWith("salaried") && !financial.employer_designation.trim())
+        return "Employer designation is required.";
       if (financial.investment_experience_years < 0) return "Investment experience can't be negative.";
       if (financial.investment_objectives.length === 0) return "Pick at least one investment objective.";
     }
@@ -361,7 +341,7 @@ function KycPage() {
       setVerifying(false);
       submitKyc(profile);
       setCelebrate(true);
-      setTimeout(() => setCelebrate(false), 3200);
+      setTimeout(() => setCelebrate(true));
     }, 1600);
   };
 
@@ -381,7 +361,7 @@ function KycPage() {
             <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-up/10 text-up">
               <i className="fa-solid fa-party-horn text-2xl" />
             </div>
-            <h1 className="mt-5 text-2xl font-bold text-foreground">You're verified! 🎉</h1>
+            <h1 className="mt-5 text-2xl font-bold text-foreground">You're verified! </h1>
             <p className="mt-3 text-sm leading-6 text-muted-foreground">
               Congrats — your KYC verification is complete. You can now deposit funds and start trading.
             </p>
@@ -631,10 +611,11 @@ function KycPage() {
                         onChange={(v) => setTax({ ...tax, tax_residency_country: v })}
                       />
                     </Field>
-                    <Field label="Tax identification number">
+                    <Field label="Tax identification number (optional)">
                       <input
                         value={tax.tax_identification_number}
                         onChange={(e) => setTax({ ...tax, tax_identification_number: e.target.value.toUpperCase() })}
+                        placeholder="Leave blank if not applicable"
                         className={inputClass}
                       />
                     </Field>
@@ -692,10 +673,10 @@ function KycPage() {
                       </select>
                     </Field>
                     {financial.occupation.startsWith("salaried") && (
-                      <Field label="Employer name">
+                      <Field label="Employer designation">
                         <input
-                          value={financial.employer_name}
-                          onChange={(e) => setFinancial({ ...financial, employer_name: e.target.value })}
+                          value={financial.employer_designation}
+                          onChange={(e) => setFinancial({ ...financial, employer_designation: e.target.value })}
                           className={inputClass}
                         />
                       </Field>

@@ -208,6 +208,8 @@ export function AssetChart({
   const volRef = useRef<ISeriesApi<"Histogram"> | null>(null);
   const maRef = useRef<ISeriesApi<"Line"> | null>(null);
   const drawIdRef = useRef(1);
+  /** A fingertip is far less precise than a mouse cursor — widen the hit-test radius for it. */
+  const lastPointerTypeRef = useRef<string>("mouse");
   const undoRef = useRef<Drawing[][]>([]);
   const redoRef = useRef<Drawing[][]>([]);
   const dragRef = useRef<
@@ -347,7 +349,7 @@ export function AssetChart({
       if (d.type === "hline") {
         segs.push([{ x: 0, y: P[0]!.y }, { x: width, y: P[0]!.y }]);
       } else if (d.type === "ray") {
-        segs.push([P[0]!, { x: width, y: P[0]!.y + ((P[1]!.y - P[0]!.y) * (width - P[0]!.x)) / (P[1]!.x - P[0]!.x || 1) }]);
+        segs.push([P[0]!, P[1]!]);
       } else if (d.type === "rect") {
         const x1 = P[0]!.x, y1 = P[0]!.y, x2 = P[1]!.x, y2 = P[1]!.y;
         segs.push([{ x: x1, y: y1 }, { x: x2, y: y1 }], [{ x: x2, y: y1 }, { x: x2, y: y2 }],
@@ -371,15 +373,18 @@ export function AssetChart({
   const findAt = useCallback(
     (x: number, y: number) => {
       const w = overlayRef.current?.clientWidth ?? 0;
+      const touch = lastPointerTypeRef.current === "touch";
+      const anchorTolerance = touch ? 18 : 7;
+      const bodyTolerance = touch ? 14 : 6;
       const list = S.current.drawings;
       for (let i = list.length - 1; i >= 0; i--) {
         const d = list[i]!;
         const { pts, segs } = segmentsFor(d, w);
         for (let k = 0; k < pts.length; k++) {
           const p = pts[k];
-          if (p && Math.hypot(x - p.x, y - p.y) <= 7) return { drawing: d, mode: "anchor" as const, anchorIdx: k };
+          if (p && Math.hypot(x - p.x, y - p.y) <= anchorTolerance) return { drawing: d, mode: "anchor" as const, anchorIdx: k };
         }
-        for (const [a, b] of segs) if (distToSeg(x, y, a.x, a.y, b.x, b.y) <= 6) return { drawing: d, mode: "body" as const };
+        for (const [a, b] of segs) if (distToSeg(x, y, a.x, a.y, b.x, b.y) <= bodyTolerance) return { drawing: d, mode: "body" as const };
       }
       return null;
     },
@@ -415,10 +420,11 @@ export function AssetChart({
       };
       switch (d.type) {
         case "trendline":
-        case "arrow": {
+        case "arrow":
+        case "ray": {
           if (!P[0] || !P[1]) break;
           line(P[0], P[1]);
-          if (d.type === "arrow") {
+          if (d.type === "arrow" || d.type === "ray") {
             const ang = Math.atan2(P[1]!.y - P[0]!.y, P[1]!.x - P[0]!.x);
             ctx.beginPath();
             ctx.moveTo(P[1]!.x, P[1]!.y);
@@ -433,12 +439,6 @@ export function AssetChart({
           if (!P[0]) break;
           line({ x: 0, y: P[0]!.y }, { x: w, y: P[0]!.y });
           ctx.fillText(fmt(d.points[0]!.price, dec), 6, P[0]!.y - 4);
-          break;
-        }
-        case "ray": {
-          if (!P[0] || !P[1]) break;
-          const slope = (P[1]!.y - P[0]!.y) / (P[1]!.x - P[0]!.x || 1);
-          line(P[0], { x: w, y: P[0]!.y + slope * (w - P[0]!.x) });
           break;
         }
         case "rect": {
@@ -647,8 +647,8 @@ export function AssetChart({
 
   useEffect(() => setPending([]), [activeTool]);
 
-  /* ---------------- mouse interaction ---------------- */
-  const local = (e: MouseEvent | React.MouseEvent) => {
+  /* ---------------- pointer interaction (mouse, touch and pen alike) ---------------- */
+  const local = (e: PointerEvent | React.PointerEvent) => {
     const r = hostRef.current!.getBoundingClientRect();
     return { x: e.clientX - r.left, y: e.clientY - r.top };
   };
@@ -679,7 +679,7 @@ export function AssetChart({
     const host = hostRef.current;
     if (!host) return;
 
-    const onDragMove = (e: MouseEvent) => {
+    const onDragMove = (e: PointerEvent) => {
       const drag = dragRef.current;
       if (!drag) return;
       e.preventDefault();
@@ -716,15 +716,33 @@ export function AssetChart({
     const onDragEnd = () => {
       dragRef.current = null;
       host.style.cursor = "";
-      window.removeEventListener("mousemove", onDragMove, true);
-      window.removeEventListener("mouseup", onDragEnd, true);
+      window.removeEventListener("pointermove", onDragMove, true);
+      window.removeEventListener("pointerup", onDragEnd, true);
+      window.removeEventListener("pointercancel", onDragEnd, true);
     };
 
-    const onDown = (e: MouseEvent) => {
+    /** Long-press on touch opens the same menu a right-click does on desktop. */
+    let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+    const clearLongPress = () => {
+      if (longPressTimer) clearTimeout(longPressTimer);
+      longPressTimer = null;
+    };
+
+    const onDown = (e: PointerEvent) => {
       if (e.button !== 0) return;
+      lastPointerTypeRef.current = e.pointerType;
       setCtxMenu(null);
       const { x, y } = local(e);
       const tool = S.current.activeTool;
+
+      if (e.pointerType === "touch") {
+        clearLongPress();
+        longPressTimer = setTimeout(() => {
+          const found = S.current.showDrawings && !S.current.locked ? findAt(x, y) : null;
+          if (found) setSelectedId(found.drawing.id);
+          setCtxMenu({ x: e.clientX, y: e.clientY, onDrawing: !!found });
+        }, 550);
+      }
 
       if (REQUIRED_POINTS[tool]) {
         e.preventDefault();
@@ -740,6 +758,7 @@ export function AssetChart({
       }
       e.preventDefault();
       e.stopPropagation();
+      clearLongPress();
       const start = pxToPoint(x, y);
       if (!start) return;
       setSelectedId(found.drawing.id);
@@ -753,11 +772,14 @@ export function AssetChart({
         moved: false,
       };
       host.style.cursor = found.mode === "anchor" ? "grabbing" : "move";
-      window.addEventListener("mousemove", onDragMove, true);
-      window.addEventListener("mouseup", onDragEnd, true);
+      window.addEventListener("pointermove", onDragMove, true);
+      window.addEventListener("pointerup", onDragEnd, true);
+      window.addEventListener("pointercancel", onDragEnd, true);
     };
 
-    const onMove = (e: MouseEvent) => {
+    const onMove = (e: PointerEvent) => {
+      lastPointerTypeRef.current = e.pointerType;
+      if (e.pointerType === "touch") clearLongPress();
       if (dragRef.current) return;
       const { x, y } = local(e);
       if (REQUIRED_POINTS[S.current.activeTool]) {
@@ -771,9 +793,11 @@ export function AssetChart({
       setHoverId((prev) => (prev === id ? prev : id));
     };
 
+    const onUp = () => clearLongPress();
+
     const onCtx = (e: MouseEvent) => {
       e.preventDefault();
-      const { x, y } = local(e);
+      const { x, y } = local(e as unknown as PointerEvent);
       const found = S.current.showDrawings && !S.current.locked ? findAt(x, y) : null;
       if (found) setSelectedId(found.drawing.id);
       setCtxMenu({ x: e.clientX, y: e.clientY, onDrawing: !!found });
@@ -783,17 +807,23 @@ export function AssetChart({
       chartRef.current?.timeScale().fitContent();
     };
 
-    host.addEventListener("mousedown", onDown, true);
-    host.addEventListener("mousemove", onMove, true);
+    host.addEventListener("pointerdown", onDown, true);
+    host.addEventListener("pointermove", onMove, true);
+    host.addEventListener("pointerup", onUp, true);
+    host.addEventListener("pointercancel", onUp, true);
     host.addEventListener("contextmenu", onCtx);
     host.addEventListener("dblclick", onDbl);
     return () => {
-      host.removeEventListener("mousedown", onDown, true);
-      host.removeEventListener("mousemove", onMove, true);
+      clearLongPress();
+      host.removeEventListener("pointerdown", onDown, true);
+      host.removeEventListener("pointermove", onMove, true);
+      host.removeEventListener("pointerup", onUp, true);
+      host.removeEventListener("pointercancel", onUp, true);
       host.removeEventListener("contextmenu", onCtx);
       host.removeEventListener("dblclick", onDbl);
-      window.removeEventListener("mousemove", onDragMove, true);
-      window.removeEventListener("mouseup", onDragEnd, true);
+      window.removeEventListener("pointermove", onDragMove, true);
+      window.removeEventListener("pointerup", onDragEnd, true);
+      window.removeEventListener("pointercancel", onDragEnd, true);
     };
   }, [isFullscreen, commitPoint, findAt, pxToPoint, renderOverlay]);
 
@@ -925,7 +955,7 @@ export function AssetChart({
     { key: "cursor", icon: "fa-arrow-pointer", label: "Cursor — select & drag drawings" },
     { key: "crosshair", icon: "fa-crosshairs", label: "Crosshair" },
     { key: "trendline", icon: "fa-slash", label: "Trend Line (T)" },
-    { key: "ray", icon: "fa-arrow-right-long", label: "Ray" },
+    { key: "ray", icon: "fa-arrow-right-long", label: "Arrow" },
     { key: "hline", icon: "fa-grip-lines", label: "Horizontal Line (H)" },
     { key: "rect", icon: "fa-vector-square", label: "Rectangle" },
     { key: "fib", icon: "fa-layer-group", label: "Fibonacci Retracement (F)" },
@@ -1040,7 +1070,7 @@ export function AssetChart({
 
   const chartPane = (
     <div className="relative min-h-0 flex-1">
-      <div ref={hostRef} className="absolute inset-0" />
+      <div ref={hostRef} className="absolute inset-0 touch-none" />
       <canvas ref={overlayRef} className="pointer-events-none absolute inset-0" />
       {selected && isFullscreen && (
         <div
