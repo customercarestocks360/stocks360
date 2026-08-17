@@ -35,6 +35,10 @@ def close() -> None:
 
 def ensure_indexes() -> None:
     """Create the indexes the app relies on. Safe to re-run."""
+    # Imported here rather than at module scope: the trading repository imports get_db
+    # from this module, so a top-level import would close the loop.
+    from app.trading import repository as trading_repository
+
     db = get_db()
     # _id already holds the Firebase uid, so lookups by user are covered.
     db.users.create_index([("email", ASCENDING)], name="email_idx")
@@ -67,3 +71,9 @@ def ensure_indexes() -> None:
         collection.create_index(
             [("uid", ASCENDING), ("created_at", DESCENDING)], name="uid_created_idx"
         )
+
+    # Wallets, orders, trades, positions and the ledger. Kept with the feature that owns
+    # them rather than listed here, because two of those indexes are load-bearing rules —
+    # one client order id per user, and the matcher's view of every resting order — and
+    # they belong next to the code that depends on them.
+    trading_repository.ensure_indexes()

@@ -16,6 +16,7 @@ from app.forex import upstream as forex_upstream
 from app.forex.hub import hub as forex_hub
 from app.stocks import upstream as stocks_upstream
 from app.stocks.hub import hub as stocks_hub
+from app.trading.engine import engine as trading_engine
 
 STATIC_DIR = Path(__file__).resolve().parents[1] / "static"
 
@@ -34,7 +35,11 @@ async def lifespan(app: FastAPI):
     await crypto_hub.start()
     await forex_hub.start()
     await stocks_hub.start()
+    # After the hubs: the matcher subscribes to all three, and holding the symbols with
+    # resting orders is what keeps them priced while their orders wait.
+    await trading_engine.start()
     yield
+    await trading_engine.stop()
     await stocks_hub.stop()
     await forex_hub.stop()
     await crypto_hub.stop()

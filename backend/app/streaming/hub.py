@@ -38,6 +38,12 @@ _QUEUE_SIZE = 64
 
 RECONNECT_DELAYS = (1, 2, 5, 10, 20, 30)
 
+# Not every subscriber is a client socket. The trading matcher registers here too, so that
+# a resting order keeps its symbol subscribed upstream — but it is not someone's browser,
+# and counting it as one would make the fan-out diagnostics report a connection that does
+# not exist. Ids under this prefix are internal; a real watchlist id is 32 hex characters.
+INTERNAL_PREFIX = "__"
+
 
 def now() -> datetime:
     return datetime.now(timezone.utc)
@@ -113,10 +119,16 @@ class BaseHub:
         return self._stopping
 
     def stats(self) -> dict:
+        """Client-facing fan-out numbers. Internal subscribers are excluded, so these stay
+        a measure of who is connected rather than of what the process is doing."""
         return {
             "upstream_connected": self.upstream_connected,
-            "subscribers": len(self._subscribers),
-            "watchlists": len(self._by_watchlist),
+            "subscribers": sum(
+                1 for s in self._subscribers if not s.watchlist_id.startswith(INTERNAL_PREFIX)
+            ),
+            "watchlists": sum(
+                1 for wid in self._by_watchlist if not wid.startswith(INTERNAL_PREFIX)
+            ),
             "symbols": len(self._refcount),
             "cached_quotes": len(self._last),
         }

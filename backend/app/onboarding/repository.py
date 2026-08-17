@@ -85,6 +85,12 @@ def freeze_session(
     return session
 
 
+def get_kyc_profile(uid: str) -> dict | None:
+    """The frozen application, for readers that need what the user declared rather than
+    what the funnel is doing — the trading module reads its base currency from here."""
+    return get_db()[KYC_PROFILES].find_one({"_id": uid})
+
+
 def write_kyc_profile(profile: dict[str, Any]) -> None:
     """Persist the frozen application. Raises DuplicateKeyError when the identity
     document already belongs to a different account."""

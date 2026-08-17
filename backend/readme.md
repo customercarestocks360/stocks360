@@ -45,6 +45,15 @@ All Firebase config lives in `.env` — nothing is hardcoded in the app or the t
 | `STOCKS_INSTRUMENT_TTL_SECONDS` | How long a resolved instrument is cached, default `3600` |
 | `STOCKS_MAX_WATCHLISTS` / `STOCKS_MAX_SYMBOLS_PER_WATCHLIST` / `STOCKS_MAX_SOCKETS_PER_USER` | Per-user caps, default `20` / `25` / `5` |
 | `STOCKS_HEARTBEAT_SECONDS` | Silence before a heartbeat frame, 5–300, default `20` |
+| `CRYPTO_STALE_SECONDS` | Crypto quote age before it is too old to trade on, default `120`. The feed has no staleness notion of its own — it never closes |
+| `TRADING_ENABLED` | `false` stops orders and funding; the reads keep working |
+| `TRADING_FEE_BPS` | Commission in basis points of notional, default `10` (0.1%), rounded up |
+| `TRADING_PRICE_BAND_PERCENT` | How far a limit or stop price may sit from the last trade, default `20` |
+| `TRADING_MAX_OPEN_ORDERS` | Resting orders per user, default `50` |
+| `TRADING_MIN_ORDER_NOTIONAL` / `TRADING_MAX_ORDER_NOTIONAL` | Per-order bounds in the quote currency, default `1` / `1000000` |
+| `TRADING_MAX_DEPOSIT` / `TRADING_MAX_WITHDRAWAL` | Per-movement bounds, default `1000000` each |
+| `TRADING_SWEEP_SECONDS` | How often the matcher expires day orders and re-checks resting ones, 5–300, default `15` |
+| `TRADING_DOMESTIC_SUFFIXES` | Ticker suffixes treated as domestic equity, default `.NS,.BO` |
 
 The crypto limits are clamped rather than validated, so a typo degrades to the nearest
 sane value instead of stopping the app from booting. The Firebase and Mongo values still
@@ -77,7 +86,8 @@ app/
 │   ├── streaming.py    # the stream frame contract shared by every market feed
 │   ├── crypto.py       # crypto market data + watchlists
 │   ├── forex.py        # forex pairs, quotes, pip sizing, session state
-│   └── stocks.py       # instruments, equity quotes, candles, market state
+│   ├── stocks.py       # instruments, equity quotes, candles, market state
+│   └── trading.py      # orders, trades, positions, balances, the ledger
 ├── auth/               # feature module
 │   ├── routes.py       # endpoints
 │   ├── service.py      # token verification, user create/revoke
@@ -107,6 +117,13 @@ app/
 │   ├── upstream.py     # Yahoo REST — the ONLY file that knows the provider
 │   ├── hub.py          # polls per ticker; the rest comes from BaseHub
 │   └── repository.py   # watchlist reads/writes
+├── trading/            # the simulated venue, sitting on top of all three feeds
+│   ├── routes.py       # funding, orders, trades, positions, portfolio
+│   ├── service.py      # the rules: who may trade, what an order must satisfy, settlement
+│   ├── engine.py       # the matcher — a hub subscriber, plus a repair sweep
+│   ├── pricing.py      # one `Mark` over three feeds: currency, price, state, staleness
+│   ├── repository.py   # wallets, orders, trades, positions, ledger — all Decimal128
+│   └── money.py        # quantisation and the fee, in one place
 └── health/routes.py
 static/index.html       # browser test page
 secrets/                # service account key (gitignored)
@@ -128,6 +145,12 @@ the rest of the system can query users without calling Firebase on every request
 | `watchlists` | `_id` = uuid4 hex, unique `(uid, name)` | `uid, name, symbols, version, created_at, updated_at` — one document per streamable crypto instance |
 | `stock_watchlists` | same shape and indexes | the equities equivalent |
 | `forex_watchlists` | same shape and indexes | the forex equivalent. A separate collection on purpose: the two symbol universes come from different providers, so a pair being delisted must not be able to invalidate a crypto watchlist |
+| `wallets` | `_id` = `uid:CURRENCY` | `uid, currency, available, reserved` — cash, one document per currency held. The deterministic key is what makes one wallet per currency a property of the schema rather than a check |
+| `orders` | `_id` = uuid4 hex, unique `(uid, client_order_id)` where present | the order and its lifecycle: `side, type, time_in_force, status, quantity, limit_price, stop_price, triggered, funded, reserved_amount, reserved_quantity, average_price, fee, expires_at` |
+| `trades` | indexed `(uid, at desc)` and `order_id` | one immutable record per fill: `quantity, price, notional, fee, realized_pnl` |
+| `positions` | `_id` = `uid:asset_class:symbol` | `available_quantity, reserved_quantity, cost_basis, realized_pnl`. The average price is derived from the basis rather than stored, so it cannot drift from it |
+| `ledger_entries` | indexed `(uid, at desc)` | every balance movement, with the balances that same operation produced |
+| `idempotency_keys` | `_id` = `uid:scope:key` | claimed before a funding movement, completed after — which is what lets a replay tell "already done" from "died halfway" |
 
 `POST /auth/login` upserts the user and appends a login event, so repeat logins increment
 `login_count` rather than duplicating the record.
@@ -144,66 +167,83 @@ a read-then-write check in the service would lose that race between two concurre
 
 ## Routes
 
-| Route | Purpose | Response |
-|---|---|---|
-| `GET /` | API identity | `{ "message": "Stocks360 API" }` |
-| `GET /health` | Liveness + MongoDB check. `503` when the DB is unreachable | `{ status, database }` |
-| `GET /auth/config` | Firebase Web SDK config from `.env`, so clients never hardcode it | `{ apiKey, authDomain, projectId, storageBucket, messagingSenderId, appId, measurementId }` |
-| `POST /auth/signup` | Create an email/password user from `{ email, password, display_name? }`. `409` if the email exists, `422` on bad email / password under 6 chars | `201` + user |
-| `POST /auth/login` | Verify a client-obtained ID token from `{ id_token }` — works for both email/password and Google. Upserts the user and logs the login | user |
-| `GET /auth/me` | Current user, from `Authorization: Bearer <id_token>` | user |
-| `POST /auth/logout` | Revoke the user's refresh tokens, ending existing sessions | `{ message }` |
-| `GET /users/me` | Stored MongoDB profile. `404` before the first login | profile |
-| `GET /users/me/logins` | Login history, newest first. `?limit=` 1–100, default 20 | list of events |
-| `POST /onboarding/step` | Submit one signup step. `step` in the body selects the shape and the rules. `409` out of order / ineligible / already submitted | session |
-| `GET /onboarding/session` | Resume — progress + everything captured, identifiers masked | session |
-| `POST /onboarding/submit` | Freeze the session into `kyc_profiles` and open the products. `404` no session, `409` incomplete or duplicate document | outcome |
-| `GET /crypto/symbols` | Tradable spot symbols. `?quote_asset=`, `?search=`, `?tradable_only=`, `?limit=` 1–2000 | list of symbols |
-| `GET /crypto/ticker/{symbol}` | 24h ticker, served from the live cache when available | quote |
-| `GET /crypto/tickers` | Batch tickers. `?symbols=BTCUSDT,ETHUSDT` or repeated `?symbols=`, max 50 | list of quotes |
-| `GET /crypto/orderbook/{symbol}` | Depth. `?limit=` one of 5/10/20/50/100/500/1000 | order book |
-| `GET /crypto/klines/{symbol}` | Candles. `?interval=` 1m–1M, `?limit=` 1–1000 | series |
-| `GET /crypto/stream/stats` | Fan-out diagnostics for this process | stats |
-| `POST /crypto/watchlists` | Create an instance from `{ name, symbols }`. `409` duplicate name or cap reached | `201` + watchlist |
-| `GET /crypto/watchlists` | Your watchlists, newest first. `?limit=` 1–200 | list |
-| `GET /crypto/watchlists/{id}` | One watchlist | watchlist |
-| `GET /crypto/watchlists/{id}/quotes` | The same snapshot a socket gets on connect | quotes |
-| `PATCH /crypto/watchlists/{id}` | Rename and/or replace symbols; re-binds open sockets | watchlist |
-| `POST /crypto/watchlists/{id}/symbols` | Add symbols, idempotent; re-binds open sockets | watchlist |
-| `DELETE /crypto/watchlists/{id}/symbols/{symbol}` | Remove one symbol. `409` if it is the last one | watchlist |
-| `DELETE /crypto/watchlists/{id}` | Delete it and close its sockets | `204` |
-| `WS /crypto/watchlists/{id}/stream` | Live quotes for that instance. `?token=<id_token>` | stream frames |
-| `GET /forex/pairs` | Supported pairs. `?base=`, `?quote=`, `?search=`, `?limit=` 1–1000 | list of pairs |
-| `GET /forex/session` | Whether the interbank market is open | session |
-| `GET /forex/quote/{pair}` | Quote with bid, ask, mid and the spread in price and pips | quote |
-| `GET /forex/quotes` | Batch quotes. `?symbols=EUR-USD,GBP-USD` or repeated, max 30 | list of quotes |
-| `GET /forex/candles/{pair}` | `?series=daily\|intraday`, `?limit=` 1–360 | series |
-| `GET /forex/stream/stats` | Fan-out diagnostics for this process | stats |
-| `POST /forex/watchlists` | Create an instance from `{ name, symbols }` | `201` + watchlist |
-| `GET /forex/watchlists` | Your watchlists, newest first | list |
-| `GET /forex/watchlists/{id}` | One watchlist | watchlist |
-| `GET /forex/watchlists/{id}/quotes` | The snapshot a socket gets on connect, plus market state | quotes |
-| `PATCH /forex/watchlists/{id}` | Rename and/or replace pairs; re-binds open sockets | watchlist |
-| `POST /forex/watchlists/{id}/symbols` | Add pairs, idempotent; re-binds open sockets | watchlist |
-| `DELETE /forex/watchlists/{id}/symbols/{pair}` | Remove one pair. `409` if it is the last | watchlist |
-| `DELETE /forex/watchlists/{id}` | Delete it and close its sockets | `204` |
-| `WS /forex/watchlists/{id}/stream` | Live quotes for that instance. `?token=<id_token>` | stream frames |
-| `GET /stocks/instruments` | Search the instrument master. `?search=`, `?limit=` 1–50 | list of instruments |
-| `GET /stocks/quote/{symbol}` | Quote with price, change, day range, volume, market state | quote |
-| `GET /stocks/quotes` | Batch quotes. `?symbols=AAPL,RELIANCE.NS`, max 20 | list of quotes |
-| `GET /stocks/candles/{symbol}` | `?interval=` 1m–1mo, `?range=` 1d–max | series |
-| `GET /stocks/stream/stats` | Fan-out diagnostics for this process | stats |
-| `POST /stocks/watchlists` | Create an instance from `{ name, symbols }` | `201` + watchlist |
-| `GET /stocks/watchlists` | Your watchlists, newest first | list |
-| `GET /stocks/watchlists/{id}` | One watchlist | watchlist |
-| `GET /stocks/watchlists/{id}/quotes` | The snapshot a socket gets on connect | quotes |
-| `PATCH /stocks/watchlists/{id}` | Rename and/or replace tickers; re-binds open sockets | watchlist |
-| `POST /stocks/watchlists/{id}/symbols` | Add tickers, idempotent; re-binds open sockets | watchlist |
-| `DELETE /stocks/watchlists/{id}/symbols/{symbol}` | Remove one ticker. `409` if it is the last | watchlist |
-| `DELETE /stocks/watchlists/{id}` | Delete it and close its sockets | `204` |
-| `WS /stocks/watchlists/{id}/stream` | Live quotes for that instance. `?token=<id_token>` | stream frames |
-| `GET /test` | Browser test page (not in OpenAPI schema) | HTML |
-| `GET /test/onboarding` | Onboarding test page (not in OpenAPI schema) | HTML |
+`{id}` is the 32-char hex watchlist id. Routes with no body show their query string
+instead; `—` means the request carries nothing but the bearer token.
+
+| Route | Purpose | Sample request | Response |
+|---|---|---|---|
+| `GET /` | API identity | — | `{ "message": "Stocks360 API" }` |
+| `GET /health` | Liveness + MongoDB check. `503` when the DB is unreachable | — | `{ status, database }` |
+| `GET /auth/config` | Firebase Web SDK config from `.env`, so clients never hardcode it | — | `{ apiKey, authDomain, projectId, storageBucket, messagingSenderId, appId, measurementId }` |
+| `POST /auth/signup` | Create an email/password user from `{ email, password, display_name? }`. `409` if the email exists, `422` on bad email / password under 6 chars | `{"email": "you@example.com", "password": "hunter2secret", "display_name": "Ada L"}` | `201` + user |
+| `POST /auth/login` | Verify a client-obtained ID token from `{ id_token }` — works for both email/password and Google. Upserts the user and logs the login | `{"id_token": "eyJhbGciOiJSUzI1NiIs…"}` | user |
+| `GET /auth/me` | Current user, from `Authorization: Bearer <id_token>` | — | user |
+| `POST /auth/logout` | Revoke the user's refresh tokens, ending existing sessions | — (no body) | `{ message }` |
+| `GET /users/me` | Stored MongoDB profile. `404` before the first login | — | profile |
+| `GET /users/me/logins` | Login history, newest first. `?limit=` 1–100, default 20 | `?limit=20` | list of events |
+| `POST /onboarding/step` | Submit one signup step. `step` in the body selects the shape and the rules. `409` out of order / ineligible / already submitted | `{"step": "contact", "mobile_country_code": "+91", "mobile_number": "9876543210", "country_of_residence": "IN", "nationality": "IN"}` | session |
+| `GET /onboarding/session` | Resume — progress + everything captured, identifiers masked | — | session |
+| `POST /onboarding/submit` | Freeze the session into `kyc_profiles` and open the products. `404` no session, `409` incomplete or duplicate document | — (no body) | outcome |
+| `GET /crypto/symbols` | Tradable spot symbols. `?quote_asset=`, `?search=`, `?tradable_only=`, `?limit=` 1–2000 | `?quote_asset=USDT&search=btc&tradable_only=true&limit=100` | list of symbols |
+| `GET /crypto/ticker/{symbol}` | 24h ticker, served from the live cache when available | `/crypto/ticker/BTCUSDT` | quote |
+| `GET /crypto/tickers` | Batch tickers. `?symbols=BTCUSDT,ETHUSDT` or repeated `?symbols=`, max 50 | `?symbols=BTCUSDT,ETHUSDT` | list of quotes |
+| `GET /crypto/orderbook/{symbol}` | Depth. `?limit=` one of 5/10/20/50/100/500/1000 | `/crypto/orderbook/BTCUSDT?limit=20` | order book |
+| `GET /crypto/klines/{symbol}` | Candles. `?interval=` 1m–1M, `?limit=` 1–1000 | `/crypto/klines/BTCUSDT?interval=1h&limit=200` | series |
+| `GET /crypto/stream/stats` | Fan-out diagnostics for this process | — | stats |
+| `POST /crypto/watchlists` | Create an instance from `{ name, symbols }`. `409` duplicate name or cap reached | `{"name": "Majors", "symbols": ["BTCUSDT", "ETHUSDT"]}` | `201` + watchlist |
+| `GET /crypto/watchlists` | Your watchlists, newest first. `?limit=` 1–200 | `?limit=50` | list |
+| `GET /crypto/watchlists/{id}` | One watchlist | — | watchlist |
+| `GET /crypto/watchlists/{id}/quotes` | The same snapshot a socket gets on connect | — | quotes |
+| `PATCH /crypto/watchlists/{id}` | Rename and/or replace symbols; re-binds open sockets | `{"name": "Majors v2", "symbols": ["BTCUSDT", "SOLUSDT"]}` | watchlist |
+| `POST /crypto/watchlists/{id}/symbols` | Add symbols, idempotent; re-binds open sockets | `{"symbols": ["SOLUSDT"]}` | watchlist |
+| `DELETE /crypto/watchlists/{id}/symbols/{symbol}` | Remove one symbol. `409` if it is the last one | `/crypto/watchlists/{id}/symbols/SOLUSDT` | watchlist |
+| `DELETE /crypto/watchlists/{id}` | Delete it and close its sockets | — | `204` |
+| `WS /crypto/watchlists/{id}/stream` | Live quotes for that instance. `?token=<id_token>` | connect `?token=eyJhbGciOi…`, then `{"action": "ping"}` or `{"action": "resync"}` | stream frames |
+| `GET /forex/pairs` | Supported pairs. `?base=`, `?quote=`, `?search=`, `?limit=` 1–1000 | `?base=EUR&quote=USD&limit=100` | list of pairs |
+| `GET /forex/session` | Whether the interbank market is open | — | session |
+| `GET /forex/quote/{pair}` | Quote with bid, ask, mid and the spread in price and pips | `/forex/quote/EUR-USD` | quote |
+| `GET /forex/quotes` | Batch quotes. `?symbols=EUR-USD,GBP-USD` or repeated, max 30 | `?symbols=EUR-USD,GBP-USD` | list of quotes |
+| `GET /forex/candles/{pair}` | `?series=daily\|intraday`, `?limit=` 1–360 | `/forex/candles/EUR-USD?series=daily&limit=90` | series |
+| `GET /forex/stream/stats` | Fan-out diagnostics for this process | — | stats |
+| `POST /forex/watchlists` | Create an instance from `{ name, symbols }` | `{"name": "Majors", "symbols": ["EUR-USD", "USD-JPY"]}` | `201` + watchlist |
+| `GET /forex/watchlists` | Your watchlists, newest first | `?limit=50` | list |
+| `GET /forex/watchlists/{id}` | One watchlist | — | watchlist |
+| `GET /forex/watchlists/{id}/quotes` | The snapshot a socket gets on connect, plus market state | — | quotes |
+| `PATCH /forex/watchlists/{id}` | Rename and/or replace pairs; re-binds open sockets | `{"name": "FX majors", "symbols": ["EUR-USD", "GBP-USD"]}` | watchlist |
+| `POST /forex/watchlists/{id}/symbols` | Add pairs, idempotent; re-binds open sockets | `{"symbols": ["GBP-USD"]}` | watchlist |
+| `DELETE /forex/watchlists/{id}/symbols/{pair}` | Remove one pair. `409` if it is the last | `/forex/watchlists/{id}/symbols/GBP-USD` | watchlist |
+| `DELETE /forex/watchlists/{id}` | Delete it and close its sockets | — | `204` |
+| `WS /forex/watchlists/{id}/stream` | Live quotes for that instance. `?token=<id_token>` | connect `?token=eyJhbGciOi…`, then `{"action": "ping"}` or `{"action": "resync"}` | stream frames |
+| `GET /stocks/instruments` | Search the instrument master. `?search=`, `?limit=` 1–50 | `?search=reliance&limit=10` | list of instruments |
+| `GET /stocks/quote/{symbol}` | Quote with price, change, day range, volume, market state | `/stocks/quote/RELIANCE.NS` | quote |
+| `GET /stocks/quotes` | Batch quotes. `?symbols=AAPL,RELIANCE.NS`, max 20 | `?symbols=AAPL,RELIANCE.NS` | list of quotes |
+| `GET /stocks/candles/{symbol}` | `?interval=` 1m–1mo, `?range=` 1d–max | `/stocks/candles/AAPL?interval=1d&range=1mo` | series |
+| `GET /stocks/stream/stats` | Fan-out diagnostics for this process | — | stats |
+| `POST /stocks/watchlists` | Create an instance from `{ name, symbols }` | `{"name": "Nifty picks", "symbols": ["RELIANCE.NS", "AAPL"]}` | `201` + watchlist |
+| `GET /stocks/watchlists` | Your watchlists, newest first | `?limit=50` | list |
+| `GET /stocks/watchlists/{id}` | One watchlist | — | watchlist |
+| `GET /stocks/watchlists/{id}/quotes` | The snapshot a socket gets on connect | — | quotes |
+| `PATCH /stocks/watchlists/{id}` | Rename and/or replace tickers; re-binds open sockets | `{"name": "India + US", "symbols": ["TCS.NS", "MSFT"]}` | watchlist |
+| `POST /stocks/watchlists/{id}/symbols` | Add tickers, idempotent; re-binds open sockets | `{"symbols": ["MSFT"]}` | watchlist |
+| `DELETE /stocks/watchlists/{id}/symbols/{symbol}` | Remove one ticker. `409` if it is the last | `/stocks/watchlists/{id}/symbols/MSFT` | watchlist |
+| `DELETE /stocks/watchlists/{id}` | Delete it and close its sockets | — | `204` |
+| `WS /stocks/watchlists/{id}/stream` | Live quotes for that instance. `?token=<id_token>` | connect `?token=eyJhbGciOi…`, then `{"action": "ping"}` or `{"action": "resync"}` | stream frames |
+| `GET /trading/account` | Balances, the onboarding outcome that gates trading, and what is currently open | — | account |
+| `GET /trading/eligibility` | What you may trade and why not — the order endpoint's gates, answered up front | — | eligibility |
+| `GET /trading/balances` | Cash per currency. `reserved` is locked by open buy orders | — | list of balances |
+| `POST /trading/deposits` | Credit the account. **Simulated** — no payment provider. `403` before onboarding | `{"currency": "USDT", "amount": "10000.00", "idempotency_key": "dep-2026-08-17-001"}` | `201` + ledger entry |
+| `POST /trading/withdrawals` | Debit it. **Simulated**. `409` when `available` is short | `{"currency": "USDT", "amount": "500.00", "idempotency_key": "wd-2026-08-17-001"}` | `201` + ledger entry |
+| `GET /trading/ledger` | Every balance movement, newest first. `?currency=`, `?kind=`, `?limit=` 1–200 | `?currency=USDT&kind=trade_debit&limit=50` | list of entries |
+| `POST /trading/orders` | Place an order. `403` product not enabled, `404` unknown instrument, `409` closed market / insufficient funds / duplicate id, `422` price band or stop side | `{"asset_class": "crypto", "symbol": "BTCUSDT", "side": "buy", "type": "limit", "quantity": "0.05", "limit_price": "58000.00", "time_in_force": "gtc", "client_order_id": "ui-7f3a2b91"}` | `201` + order |
+| `GET /trading/orders` | Your orders, newest first. Repeat `?status=`, plus `?asset_class=`, `?symbol=`, `?limit=` 1–200 | `?status=open&status=filled&asset_class=crypto` | list of orders |
+| `GET /trading/orders/{id}` | One order | — | order |
+| `DELETE /trading/orders/{id}` | Cancel an open order and release its reservation. `409` if it already filled | — | order |
+| `GET /trading/trades` | Your fills, newest first. `?asset_class=`, `?symbol=`, `?limit=` 1–200 | `?symbol=BTCUSDT&asset_class=crypto` | list of trades |
+| `GET /trading/positions` | What you hold, in base units. `?include_flat=` to show closed ones | `?include_flat=false` | list of positions |
+| `GET /trading/positions/{asset_class}/{symbol}` | One position | `/trading/positions/crypto/BTCUSDT` | position |
+| `GET /trading/portfolio` | Positions marked to market, cash alongside, totals per currency | — | portfolio |
+| `GET /test` | Browser test page (not in OpenAPI schema) | — | HTML |
+| `GET /test/onboarding` | Onboarding test page (not in OpenAPI schema) | — | HTML |
 
 User shape: `{ uid, email, name, picture, provider, email_verified }`, where `provider`
 is `password` or `google.com`. The stored profile adds `created_at, updated_at,
@@ -447,6 +487,148 @@ rounds its headline figures but ships candle arrays as raw floats (a close of 30
 arrives as 305.92999267578125); and a **browser user agent is mandatory** — without one the
 request fails outright, which does not look like an auth problem when you first hit it.
 
+## Trading
+
+The three feeds so far only let a user *watch* a market. This is the part that lets them
+act on it: cash, orders, fills, positions and a portfolio, across all three asset classes
+through one order model.
+
+**It is a simulated venue, and that is the first thing to know about it.** Orders execute
+against the same live market data the read endpoints serve, and the cash is book money
+`POST /trading/deposits` creates on request. There is no broker, no clearing member and no
+custody behind any of it. The accounting is built to be correct — that is a different
+claim from being real, and the two must not be confused before anyone is asked for money.
+
+### The shape
+
+Cash is held **per settlement currency**; positions are held **per instrument**. Buying
+`BTCUSDT` spends USDT and gives a position in `BTCUSDT` measured in BTC; selling it gives
+the USDT back. So a wallet currency is only ever some instrument's quote currency, and an
+instrument settled in something the venue does not hold — a pair quoted in BTC, say — is
+refused rather than quietly creating a balance in an illiquid asset.
+
+It is **long-only spot**. There is no short selling and no margin, so a sell reserves units
+from the position exactly as a buy reserves cash. Derivatives and intraday are in the
+product catalogue because onboarding asks about them; they are not implemented here, and
+an order needing one is refused on the product gate rather than half-supported.
+
+### What an order has to satisfy
+
+The checks run in this order, each cheap one before the expensive one after it:
+
+| Gate | Failure |
+|---|---|
+| Onboarding submitted and KYC tier reached | `403` |
+| Instrument exists on that feed and settles in a currency the venue holds | `404` / `409` |
+| The product it needs is enabled — `crypto_spot`, `forex`, `domestic_equity_delivery` or `foreign_equity` | `403` |
+| Any supplied price is inside `TRADING_PRICE_BAND_PERCENT` of the last trade | `422` |
+| A stop sits on the side it can be reached from | `422` |
+| Notional inside the per-order bounds, and under the open-order cap | `422` / `409` |
+| For anything that must fill now: the market is open and the price is fresh | `409` |
+| The cash or the units are actually there | `409` |
+
+The product gate distinguishes **under review** from **never requested**, because the user
+can do something about one of them and not the other. `GET /trading/eligibility` answers
+all of this up front, so a client can disable a button rather than discover a `403` when
+someone presses it.
+
+Equities split on the listing venue: `.NS` and `.BO` need the domestic product, everything
+else needs `foreign_equity`. That is `TRADING_DOMESTIC_SUFFIXES`, because "domestic" is a
+deployment's fact, not a constant.
+
+### Execution
+
+Fills are **all-or-nothing at one price**. Simulating a partial fill means inventing depth
+the feeds do not publish, so `partially_filled` is not in the status enum rather than being
+a status nothing ever produces. `fok` is missing from the time-in-force enum for the same
+reason — without partial fills it would be `ioc` under a second name.
+
+A buy pays the ask and a sell hits the bid **where the feed publishes both**. Crypto and
+forex do; the Yahoo equity feed publishes only a last traded price, so that is what is
+used. Inventing a spread there would be inventing the number that matters most.
+
+**Nothing fills against a closed or stale market.** A market order into one is a `409`; a
+resting order simply waits, which is why a limit order can be placed out of hours. Each
+feed's own staleness rule applies — forex and equity quotes carry `stale` themselves, and
+crypto, which has no such notion because it never closes, is measured against
+`CRYPTO_STALE_SECONDS`.
+
+A `day` order expires at the end of the **UTC day** it was placed. Not the exchange's
+session end: one endpoint spans three feeds whose sessions differ per symbol and per
+exchange, and a rule a client can predict beats one that is marginally more faithful to
+one of them.
+
+### The matcher
+
+A market order is filled by the request that places it. Everything else has to wait for
+the market, and `trading/engine.py` is what watches.
+
+It watches by **subscribing, not polling**: it registers with each hub as an ordinary
+subscriber under a reserved id, holding exactly the symbols that have resting orders. The
+hub's reference counting then keeps those symbols subscribed upstream for as long as an
+order needs them and drops them when the last one closes — so a resting order on a symbol
+nobody has in a watchlist still gets a live price, which a matcher reading only the quote
+cache would not. Ticks arrive as frames in a bounded queue, exactly like a client socket.
+
+A sweep runs alongside it every `TRADING_SWEEP_SECONDS`, because a tick is not the only
+thing that can change an order's fate: a `day` order expires with no tick involved, an
+order placed while the price was already past its trigger has no new tick coming, and a
+crash between closing an order and releasing its reservation strands value. The sweep
+re-reads state rather than trusting anything it remembers.
+
+### How the money is kept honest
+
+- **`Decimal128`, never a float.** Every amount is quantised to eight places on the way in.
+  A float round-trip on a balance is not a rounding inconvenience, it is a wrong number in
+  someone's account.
+- **Nothing is a read-then-write.** Reserving cash, reserving a position, cancelling an
+  order and claiming a fill are each a single conditional `find_one_and_update`, with the
+  condition that makes the operation legal inside the query. Checking a balance in Python
+  and then decrementing it is the exact shape of a double-spend, and it appears nowhere.
+- **Every balance change writes a ledger entry**, recording the balances that same
+  operation produced. The ledger sums to the wallet rather than hoping to agree with it.
+- **Reserve, then settle.** A buy locks cash before the order is visible to the matcher; a
+  sell locks units. A stop buy reserves at its stop price, and if the market gaps through
+  it the difference is topped up from available cash — or the order is rejected, because
+  this venue does not lend.
+- **Money movements are idempotent by construction.** `idempotency_key` is required on
+  deposits and withdrawals, claimed before the balance moves and completed after, so a
+  replay can tell "already done, here is the original entry" from "the first attempt died
+  halfway" instead of guessing. A retried deposit that credits twice is the one bug here
+  nobody would notice until the numbers stopped adding up.
+- **Order ids are scoped by uid on every read**, so someone else's order is a `404`, not a
+  `403` — a 403 confirms the thing exists.
+
+Two limits worth stating plainly rather than discovering:
+
+**There is no multi-document transaction.** Settling a fill touches a wallet, a position,
+an order and a trade. Each is individually atomic and the sequence is chosen so a crash
+strands value rather than duplicating it — cash leaves before a position appears, a
+position is reduced before proceeds arrive — and the sweep repairs the reservation half of
+that window. A real transaction (Atlas is a replica set, so they are available) is the
+honest fix, and it is the first thing to do before real money is involved.
+
+**The matcher is per process**, like the hubs it rides on. Settlement is serialised by an
+in-process lock; the atomic claim on a fill means two workers cannot both fill one order,
+but the lock does not span processes. Run a single worker, or move the matcher behind a
+shared queue, before scaling out.
+
+`TRADING_ENABLED=false` stops new activity and leaves the reads working. Being unable to
+place an order is a policy decision; being unable to see your own balance while one is
+disabled is just a broken account page.
+
+### Not built
+
+- **No order-update WebSocket.** A resting order fills asynchronously and a client learns
+  about it by polling `GET /trading/orders`. The frame contract in `schemas/streaming.py`
+  would carry order events perfectly well; it is a decision, not an oversight.
+- **No corporate actions.** A split or a dividend will silently misprice an equity
+  position, because the feed reports the adjusted price and the stored cost basis is not
+  adjusted with it.
+- **No FX conversion.** Totals in `GET /trading/portfolio` are per currency and there is no
+  grand total, because adding INR to USDT needs a rate this API has no licensed source for.
+  A made-up total is worse than none.
+
 ### Validation
 
 Request bodies use `extra="forbid"`, so an unexpected field is a `422` rather than being
@@ -510,6 +692,11 @@ Still open before real customers — deliberately not built, since each needs a 
 - **KYC data at rest.** `kyc_profiles` stores full PAN, TIN and bank account numbers.
   Atlas encrypts the disk, but anyone with a read connection string sees plaintext.
   Consider field-level encryption (Atlas CSFLE) and a retention policy.
+- **Trading is a simulation.** `/trading/*` executes against live prices but there is no
+  broker, no clearing and no custody, and `POST /trading/deposits` creates book money on
+  request. Nothing about it may be presented to a user as a real account. Before it could
+  be: a real venue or broker behind the fills, multi-document transactions around
+  settlement, and the matcher moved off a single process. See the Trading section.
 
 ### Auth latency
 

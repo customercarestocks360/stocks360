@@ -1,4 +1,5 @@
 import os
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -97,6 +98,15 @@ def _bounded_int(name: str, default: int, low: int, high: int) -> int:
     return max(low, min(high, value))
 
 
+def _bounded_decimal(name: str, default: str, low: str, high: str) -> Decimal:
+    """Same, for money. `Decimal` rather than float: these bound real balances."""
+    try:
+        value = Decimal(os.getenv(name, default))
+    except (InvalidOperation, TypeError):
+        return Decimal(default)
+    return max(Decimal(low), min(Decimal(high), value))
+
+
 # --- Crypto market data (Binance public endpoints, no API key needed) ---
 # Only public market data is used, so there is no key or secret here. Overridable so a
 # deployment can point at a regional mirror (api1..api4, api-gcp) or a testnet.
@@ -117,6 +127,12 @@ CRYPTO_MAX_SOCKETS_PER_USER = _bounded_int("CRYPTO_MAX_SOCKETS_PER_USER", 5, 1, 
 # Seconds of silence before the server sends a heartbeat frame, so a client can tell a
 # quiet market from a dead connection.
 CRYPTO_HEARTBEAT_SECONDS = _bounded_int("CRYPTO_HEARTBEAT_SECONDS", 20, 5, 300)
+
+# A crypto quote older than this is not a price to trade on. Unlike forex and equities,
+# this feed has no staleness notion of its own — the market never closes, so anything
+# other than a live tick means the connection is degraded. Binance publishes roughly once
+# a second, so this is generous.
+CRYPTO_STALE_SECONDS = _bounded_int("CRYPTO_STALE_SECONDS", 120, 10, 3600)
 
 # --- Forex market data (AwesomeAPI public endpoints, no API key) ---
 # This provider has no upstream WebSocket, so the hub polls its batch endpoint: one
@@ -173,3 +189,47 @@ STOCKS_MAX_WATCHLISTS = _bounded_int("STOCKS_MAX_WATCHLISTS", 20, 1, 200)
 STOCKS_MAX_SYMBOLS_PER_WATCHLIST = _bounded_int("STOCKS_MAX_SYMBOLS_PER_WATCHLIST", 25, 1, 100)
 STOCKS_MAX_SOCKETS_PER_USER = _bounded_int("STOCKS_MAX_SOCKETS_PER_USER", 5, 1, 50)
 STOCKS_HEARTBEAT_SECONDS = _bounded_int("STOCKS_HEARTBEAT_SECONDS", 20, 5, 300)
+
+# --- Trading ---
+# This is a simulated venue: orders execute against the same live market data the read
+# endpoints serve, and cash is book money this API creates. There is no broker, no
+# clearing and no custody behind any of it. Everything below is a venue rule, so it is
+# configuration rather than a constant buried in the matching code.
+TRADING_ENABLED = _bool("TRADING_ENABLED", True)
+
+# Commission in basis points of notional, charged in the instrument's quote currency and
+# rounded up. 10 bps = 0.1%.
+TRADING_FEE_BPS = _bounded_int("TRADING_FEE_BPS", 10, 0, 1000)
+
+# A limit or stop price further than this from the last traded price is refused. Real
+# venues call this a price band; here it is the difference between a fat-fingered extra
+# zero being a 422 and being a resting order nobody notices for a month.
+TRADING_PRICE_BAND_PERCENT = _bounded_int("TRADING_PRICE_BAND_PERCENT", 20, 1, 100)
+
+# Per-user ceiling on resting orders. Each one holds a reservation and keeps its symbol
+# subscribed upstream, so this bounds both locked funds and fan-out cost.
+TRADING_MAX_OPEN_ORDERS = _bounded_int("TRADING_MAX_OPEN_ORDERS", 50, 1, 500)
+
+# Notional bounds per order, in the instrument's quote currency. Crude by definition —
+# one unit means something different in INR and in USD — but they are here to stop
+# absurdity, not to price risk.
+TRADING_MIN_ORDER_NOTIONAL = _bounded_decimal("TRADING_MIN_ORDER_NOTIONAL", "1", "0", "1000000")
+TRADING_MAX_ORDER_NOTIONAL = _bounded_decimal(
+    "TRADING_MAX_ORDER_NOTIONAL", "1000000", "1", "1000000000"
+)
+
+# Bounds on a single simulated funding movement.
+TRADING_MAX_DEPOSIT = _bounded_decimal("TRADING_MAX_DEPOSIT", "1000000", "1", "1000000000")
+TRADING_MAX_WITHDRAWAL = _bounded_decimal("TRADING_MAX_WITHDRAWAL", "1000000", "1", "1000000000")
+
+# How often the matcher re-checks resting orders outside of a tick arriving. Ticks do the
+# real work; this sweep expires day orders and catches conditions that became true while
+# no quote was flowing.
+TRADING_SWEEP_SECONDS = _bounded_int("TRADING_SWEEP_SECONDS", 15, 5, 300)
+
+# Equity tickers ending in one of these are treated as domestic, which decides whether an
+# order needs the domestic or the foreign equity product. India-first, like the rest.
+TRADING_DOMESTIC_SUFFIXES = tuple(s.upper() for s in _csv("TRADING_DOMESTIC_SUFFIXES")) or (
+    ".NS",
+    ".BO",
+)
