@@ -1,0 +1,2240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Trading Terminal</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
+<script src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
+<style>
+  :root{
+    --bg:#0b0d10; --panel:#0f1216; --panel2:#12161b; --border:#1e232a;
+    --text:#d7dbe0; --muted:#7b8794; --accent:#2b6ef2;
+    --up:#26a69a; --down:#ef5350; --up-soft:rgba(38,166,154,.15); --down-soft:rgba(239,83,80,.15);
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;overflow:hidden}
+  ::-webkit-scrollbar{width:8px;height:8px}
+  ::-webkit-scrollbar-thumb{background:#2a2f37;border-radius:4px}
+  ::-webkit-scrollbar-track{background:transparent}
+
+  .tb-btn{display:flex;align-items:center;gap:6px;padding:6px 10px;border-radius:6px;color:var(--muted);font-size:13px;cursor:pointer;white-space:nowrap;user-select:none;border:1px solid transparent}
+  .tb-btn:hover{background:#1a1f26;color:var(--text)}
+  .tb-btn.active{background:#1a1f26;color:var(--text)}
+  .tb-sep{width:1px;align-self:stretch;background:var(--border);margin:6px 4px}
+
+  .left-tool{position:relative;display:flex;align-items:center;justify-content:center;width:40px;height:38px;color:var(--muted);cursor:pointer;border-radius:6px}
+  .left-tool:hover{background:#1a1f26;color:var(--text)}
+  .left-tool.active{background:var(--accent);color:#fff}
+  .left-tool .tip{position:absolute;left:46px;top:50%;transform:translateY(-50%);background:#1a1f26;border:1px solid var(--border);padding:4px 8px;border-radius:6px;font-size:11px;white-space:nowrap;opacity:0;pointer-events:none;transition:opacity .1s;z-index:80;color:var(--text)}
+  .left-tool:hover .tip{opacity:1}
+
+  .wl-row{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:4px;cursor:pointer}
+  .wl-row:hover{background:#171b21}
+  .wl-row.active{background:rgba(239,83,80,.12)}
+  .wl-badge{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#fff;flex-shrink:0}
+
+  .dropdown-panel{position:absolute;background:var(--panel2);border:1px solid var(--border);border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.5);z-index:100;overflow:hidden}
+  .dd-item{display:flex;align-items:center;gap:10px;padding:8px 14px;font-size:13px;color:var(--text);cursor:pointer;white-space:nowrap}
+  .dd-item:hover{background:#1a1f26}
+  .dd-item.selected{background:#22262d;font-weight:600}
+  .dd-item svg{flex-shrink:0}
+  .dd-sep{height:1px;background:var(--border);margin:6px 0}
+
+  .pill{border-radius:4px;padding:6px 10px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;font-weight:600;text-align:center;min-width:78px}
+  .perf-tile{background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:8px;text-align:center}
+
+  #overlay-canvas{position:absolute;inset:0;z-index:20}
+  #chart-container{position:relative;flex:1;min-width:0}
+
+  .flash-anim{animation:flashfade 1.4s ease-out}
+  @keyframes flashfade{from{background:rgba(43,110,242,.25)}to{background:transparent}}
+
+  input[type=text]:focus{outline:none}
+  ::placeholder{color:#5b6670}
+
+  .ind-row{display:flex;align-items:center;gap:5px;font-family:ui-monospace,monospace;font-size:11px;padding:2px 6px;border-radius:4px;color:var(--text);white-space:nowrap;pointer-events:auto}
+  .ind-row:hover{background:rgba(255,255,255,.05)}
+  .ind-dot{width:8px;height:2px;border-radius:1px;display:inline-block}
+  .ind-remove{margin-left:4px;color:var(--muted);cursor:pointer;font-size:9px}
+  .ind-remove:hover{color:#fff}
+  #overlay-legend, #pane-legends{position:absolute;left:12px;z-index:30;pointer-events:none}
+  #overlay-legend{top:78px}
+  #overlay-legend .ind-row, #pane-legends .ind-row{pointer-events:auto}
+  #alerts-list{position:absolute;top:12px;right:12px;z-index:30;display:flex;flex-direction:column;gap:2px;align-items:flex-end}
+
+  #replay-controls{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);z-index:40;display:flex;align-items:center;gap:8px;border-radius:10px;padding:6px 10px;box-shadow:0 8px 24px rgba(0,0,0,.5)}
+  #replay-controls.hidden{display:none}
+  #replay-controls button{display:flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:6px;color:var(--text)}
+  #replay-controls button:hover{background:#1a1f26}
+  #replay-speed{background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:6px;font-size:11px;padding:3px 4px}
+
+  #toast{position:absolute;bottom:52px;left:50%;transform:translateX(-50%);z-index:60;background:#1a1f26;border:1px solid var(--border);padding:6px 14px;border-radius:8px;font-size:12px;opacity:0;transition:opacity .25s;pointer-events:none}
+  #toast.show{opacity:1}
+
+  .indicator-search{width:100%;padding:8px 12px;background:var(--panel);border:none;border-bottom:1px solid var(--border);color:var(--text);font-size:13px}
+  .ind-cat{padding:6px 14px 2px;font-size:10px;font-weight:700;letter-spacing:.05em;color:var(--muted)}
+
+  /* ---- interaction: style toolbar, context menu, data window ---- */
+  #style-toolbar{position:absolute;z-index:70;display:none;align-items:center;gap:5px;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:5px 8px;box-shadow:0 8px 24px rgba(0,0,0,.55)}
+  #style-toolbar.show{display:flex}
+  .sw{width:14px;height:14px;border-radius:3px;cursor:pointer;border:1px solid rgba(255,255,255,.18);transition:transform .1s}
+  .sw:hover{transform:scale(1.18)}
+  .sw.active{box-shadow:0 0 0 2px #fff}
+  .wbtn{width:24px;height:20px;display:flex;align-items:center;justify-content:center;border-radius:4px;cursor:pointer;color:var(--muted);font-size:10px;font-family:ui-monospace,monospace}
+  .wbtn:hover{background:#1a1f26;color:#fff}
+  .wbtn.active{background:var(--accent);color:#fff}
+  .st-sep{width:1px;height:16px;background:var(--border)}
+
+  #ctx-menu{position:fixed;z-index:200;min-width:200px;background:var(--panel2);border:1px solid var(--border);border-radius:8px;box-shadow:0 12px 32px rgba(0,0,0,.6);padding:4px;display:none}
+  #ctx-menu.show{display:block}
+  .ctx-item{display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:5px;font-size:12.5px;cursor:pointer;color:var(--text);white-space:nowrap}
+  .ctx-item:hover{background:#1a1f26}
+  .ctx-item i{width:14px;font-size:11px;color:var(--muted)}
+  .ctx-item .ctx-hint{margin-left:auto;color:#5b6670;font-size:10.5px;font-family:ui-monospace,monospace}
+  .ctx-sep{height:1px;background:var(--border);margin:4px 2px}
+
+  #data-window{position:absolute;bottom:14px;right:14px;z-index:35;width:212px;background:rgba(15,18,22,.95);border:1px solid var(--border);border-radius:8px;padding:8px 10px;display:none;font-family:ui-monospace,monospace;font-size:11px}
+  #data-window.show{display:block}
+  .dw-title{font-size:10px;font-weight:700;letter-spacing:.05em;color:var(--muted);margin-bottom:5px;display:flex;justify-content:space-between;align-items:center}
+  .dw-row{display:flex;justify-content:space-between;gap:10px;padding:1.5px 0}
+  .dw-key{color:var(--muted)}
+  .dw-sec{margin-top:6px;padding-top:5px;border-top:1px solid var(--border)}
+</style>
+</head>
+<body class="text-[13px]">
+
+<div class="flex flex-col h-screen w-screen">
+
+  <!-- ============ TOP BAR ============ -->
+  <div class="flex items-center h-11 px-2 border-b shrink-0" style="border-color:var(--border);background:var(--panel)">
+    <div class="tb-btn"><i class="fa-solid fa-bars"></i></div>
+    <div class="tb-sep"></div>
+
+    <div id="symbol-btn" class="tb-btn font-bold text-[15px] text-white relative">
+      <span id="symbol-label">SPX</span>
+      <i class="fa-solid fa-chevron-down text-[9px] ml-1"></i>
+    </div>
+    <div class="tb-btn"><i class="fa-solid fa-plus text-[11px]"></i></div>
+    <div class="tb-sep"></div>
+
+    <div id="tf-btn" class="tb-btn relative">
+      <i class="fa-regular fa-clock text-[11px]"></i>
+      <span id="tf-label">D</span>
+      <i class="fa-solid fa-chevron-down text-[9px]"></i>
+    </div>
+    <div class="tb-sep"></div>
+
+    <div id="charttype-btn" class="tb-btn relative">
+      <span id="charttype-icon" class="flex items-center"></span>
+      <i class="fa-solid fa-chevron-down text-[9px]"></i>
+    </div>
+    <div class="tb-sep"></div>
+
+    <div id="indicators-btn" class="tb-btn relative"><i class="fa-solid fa-chart-line text-[11px]"></i><span>Indicators</span></div>
+    <div id="datawindow-btn" class="tb-btn" title="Data Window"><i class="fa-solid fa-table-cells text-[11px]"></i></div>
+    <div id="alert-btn" class="tb-btn"><i class="fa-regular fa-bell text-[11px]"></i><span>Alert</span></div>
+    <div id="replay-btn" class="tb-btn"><i class="fa-solid fa-backward-step text-[11px]"></i><span>Replay</span></div>
+    <div class="tb-sep"></div>
+    <div id="undo-btn" class="tb-btn" title="Undo (Ctrl+Z)"><i class="fa-solid fa-rotate-left text-[11px]"></i></div>
+    <div id="redo-btn" class="tb-btn" title="Redo (Ctrl+Shift+Z)"><i class="fa-solid fa-rotate-right text-[11px]"></i></div>
+
+    <div class="ml-auto flex items-center">
+      <div id="save-btn" class="tb-btn"><i class="fa-regular fa-square text-[11px]"></i><span>Save</span></div>
+      <div class="tb-btn"><i class="fa-solid fa-wand-magic-sparkles text-[11px]"></i></div>
+      <div class="tb-btn"><i class="fa-solid fa-gear text-[11px]"></i></div>
+      <div id="fullscreen-btn" class="tb-btn"><i class="fa-solid fa-expand text-[11px]"></i></div>
+      <div id="screenshot-btn" class="tb-btn"><i class="fa-solid fa-camera text-[11px]"></i></div>
+      <div class="tb-sep"></div>
+      <div class="tb-btn font-bold" style="background:var(--accent);color:#fff">Trade</div>
+      <div class="tb-btn"><i class="fa-solid fa-share-nodes text-[11px]"></i></div>
+    </div>
+  </div>
+
+  <!-- ============ BODY ============ -->
+  <div class="flex flex-1 min-h-0">
+
+    <!-- LEFT TOOLBAR -->
+    <div class="flex flex-col items-center gap-0.5 py-2 shrink-0 border-r" style="width:48px;border-color:var(--border);background:var(--panel)" id="left-toolbar">
+      <div class="left-tool" data-tool="cursor"><i class="fa-solid fa-arrow-pointer"></i><span class="tip">Cursor</span></div>
+      <div class="left-tool" data-tool="crosshair"><i class="fa-solid fa-crosshairs"></i><span class="tip">Crosshair</span></div>
+      <div class="my-1 w-6 h-px" style="background:var(--border)"></div>
+      <div class="left-tool" data-tool="trendline"><i class="fa-solid fa-slash"></i><span class="tip">Trend Line</span></div>
+      <div class="left-tool" data-tool="horizontalRay"><i class="fa-solid fa-grip-lines"></i><span class="tip">Horizontal Ray</span></div>
+      <div class="left-tool" data-tool="arrow"><i class="fa-solid fa-arrow-right-long"></i><span class="tip">Arrow</span></div>
+      <div class="left-tool" data-tool="parallelChannel"><i class="fa-solid fa-bars-staggered"></i><span class="tip">Parallel Channel</span></div>
+      <div class="my-1 w-6 h-px" style="background:var(--border)"></div>
+      <div class="left-tool" data-tool="headShoulders"><i class="fa-solid fa-mountain"></i><span class="tip">Head &amp; Shoulders (click 5 points: LS, valley, Head, valley, RS)</span></div>
+      <div class="left-tool" data-tool="abcd"><i class="fa-solid fa-diagram-project"></i><span class="tip">ABCD Pattern (click A, B, C, D)</span></div>
+      <div class="left-tool" data-tool="fib"><i class="fa-solid fa-layer-group"></i><span class="tip">Fibonacci Retracement</span></div>
+      <div class="my-1 w-6 h-px" style="background:var(--border)"></div>
+      <div class="left-tool" data-tool="ruler"><i class="fa-solid fa-ruler"></i><span class="tip">Ruler / Measure</span></div>
+      <div class="left-tool" data-tool="eraser"><i class="fa-solid fa-eraser"></i><span class="tip">Eraser (click a drawing to remove it)</span></div>
+      <div class="my-1 w-6 h-px" style="background:var(--border)"></div>
+      <div class="left-tool" id="magnet-toggle"><i class="fa-solid fa-magnet"></i><span class="tip">Magnet mode — snap points to OHLC (M)</span></div>
+      <div class="flex-1"></div>
+      <div class="left-tool" id="eye-toggle"><i class="fa-solid fa-eye"></i><span class="tip">Show / hide drawings</span></div>
+      <div class="left-tool" id="lock-toggle"><i class="fa-solid fa-lock-open"></i><span class="tip">Lock drawings</span></div>
+      <div class="left-tool" id="trash-btn"><i class="fa-solid fa-trash"></i><span class="tip">Remove all drawings</span></div>
+    </div>
+
+    <!-- CHART AREA -->
+    <div class="flex flex-col flex-1 min-w-0">
+      <div id="chart-container" class="relative">
+        <canvas id="overlay-canvas"></canvas>
+
+        <!-- Order execution box -->
+        <div class="absolute top-3 left-3 z-30 flex items-center gap-1.5 select-none">
+          <div class="pill" style="background:#5b2b2b;color:#ff8a80" id="sell-pill">
+            <div id="sell-price">7,748.77</div>
+            <div class="text-[9px] font-normal opacity-80">SELL</div>
+          </div>
+          <div class="text-[10px] text-center px-1" style="color:var(--muted)" id="spread-label">66.56</div>
+          <div class="pill" style="background:#1a3a5c;color:#7fb8ff" id="buy-pill">
+            <div id="buy-price">7,815.33</div>
+            <div class="text-[9px] font-normal opacity-80">BUY</div>
+          </div>
+        </div>
+
+        <!-- OHLC readout -->
+        <div class="absolute z-30 flex items-center gap-2 text-[11px] font-mono select-none" style="top:56px;left:12px;color:var(--muted)" id="ohlc-readout">
+          <span class="wl-badge" style="background:var(--down);width:16px;height:16px;font-size:8px" id="ohlc-symicon">S</span>
+          <span id="ohlc-symname" class="text-white font-bold">SPX</span>
+          <span id="ohlc-symsub">S&amp;P 500 Index &middot; 1D &middot; SP</span>
+          <span class="ml-1" id="ohlc-d-badge" style="border:1px solid var(--border);border-radius:3px;padding:0 4px;color:#eab308">D</span>
+          <span id="ohlc-vals"></span>
+        </div>
+
+        <!-- Watermark -->
+        <div class="absolute z-10 bottom-8 left-4 font-bold opacity-[0.14] pointer-events-none select-none" style="font-size:26px">
+          Stocks360
+        </div>
+
+        <!-- Indicator legends -->
+        <div id="overlay-legend"></div>
+        <div id="pane-legends"></div>
+
+        <!-- Alerts list -->
+        <div id="alerts-list"></div>
+
+        <!-- Replay controls -->
+        <div id="replay-controls" class="hidden" style="border:1px solid var(--border);background:var(--panel2)">
+          <button id="replay-play" title="Play / Pause"><i class="fa-solid fa-play"></i></button>
+          <button id="replay-step" title="Step forward one bar"><i class="fa-solid fa-forward-step"></i></button>
+          <select id="replay-speed" title="Playback speed">
+            <option value="1500">0.5x</option>
+            <option value="800" selected>1x</option>
+            <option value="350">2x</option>
+            <option value="120">5x</option>
+          </select>
+          <span id="replay-progress" class="font-mono text-[11px]" style="color:var(--muted)"></span>
+          <button id="replay-exit" title="Exit replay"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+
+        <!-- Floating style toolbar for the selected drawing -->
+        <div id="style-toolbar"></div>
+
+        <!-- Data window (crosshair values) -->
+        <div id="data-window">
+          <div class="dw-title"><span>DATA WINDOW</span><i class="fa-solid fa-xmark cursor-pointer hover:text-white" id="dw-close"></i></div>
+          <div id="dw-body"></div>
+        </div>
+
+        <div id="toast"></div>
+      </div>
+
+      <!-- Bottom range bar -->
+      <div class="flex items-center h-9 px-2 border-t shrink-0 gap-1" style="border-color:var(--border);background:var(--panel)" id="range-bar">
+        <div class="tb-btn range-btn" data-range="1D">1D</div>
+        <div class="tb-btn range-btn" data-range="5D">5D</div>
+        <div class="tb-btn range-btn" data-range="1M">1M</div>
+        <div class="tb-btn range-btn" data-range="3M">3M</div>
+        <div class="tb-btn range-btn" data-range="6M">6M</div>
+        <div class="tb-btn range-btn" data-range="1Y">1Y</div>
+        <div class="tb-btn range-btn" data-range="ALL">All</div>
+        <div class="tb-btn"><i class="fa-regular fa-calendar"></i></div>
+        <div class="ml-auto flex items-center gap-2 pr-2 font-mono" style="color:var(--muted)">
+          <i class="fa-solid fa-bolt text-[10px]" style="color:var(--accent)"></i>
+          <span id="clock-label">--:--:-- UTC</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT SIDEBAR -->
+    <div class="flex flex-col shrink-0 border-l" style="width:300px;border-color:var(--border);background:var(--panel)" id="sidebar">
+      <div class="flex items-center justify-between px-3 py-2.5 border-b" style="border-color:var(--border)">
+        <div class="flex items-center gap-1.5 font-bold text-white"><span>Watchlist</span><i class="fa-solid fa-chevron-down text-[9px]" style="color:var(--muted)"></i></div>
+        <div class="flex items-center gap-2" style="color:var(--muted)">
+          <i class="fa-solid fa-plus cursor-pointer hover:text-white"></i>
+          <i class="fa-solid fa-table-cells cursor-pointer hover:text-white"></i>
+          <i class="fa-solid fa-ellipsis cursor-pointer hover:text-white"></i>
+        </div>
+      </div>
+
+      <div class="flex-1 overflow-y-auto px-1.5 py-2" id="watchlist-scroll">
+        <div class="px-2 py-1 text-[10px] font-bold tracking-wider" style="color:var(--muted)">INDICES</div>
+        <div id="wl-indices"></div>
+        <div class="px-2 py-1 mt-2 text-[10px] font-bold tracking-wider" style="color:var(--muted)">STOCKS</div>
+        <div id="wl-stocks"></div>
+      </div>
+
+      <!-- Selected symbol card -->
+      <div class="border-t p-3" style="border-color:var(--border)">
+        <div class="flex items-center justify-between mb-2">
+          <div class="flex items-center gap-2">
+            <span class="wl-badge" id="card-badge" style="background:var(--down)">S</span>
+            <div>
+              <div class="font-bold text-white text-[13px]" id="card-name">S&amp;P 500 Index</div>
+              <div class="text-[11px]" style="color:var(--muted)" id="card-sub">Index</div>
+            </div>
+          </div>
+          <div class="flex items-center gap-2" style="color:var(--muted)">
+            <i class="fa-regular fa-clone cursor-pointer hover:text-white text-[12px]"></i>
+            <i class="fa-regular fa-pen-to-square cursor-pointer hover:text-white text-[12px]"></i>
+            <i class="fa-solid fa-ellipsis cursor-pointer hover:text-white text-[12px]"></i>
+          </div>
+        </div>
+        <div class="flex items-baseline gap-2">
+          <span class="text-[26px] font-bold text-white font-mono" id="card-price">7,785.76</span>
+        </div>
+        <div class="flex items-center gap-2 font-mono text-[13px] mb-1" id="card-change"></div>
+        <div class="flex items-center gap-1.5 text-[11px]" style="color:var(--muted)">
+          <span class="w-1.5 h-1.5 rounded-full" style="background:#787b86"></span>
+          <span id="market-status">Market closed</span>
+        </div>
+        <div class="text-[10px] mt-0.5" style="color:var(--muted)">Last update: <span id="update-time"></span></div>
+
+        <div class="mt-3 rounded-lg p-2.5" style="background:var(--panel2);border:1px solid var(--border)">
+          <div class="text-[10px] font-bold mb-1" style="color:var(--muted)">NEWS &middot; <span id="news-age">9 minutes ago</span></div>
+          <div class="text-[12px] leading-snug text-white" id="news-headline">With the Fed staying quiet on its next move, investors look to earnings to keep stocks afloat.</div>
+          <div class="text-[11px] mt-1 cursor-pointer hover:underline" style="color:var(--accent)">More events &rsaquo;</div>
+        </div>
+
+        <div class="mt-3">
+          <div class="text-[10px] font-bold mb-1.5" style="color:var(--muted)">PERFORMANCE</div>
+          <div class="grid grid-cols-3 gap-1.5" id="perf-tiles"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="ctx-menu"></div>
+
+<script>
+/* =========================================================================
+   CONSTANTS / THEME
+   ========================================================================= */
+const UP = '#26a69a', DOWN = '#ef5350', ACCENT = '#2b6ef2';
+function withAlpha(hex, a){
+  const n = parseInt(hex.replace('#',''),16);
+  const r=(n>>16)&255,g=(n>>8)&255,b=n&255;
+  return `rgba(${r},${g},${b},${a})`;
+}
+
+/* =========================================================================
+   DETERMINISTIC MOCK DATA GENERATION
+   ========================================================================= */
+function hashCode(s){ let h=0; for(let i=0;i<s.length;i++){ h=(Math.imul(31,h)+s.charCodeAt(i))|0; } return h>>>0; }
+function makeRng(seed){
+  let s = seed % 2147483647; if (s<=0) s += 2147483646;
+  return function(){ s = (s*16807) % 2147483647; return (s-1)/2147483646; };
+}
+function pad2(n){ return n<10 ? '0'+n : ''+n; }
+function fmtDay(d){ return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`; }
+
+/** Daily OHLCV series, `count` bars ending exactly at the fixed mock "today" anchor. */
+function generateDaily(symbol, base, count){
+  const rng = makeRng(hashCode(symbol+':D'));
+  const data = [];
+  let price = base;
+  const anchor = new Date(2026,7,16); // fixed mock "today"
+  // Walk forward from well before the anchor (accounting for weekends), then
+  // trim to the last `count` bars so the series always ends exactly on the anchor date.
+  const start = new Date(anchor); start.setDate(start.getDate() - Math.ceil(count*1.6) - 5);
+  let d = new Date(start);
+  let bias = (rng()-0.5)*0.01;
+  while (d <= anchor){
+    if (d.getDay()!==0 && d.getDay()!==6){
+      if (d.getDate()===1) bias = (rng()-0.42)*0.014; // fresh monthly drift
+      const drift = bias + (rng()-0.5)*0.018;
+      const open = price;
+      const close = Math.max(open*(1+drift), 0.01);
+      const high = Math.max(open,close)*(1+rng()*0.008);
+      const low = Math.min(open,close)*(1-rng()*0.008);
+      const volume = Math.round(1.2e6 + rng()*4.5e6);
+      data.push({ time: fmtDay(d), open, high, low, close, volume, dateObj:new Date(d) });
+      price = close;
+    }
+    d = new Date(d.getFullYear(), d.getMonth(), d.getDate()+1);
+  }
+  return data.slice(-count);
+}
+
+/** Intraday 5-min bars across `days` sessions (09:30-16:00), most recent day last. */
+function generateIntraday(symbol, base, days){
+  const rng = makeRng(hashCode(symbol+':I'));
+  const data = [];
+  let price = base;
+  const anchor = new Date(2026,7,16,9,30,0);
+  for (let dayIdx = days-1; dayIdx>=0; dayIdx--){
+    const sessionStart = new Date(anchor);
+    sessionStart.setDate(sessionStart.getDate()-dayIdx);
+    const bars = 78; // 6.5h * 12 bars/hr
+    const drift = (rng()-0.5)*0.006;
+    for (let i=0;i<bars;i++){
+      const t = new Date(sessionStart); t.setMinutes(t.getMinutes()+i*5);
+      const wave = Math.sin(i/9)*0.0009;
+      const chg = drift/bars + wave + (rng()-0.5)*0.0016;
+      const open = price;
+      const close = Math.max(open*(1+chg),0.01);
+      const high = Math.max(open,close)*(1+rng()*0.0009);
+      const low = Math.min(open,close)*(1-rng()*0.0009);
+      const volume = Math.round(2e4 + rng()*8e4);
+      data.push({ time: Math.floor(t.getTime()/1000), open, high, low, close, volume, dateObj:new Date(t), sessionIdx: days-1-dayIdx });
+      price = close;
+    }
+  }
+  return data;
+}
+
+/* =========================================================================
+   SYMBOLS
+   ========================================================================= */
+const SYMBOLS = {
+  SPX: { name:'S&P 500 Index', sub:'Index', exch:'SP', base:7405.76, color:'#c0392b', group:'INDICES', icon:'500' },
+  NDQ: { name:'Nasdaq 100 Index', sub:'Index', exch:'ND', base:30046.14, color:'#2563eb', group:'INDICES', icon:'100' },
+  DJI: { name:'Dow Jones Industrial Avg', sub:'Index', exch:'DJ', base:53737.38, color:'#0891b2', group:'INDICES', icon:'30' },
+  VIX: { name:'CBOE Volatility Index', sub:'Index', exch:'CBOE', base:14.25, color:'#16a34a', group:'INDICES', icon:'V' },
+  DXY: { name:'US Dollar Index', sub:'Index', exch:'ICE', base:99.64, color:'#ca8a04', group:'INDICES', icon:'$' },
+  AAPL:{ name:'Apple Inc.', sub:'Stock', exch:'NASDAQ', base:305.93, color:'#111827', group:'STOCKS', icon:'' },
+  TSLA:{ name:'Tesla, Inc.', sub:'Stock', exch:'NASDAQ', base:342.27, color:'#dc2626', group:'STOCKS', icon:'T' },
+};
+const dataCache = {}; // symbol -> {daily:[...], intraday:[...]}
+function getData(sym){
+  if (!dataCache[sym]){
+    const s = SYMBOLS[sym];
+    dataCache[sym] = {
+      daily: generateDaily(sym, s.base, 260),
+      intraday: generateIntraday(sym, s.base, 6),
+    };
+  }
+  return dataCache[sym];
+}
+
+/* =========================================================================
+   CHART TYPE DEFINITIONS (17 modes)
+   ========================================================================= */
+function svgIcon(paths, extra){
+  return `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>${extra||''}`;
+}
+const CHART_TYPES = [
+  { group:1, key:'bars', label:'Bars', icon: svgIcon('<path d="M6 4v8M6 8h3M18 12v8M18 12h-3M12 6v6M12 12h3"/>') },
+  { group:1, key:'candles', label:'Candles', icon: svgIcon('<path d="M6 3v4M6 17v4M18 3v6M18 15v6"/><rect x="4" y="7" width="4" height="6" fill="currentColor"/><rect x="16" y="9" width="4" height="6" fill="currentColor"/>') },
+  { group:1, key:'hollow', label:'Hollow candles', icon: svgIcon('<path d="M6 3v4M6 17v4M18 3v6M18 15v6"/><rect x="4" y="7" width="4" height="6"/><rect x="16" y="9" width="4" height="6"/>') },
+  { group:1, key:'volumeCandles', label:'Volume candles', icon: svgIcon('<path d="M6 3v4M6 17v4M18 2v7M18 14v8"/><rect x="4" y="7" width="4" height="6" fill="currentColor" opacity=".4"/><rect x="15" y="9" width="6" height="5" fill="currentColor"/>') },
+  { group:2, key:'line', label:'Line', icon: svgIcon('<path d="M4 17l5-6 4 3 7-9"/>') },
+  { group:2, key:'lineMarkers', label:'Line with markers', icon: svgIcon('<path d="M4 17l5-6 4 3 7-9"/><circle cx="4" cy="17" r="1.4" fill="currentColor"/><circle cx="9" cy="11" r="1.4" fill="currentColor"/><circle cx="13" cy="14" r="1.4" fill="currentColor"/><circle cx="20" cy="5" r="1.4" fill="currentColor"/>') },
+  { group:2, key:'stepLine', label:'Step line', icon: svgIcon('<path d="M4 17h4v-4h4v-3h4v-5h5"/>') },
+  { group:3, key:'area', label:'Area', icon: svgIcon('<path d="M4 17l5-6 4 3 7-9v13H4z" fill="currentColor" opacity=".3"/><path d="M4 17l5-6 4 3 7-9"/>') },
+  { group:3, key:'hlcArea', label:'HLC area', icon: svgIcon('<path d="M4 9l5 4 4-2 7-4v10H4z" fill="currentColor" opacity=".25"/><path d="M4 9l5 4 4-2 7-4M4 15l5-3 4 2 7-6"/>') },
+  { group:3, key:'baseline', label:'Baseline', icon: svgIcon('<path d="M3 12h18" stroke-dasharray="2 2"/><path d="M4 12l4-4 3 2 4-6 3 5 3-3" />') },
+  { group:3, key:'columns', label:'Columns', icon: svgIcon('<rect x="4" y="12" width="3" height="8" fill="currentColor"/><rect x="10.5" y="6" width="3" height="14" fill="currentColor"/><rect x="17" y="9" width="3" height="11" fill="currentColor"/>') },
+  { group:3, key:'highLow', label:'High-low', icon: svgIcon('<path d="M6 4v16M18 4v16M6 4h3M6 20h3M15 4h3M15 20h3"/>') },
+  { group:4, key:'footprint', label:'Volume footprint', icon: svgIcon('<rect x="4" y="4" width="16" height="16" rx="1"/><path d="M4 9h16M4 14h16M9.5 4v16M14.5 4v16"/>') },
+  { group:4, key:'tpo', label:'Time price opportunity', icon: svgIcon('<rect x="4" y="4" width="16" height="16" rx="1"/><path d="M4 9h16M4 14h16"/>') },
+  { group:4, key:'sessionVolumeProfile', label:'Session volume profile', icon: svgIcon('<path d="M4 6h8M4 10h12M4 14h6M4 18h10"/>') },
+  { group:5, key:'heikinAshi', label:'Heikin Ashi', icon: svgIcon('<path d="M6 3v18M18 3v18"/><rect x="4" y="8" width="4" height="8" fill="currentColor"/><rect x="16" y="6" width="4" height="10" fill="currentColor"/>') },
+  { group:5, key:'renko', label:'Renko', icon: svgIcon('<rect x="3" y="14" width="6" height="6" fill="currentColor"/><rect x="9" y="8" width="6" height="6" fill="currentColor"/><rect x="15" y="2" width="6" height="6" fill="currentColor"/>') },
+  { group:5, key:'lineBreak', label:'Line break', icon: svgIcon('<rect x="3" y="13" width="5" height="7"/><rect x="9" y="7" width="5" height="6"/><rect x="15" y="2" width="5" height="5"/>') },
+];
+
+/* =========================================================================
+   TRANSFORMS
+   ========================================================================= */
+function toHeikinAshi(data){
+  const out = []; let prevOpen=null, prevClose=null;
+  for (const d of data){
+    const close = (d.open+d.high+d.low+d.close)/4;
+    const open = prevOpen===null ? (d.open+d.close)/2 : (prevOpen+prevClose)/2;
+    const high = Math.max(d.high, open, close);
+    const low = Math.min(d.low, open, close);
+    out.push({ time:d.time, open, high, low, close });
+    prevOpen=open; prevClose=close;
+  }
+  return out;
+}
+function toRenko(data, boxPct=0.01){
+  const out = []; if (!data.length) return out;
+  const box = data[0].close*boxPct;
+  let baseline = data[0].close;
+  let dir = 0; let i=0;
+  for (const d of data){
+    while (Math.abs(d.close-baseline) >= box){
+      const up = d.close > baseline;
+      if (dir!==0 && up !== (dir>0)) { baseline += up? box : -box; } // reversal needs 2 boxes normally; simplified
+      const open = baseline; const close = up? baseline+box : baseline-box;
+      out.push({ time: fmtDay(new Date(2026,0,1+i)), open, high:Math.max(open,close), low:Math.min(open,close), close });
+      baseline = close; dir = up?1:-1; i++;
+      if (out.length>400) return out;
+    }
+  }
+  return out.length? out : data.map((d,idx)=>({time:fmtDay(new Date(2026,0,1+idx)), open:d.open, high:d.high, low:d.low, close:d.close}));
+}
+function toLineBreak(data, lines=3){
+  const out = []; if (!data.length) return out;
+  let history = [data[0].close];
+  let i=0;
+  for (const d of data){
+    const close = d.close;
+    const recent = history.slice(-lines);
+    const maxH = Math.max(...recent), minL = Math.min(...recent);
+    let open;
+    if (close > maxH){ open = maxH; }
+    else if (close < minL){ open = minL; }
+    else { continue; }
+    out.push({ time: fmtDay(new Date(2026,0,1+i)), open, high:Math.max(open,close), low:Math.min(open,close), close });
+    history.push(close); i++;
+    if (out.length>400) break;
+  }
+  return out.length? out : data.map((d,idx)=>({time:fmtDay(new Date(2026,0,1+idx)), open:d.open, high:d.high, low:d.low, close:d.close}));
+}
+
+/* =========================================================================
+   INDICATOR MATH (real formulas over the mock OHLCV data)
+   ========================================================================= */
+function sma(values, len){
+  const out=[]; let sum=0;
+  for(let i=0;i<values.length;i++){ sum+=values[i]; if(i>=len) sum-=values[i-len]; out.push(i>=len-1? sum/len : null); }
+  return out;
+}
+function ema(values, len){
+  const out=[]; const k=2/(len+1); let prev=null;
+  for(let i=0;i<values.length;i++){
+    if (values[i]==null){ out.push(null); continue; }
+    prev = prev===null ? values[i] : values[i]*k + prev*(1-k);
+    out.push(prev);
+  }
+  return out;
+}
+function wma(values, len){
+  const out=[];
+  for(let i=0;i<values.length;i++){
+    if (i<len-1){ out.push(null); continue; }
+    let sum=0, wsum=0;
+    for(let j=0;j<len;j++){ const w=j+1; sum+=values[i-len+1+j]*w; wsum+=w; }
+    out.push(sum/wsum);
+  }
+  return out;
+}
+function bollinger(closes, len, mult){
+  const mid = sma(closes, len); const upper=[], lower=[];
+  for(let i=0;i<closes.length;i++){
+    if (mid[i]==null){ upper.push(null); lower.push(null); continue; }
+    const slice = closes.slice(i-len+1, i+1);
+    const variance = slice.reduce((a,b)=>a+(b-mid[i])**2,0)/len;
+    const sd = Math.sqrt(variance);
+    upper.push(mid[i]+mult*sd); lower.push(mid[i]-mult*sd);
+  }
+  return { mid, upper, lower };
+}
+function vwapCalc(data){
+  const out=[]; let cumPV=0, cumVol=0; let lastSession = data[0]? data[0].sessionIdx : undefined;
+  for (const d of data){
+    if (d.sessionIdx!==undefined && d.sessionIdx!==lastSession){ cumPV=0; cumVol=0; lastSession=d.sessionIdx; }
+    const tp = (d.high+d.low+d.close)/3;
+    cumPV += tp*d.volume; cumVol += d.volume;
+    out.push(cumVol? cumPV/cumVol : tp);
+  }
+  return out;
+}
+function psarCalc(data, step, max){
+  const out = new Array(data.length).fill(null);
+  if (data.length<2) return out;
+  let bull = data[1].close>=data[0].close;
+  let af=step, ep = bull? data[0].high : data[0].low, sar = bull? data[0].low : data[0].high;
+  out[0]=sar;
+  for(let i=1;i<data.length;i++){
+    sar = sar + af*(ep-sar);
+    if (bull){
+      sar = Math.min(sar, data[i-1].low, i>=2? data[i-2].low : data[i-1].low);
+      if (data[i].low < sar){ bull=false; sar=ep; ep=data[i].low; af=step; }
+      else if (data[i].high>ep){ ep=data[i].high; af=Math.min(af+step,max); }
+    } else {
+      sar = Math.max(sar, data[i-1].high, i>=2? data[i-2].high : data[i-1].high);
+      if (data[i].high > sar){ bull=true; sar=ep; ep=data[i].high; af=step; }
+      else if (data[i].low<ep){ ep=data[i].low; af=Math.min(af+step,max); }
+    }
+    out[i]=sar;
+  }
+  return out;
+}
+function rsiCalc(closes, len){
+  const out = new Array(closes.length).fill(null);
+  if (closes.length<=len) return out;
+  let gain=0, loss=0;
+  for (let i=1;i<=len;i++){ const chg=closes[i]-closes[i-1]; if (chg>=0) gain+=chg; else loss-=chg; }
+  gain/=len; loss/=len;
+  out[len] = 100 - 100/(1+(loss===0? 100 : gain/loss));
+  for (let i=len+1;i<closes.length;i++){
+    const chg = closes[i]-closes[i-1];
+    const g = chg>0? chg:0, l = chg<0? -chg:0;
+    gain = (gain*(len-1)+g)/len; loss = (loss*(len-1)+l)/len;
+    const rs = loss===0? 100 : gain/loss;
+    out[i] = 100 - 100/(1+rs);
+  }
+  return out;
+}
+function macdCalc(closes, fast, slow, signal){
+  const emaFast = ema(closes, fast), emaSlow = ema(closes, slow);
+  const macdLine = closes.map((_,i)=> (emaFast[i]!=null&&emaSlow[i]!=null)? emaFast[i]-emaSlow[i] : null);
+  const signalLine = ema(macdLine.map(v=>v==null?0:v), signal).map((v,i)=> macdLine[i]==null? null : v);
+  const hist = macdLine.map((v,i)=> (v!=null&&signalLine[i]!=null)? v-signalLine[i] : null);
+  return { macdLine, signalLine, hist };
+}
+function stochasticCalc(data, kLen, dLen){
+  const k=[];
+  for(let i=0;i<data.length;i++){
+    if (i<kLen-1){ k.push(null); continue; }
+    let hh=-Infinity, ll=Infinity;
+    for(let j=i-kLen+1;j<=i;j++){ hh=Math.max(hh,data[j].high); ll=Math.min(ll,data[j].low); }
+    k.push(hh===ll? 50 : ((data[i].close-ll)/(hh-ll))*100);
+  }
+  const d = sma(k.map(v=>v==null?0:v), dLen).map((v,i)=> k[i]==null? null : v);
+  return { k, d };
+}
+function cciCalc(data, len){
+  const tp = data.map(d=>(d.high+d.low+d.close)/3); const out=[];
+  for(let i=0;i<data.length;i++){
+    if (i<len-1){ out.push(null); continue; }
+    const slice = tp.slice(i-len+1, i+1);
+    const mean = slice.reduce((a,b)=>a+b,0)/len;
+    const meanDev = slice.reduce((a,b)=>a+Math.abs(b-mean),0)/len;
+    out.push(meanDev===0? 0 : (tp[i]-mean)/(0.015*meanDev));
+  }
+  return out;
+}
+function atrCalc(data, len){
+  const tr = data.map((d,i)=> i===0? d.high-d.low : Math.max(d.high-d.low, Math.abs(d.high-data[i-1].close), Math.abs(d.low-data[i-1].close)));
+  return ema(tr, len);
+}
+function obvCalc(data){
+  const out=[0];
+  for(let i=1;i<data.length;i++){
+    const prev=out[i-1];
+    out.push(data[i].close>data[i-1].close? prev+data[i].volume : data[i].close<data[i-1].close? prev-data[i].volume : prev);
+  }
+  return out;
+}
+function mfiCalc(data, len){
+  const tp = data.map(d=>(d.high+d.low+d.close)/3);
+  const mf = tp.map((t,i)=> t*data[i].volume); const out=[];
+  for(let i=0;i<data.length;i++){
+    if (i<len){ out.push(null); continue; }
+    let pos=0, neg=0;
+    for(let j=i-len+1;j<=i;j++){ if (tp[j]>tp[j-1]) pos+=mf[j]; else if (tp[j]<tp[j-1]) neg+=mf[j]; }
+    out.push(neg===0? 100 : 100-100/(1+pos/neg));
+  }
+  return out;
+}
+function momentumCalc(closes, len){ return closes.map((c,i)=> i<len? null : c-closes[i-len]); }
+
+const IND_COLORS = { blue:'#5dade2', orange:'#eb984e', purple:'#af7ac5', gold:'#f5b041', pink:'#f1948a', teal:'#48c9b0' };
+
+const INDICATOR_DEFS = {
+  sma:  { label:'Simple Moving Average (SMA)', cat:'Trend', kind:'overlay', color:IND_COLORS.gold, params:{ len:20 },
+          build:(data,p)=> [{ name:`SMA ${p.len}`, color:IND_COLORS.gold, values: sma(data.map(d=>d.close), p.len) }] },
+  ema:  { label:'Exponential Moving Average (EMA)', cat:'Trend', kind:'overlay', color:IND_COLORS.blue, params:{ len:20 },
+          build:(data,p)=> [{ name:`EMA ${p.len}`, color:IND_COLORS.blue, values: ema(data.map(d=>d.close), p.len) }] },
+  wma:  { label:'Weighted Moving Average (WMA)', cat:'Trend', kind:'overlay', color:IND_COLORS.purple, params:{ len:20 },
+          build:(data,p)=> [{ name:`WMA ${p.len}`, color:IND_COLORS.purple, values: wma(data.map(d=>d.close), p.len) }] },
+  bb:   { label:'Bollinger Bands', cat:'Trend', kind:'overlay', color:IND_COLORS.blue, params:{ len:20, mult:2 },
+          build:(data,p)=>{ const b=bollinger(data.map(d=>d.close), p.len, p.mult);
+            return [ { name:'BB Mid', color:'#7fb3d5', values:b.mid },
+                     { name:'BB Upper', color:'#5499c7', values:b.upper, dashed:true },
+                     { name:'BB Lower', color:'#5499c7', values:b.lower, dashed:true } ]; } },
+  vwap: { label:'VWAP', cat:'Trend', kind:'overlay', color:IND_COLORS.orange, params:{},
+          build:(data)=> [{ name:'VWAP', color:IND_COLORS.orange, values: vwapCalc(data) }] },
+  psar: { label:'Parabolic SAR', cat:'Trend', kind:'overlay-dots', color:IND_COLORS.pink, params:{ step:0.02, max:0.2 },
+          build:(data,p)=> [{ name:'PSAR', color:IND_COLORS.pink, values: psarCalc(data, p.step, p.max) }] },
+  rsi:  { label:'Relative Strength Index (RSI)', cat:'Momentum', kind:'pane', bands:[30,70], params:{ len:14 },
+          build:(data,p)=> [{ name:`RSI ${p.len}`, color:IND_COLORS.purple, values: rsiCalc(data.map(d=>d.close), p.len) }] },
+  macd: { label:'MACD', cat:'Momentum', kind:'pane', params:{ fast:12, slow:26, signal:9 },
+          build:(data,p)=>{ const m = macdCalc(data.map(d=>d.close), p.fast, p.slow, p.signal);
+            return [ { name:'MACD', color:IND_COLORS.blue, values:m.macdLine, type:'line' },
+                     { name:'Signal', color:IND_COLORS.orange, values:m.signalLine, type:'line' },
+                     { name:'Hist', color:UP, values:m.hist, type:'hist' } ]; } },
+  stoch:{ label:'Stochastic', cat:'Momentum', kind:'pane', bands:[20,80], params:{ k:14, d:3 },
+          build:(data,p)=>{ const s = stochasticCalc(data, p.k, p.d);
+            return [ { name:'%K', color:IND_COLORS.blue, values:s.k }, { name:'%D', color:IND_COLORS.orange, values:s.d } ]; } },
+  cci:  { label:'Commodity Channel Index (CCI)', cat:'Momentum', kind:'pane', params:{ len:20 },
+          build:(data,p)=> [{ name:`CCI ${p.len}`, color:IND_COLORS.gold, values: cciCalc(data, p.len) }] },
+  mom:  { label:'Momentum', cat:'Momentum', kind:'pane', params:{ len:10 },
+          build:(data,p)=> [{ name:`Momentum ${p.len}`, color:IND_COLORS.pink, values: momentumCalc(data.map(d=>d.close), p.len) }] },
+  atr:  { label:'Average True Range (ATR)', cat:'Volatility', kind:'pane', params:{ len:14 },
+          build:(data,p)=> [{ name:`ATR ${p.len}`, color:IND_COLORS.orange, values: atrCalc(data, p.len) }] },
+  obv:  { label:'On Balance Volume (OBV)', cat:'Volume', kind:'pane', params:{},
+          build:(data)=> [{ name:'OBV', color:IND_COLORS.blue, values: obvCalc(data) }] },
+  mfi:  { label:'Money Flow Index (MFI)', cat:'Volume', kind:'pane', bands:[20,80], params:{ len:14 },
+          build:(data,p)=> [{ name:`MFI ${p.len}`, color:IND_COLORS.purple, values: mfiCalc(data, p.len) }] },
+};
+
+/* =========================================================================
+   CHART SETUP
+   ========================================================================= */
+const container = document.getElementById('chart-container');
+const chart = LightweightCharts.createChart(container, {
+  layout: { background:{ type:'solid', color:'#0b0d10' }, textColor:'#9aa4af', fontSize:11 },
+  grid: { vertLines:{ color:'#161a1f' }, horzLines:{ color:'#161a1f' } },
+  rightPriceScale: { borderColor:'#1e232a', scaleMargins:{ top:0.06, bottom:0.26 } },
+  timeScale: { borderColor:'#1e232a', rightOffset:5, timeVisible:false, secondsVisible:false, rightBarStaysOnScroll:true },
+  crosshair: {
+    mode: LightweightCharts.CrosshairMode.Normal,
+    vertLine:{ color:'#4b5563', style:LightweightCharts.LineStyle.Dashed, labelBackgroundColor:'#2b2f36' },
+    horzLine:{ color:'#4b5563', style:LightweightCharts.LineStyle.Dashed, labelBackgroundColor:'#2b2f36' },
+  },
+  handleScroll: { mouseWheel:true, pressedMouseMove:true, horzTouchDrag:true, vertTouchDrag:true },
+  handleScale: { mouseWheel:false, pinch:true, axisPressedMouseMove:true, axisDoubleClickReset:true },
+});
+let mainSeries=null, mainSeries2=null, volumeSeries=null;
+volumeSeries = chart.addHistogramSeries({ priceFormat:{type:'volume'}, priceScaleId:'volume' });
+chart.priceScale('volume').applyOptions({ scaleMargins:{ top:0.82, bottom:0 } });
+
+const overlayCanvas = document.getElementById('overlay-canvas');
+const octx = overlayCanvas.getContext('2d');
+
+function resizeAll(){
+  const rect = container.getBoundingClientRect();
+  chart.resize(rect.width, rect.height);
+  const dpr = window.devicePixelRatio||1;
+  overlayCanvas.width = rect.width*dpr; overlayCanvas.height = rect.height*dpr;
+  overlayCanvas.style.width = rect.width+'px'; overlayCanvas.style.height = rect.height+'px';
+  octx.setTransform(dpr,0,0,dpr,0,0);
+  renderOverlay();
+}
+new ResizeObserver(resizeAll).observe(container);
+
+/* Ctrl/Cmd + wheel = zoom around cursor; plain wheel = native pan (handleScroll.mouseWheel) */
+container.addEventListener('wheel', (e)=>{
+  if (!(e.ctrlKey || e.metaKey)) return;
+  e.preventDefault();
+  const rect = container.getBoundingClientRect();
+  const x = e.clientX-rect.left;
+  const ts = chart.timeScale();
+  const logical = ts.coordinateToLogical(x);
+  const range = ts.getVisibleLogicalRange();
+  if (!range || logical==null) return;
+  const factor = e.deltaY>0 ? 1.12 : 0.89;
+  const newFrom = logical - (logical-range.from)*factor;
+  const newTo = logical + (range.to-logical)*factor;
+  ts.setVisibleLogicalRange({ from:newFrom, to:newTo });
+}, { passive:false });
+
+/* =========================================================================
+   STATE
+   ========================================================================= */
+let currentSymbol = 'SPX';
+let currentRange = '1D';
+let currentChartType = 'candles';
+let currentData = []; // raw OHLCV bars presently loaded (drives overlays/session breaks)
+let currentMode = 'intraday'; // 'intraday' | 'daily'
+let drawingsBySymbol = {};
+let drawings = () => (drawingsBySymbol[currentSymbol] ||= []);
+let pendingPoints = [];
+let activeTool = 'cursor';
+let showDrawings = true;
+let drawingsLocked = false;
+let mousePixel = null;
+let nextDrawId = 1;
+
+const REQUIRED_POINTS = { trendline:2, horizontalRay:1, arrow:2, parallelChannel:3, headShoulders:5, abcd:4, fib:2, ruler:2 };
+
+let activeIndicators = [];
+let nextIndId = 1;
+let timeIndexMap = {};
+function rebuildTimeIndexMap(){ timeIndexMap = {}; currentData.forEach((d,i)=> timeIndexMap[d.time]=i); }
+
+let alertsBySymbol = {};
+function currentAlerts(){ return (alertsBySymbol[currentSymbol] ||= []); }
+let nextAlertId = 1;
+let placingAlert = false;
+
+let replayArmed = false;
+let replayActive = false;
+let replayFullData = null;
+let replayTimer = null;
+
+/* =========================================================================
+   INDICATORS ENGINE
+   ========================================================================= */
+function dataToSeriesPoints(values, extra){
+  const out = [];
+  for (let i=0;i<currentData.length;i++){
+    if (values[i]==null) continue;
+    const point = { time: currentData[i].time, value: values[i] };
+    if (extra) Object.assign(point, extra(values[i]));
+    out.push(point);
+  }
+  return out;
+}
+
+function addIndicator(key, customParams){
+  const def = INDICATOR_DEFS[key];
+  if (!def) return null;
+  const params = { ...def.params, ...(customParams||{}) };
+  const id = 'ind'+(nextIndId++);
+  const priceScaleId = def.kind==='pane' ? 'pane-'+id : undefined;
+  const plots = def.build(currentData, params);
+  const seriesList = plots.map(p=>{
+    let s;
+    if (p.type==='hist'){
+      s = chart.addHistogramSeries({ priceScaleId, priceFormat:{ type:'price' }, priceLineVisible:false, lastValueVisible:false });
+      s.setData(dataToSeriesPoints(p.values, v=>({ color: v>=0? withAlpha(UP,.6) : withAlpha(DOWN,.6) })));
+    } else {
+      s = chart.addLineSeries({
+        color:p.color, lineWidth:1.4, priceScaleId,
+        pointMarkersVisible: def.kind==='overlay-dots', pointMarkersRadius:2,
+        lineStyle: p.dashed? LightweightCharts.LineStyle.Dashed : LightweightCharts.LineStyle.Solid,
+        lastValueVisible:false, priceLineVisible:false,
+      });
+      s.setData(dataToSeriesPoints(p.values));
+    }
+    return { name:p.name, color:p.color, series:s };
+  });
+  const entry = { id, key, def, params, priceScaleId, seriesList, bandLines:[], plots };
+  if (def.kind==='pane' && def.bands){
+    for (const b of def.bands){
+      entry.bandLines.push(seriesList[0].series.createPriceLine({ price:b, color:'#3a4048', lineStyle:LightweightCharts.LineStyle.Dashed, lineWidth:1, axisLabelVisible:true, title:'' }));
+    }
+  }
+  activeIndicators.push(entry);
+  relayoutPanes();
+  return id;
+}
+
+function removeIndicator(id){
+  const idx = activeIndicators.findIndex(a=>a.id===id);
+  if (idx<0) return;
+  const entry = activeIndicators[idx];
+  entry.seriesList.forEach(s=>{ try{ chart.removeSeries(s.series); }catch(e){} });
+  activeIndicators.splice(idx,1);
+  relayoutPanes();
+}
+
+function recomputeAllIndicators(){
+  for (const entry of activeIndicators){
+    const plots = entry.def.build(currentData, entry.params);
+    entry.plots = plots;
+    plots.forEach((p,i)=>{
+      const s = entry.seriesList[i]; if (!s) return;
+      if (p.type==='hist') s.series.setData(dataToSeriesPoints(p.values, v=>({ color: v>=0? withAlpha(UP,.6) : withAlpha(DOWN,.6) })));
+      else s.series.setData(dataToSeriesPoints(p.values));
+    });
+  }
+}
+
+function relayoutPanes(){
+  const paneIndicators = activeIndicators.filter(a=>a.def.kind==='pane');
+  const n = paneIndicators.length;
+  const volumeHeight = 0.14;
+  const paneHeight = n? Math.min(0.18, 0.5/n) : 0;
+  chart.priceScale('volume').applyOptions({ scaleMargins:{ top:1-volumeHeight, bottom:0 } });
+  paneIndicators.forEach((entry, idx)=>{
+    const bandBottom = volumeHeight + idx*paneHeight;
+    const bandTop = 1-(bandBottom+paneHeight);
+    entry.bandTop = bandTop; entry.bandBottom = bandBottom;
+    chart.priceScale(entry.priceScaleId).applyOptions({ scaleMargins:{ top:bandTop, bottom:bandBottom } });
+  });
+  const mainBottom = Math.min(volumeHeight + n*paneHeight + (n?0.015:0), 0.85);
+  chart.priceScale('right').applyOptions({ scaleMargins:{ top:0.06, bottom: mainBottom } });
+  renderIndicatorLegend();
+}
+
+function renderIndicatorLegend(){
+  const rect = container.getBoundingClientRect();
+  const overlayList = activeIndicators.filter(a=>a.def.kind!=='pane');
+  const paneList = activeIndicators.filter(a=>a.def.kind==='pane');
+
+  document.getElementById('overlay-legend').innerHTML = overlayList.map(a=>{
+    const label = a.seriesList.map(s=>s.name).join(' / ');
+    return `<div class="ind-row" data-id="${a.id}"><span class="ind-dot" style="background:${a.def.color}"></span><span>${label}</span><i class="fa-solid fa-xmark ind-remove" data-id="${a.id}"></i></div>`;
+  }).join('');
+
+  document.getElementById('pane-legends').innerHTML = paneList.map(a=>{
+    const label = a.seriesList.map(s=>`<span class="ind-dot" style="background:${s.color}"></span><span>${s.name}</span>`).join(' ');
+    const top = Math.round(a.bandTop*rect.height)+4;
+    return `<div class="ind-row" data-id="${a.id}" style="position:absolute;left:0;top:${top}px">${label}<i class="fa-solid fa-xmark ind-remove" data-id="${a.id}"></i></div>`;
+  }).join('');
+
+  document.querySelectorAll('.ind-remove').forEach(btn=> btn.addEventListener('click', (e)=>{ e.stopPropagation(); removeIndicator(btn.dataset.id); }));
+  updateLegendValues();
+}
+
+function updateLegendValues(hoverIdx){
+  const idx = hoverIdx!=null ? hoverIdx : currentData.length-1;
+  document.querySelectorAll('#overlay-legend .ind-row, #pane-legends .ind-row').forEach(row=>{
+    const entry = activeIndicators.find(a=>a.id===row.dataset.id); if (!entry) return;
+    const label = entry.def.kind==='pane'
+      ? entry.plots.map(p=>{ const v=p.values[idx]; return v==null? `${p.name} —` : `${p.name} ${v.toFixed(2)}`; }).join('  ')
+      : entry.plots.map(p=>{ const v=p.values[idx]; return v==null? `${p.name} —` : `${p.name} ${fmtPrice(v)}`; }).join(' / ');
+    const textNode = row.childNodes;
+    // rebuild label text while keeping the color dot(s) and remove button intact
+    const dots = Array.from(row.querySelectorAll('.ind-dot')).map(d=>d.outerHTML).join('');
+    row.innerHTML = `${dots}<span>${label}</span><i class="fa-solid fa-xmark ind-remove" data-id="${entry.id}"></i>`;
+  });
+  document.querySelectorAll('.ind-remove').forEach(btn=> btn.onclick = (e)=>{ e.stopPropagation(); removeIndicator(btn.dataset.id); });
+}
+
+/* =========================================================================
+   ALERTS ENGINE (real horizontal price-line alerts)
+   ========================================================================= */
+function reapplyAlerts(){
+  for (const a of currentAlerts()){
+    a.priceLine = mainSeries.createPriceLine({ price:a.price, color:'#eab308', lineWidth:1, lineStyle:LightweightCharts.LineStyle.Dashed, axisLabelVisible:true, title:'Alert' });
+  }
+  renderAlertsList();
+}
+function renderAlertsList(){
+  document.getElementById('alerts-list').innerHTML = currentAlerts().map(a=>`
+    <div class="ind-row" data-id="${a.id}" style="background:rgba(15,18,22,.85);border:1px solid var(--border)">
+      <i class="fa-solid fa-bell" style="color:#eab308"></i><span>${fmtPrice(a.price)}</span>
+      <i class="fa-solid fa-xmark ind-remove" data-id="${a.id}"></i>
+    </div>`).join('');
+  document.querySelectorAll('#alerts-list .ind-remove').forEach(btn=> btn.addEventListener('click', ()=>{
+    const list = currentAlerts(); const idx = list.findIndex(a=>a.id===btn.dataset.id);
+    if (idx>=0){ try{ mainSeries.removePriceLine(list[idx].priceLine); }catch(e){} list.splice(idx,1); renderAlertsList(); }
+  }));
+}
+
+/* =========================================================================
+   REPLAY ENGINE
+   ========================================================================= */
+function showReplayControls(){ document.getElementById('replay-controls').classList.remove('hidden'); updateReplayProgress(); }
+function hideReplayControls(){ document.getElementById('replay-controls').classList.add('hidden'); }
+function updateReplayProgress(){ document.getElementById('replay-progress').textContent = replayFullData? `${currentData.length} / ${replayFullData.length}` : ''; }
+
+function handleReplayStartClick(param){
+  if (!replayArmed || param.time==null) return;
+  const idx = timeIndexMap[param.time];
+  if (idx==null || idx<10) { flashToast('Pick a point further into the history'); return; }
+  replayFullData = currentData;
+  currentData = replayFullData.slice(0, idx+1);
+  rebuildTimeIndexMap();
+  replayArmed = false; replayActive = true;
+  document.getElementById('replay-btn').classList.remove('active');
+  showReplayControls();
+  applyChartType(currentChartType);
+}
+
+function replayStepForward(){
+  if (!replayActive || !replayFullData) return;
+  if (currentData.length>=replayFullData.length){ pauseReplay(); return; }
+  currentData = replayFullData.slice(0, currentData.length+1);
+  rebuildTimeIndexMap();
+  applyChartType(currentChartType);
+  updateReplayProgress();
+}
+function playReplay(){
+  if (replayTimer) return;
+  replayTimer = setInterval(replayStepForward, Number(document.getElementById('replay-speed').value));
+  document.querySelector('#replay-play i').className='fa-solid fa-pause';
+}
+function pauseReplay(){
+  if (replayTimer){ clearInterval(replayTimer); replayTimer=null; }
+  document.querySelector('#replay-play i').className='fa-solid fa-play';
+}
+function exitReplay(){
+  pauseReplay();
+  if (replayActive && replayFullData) currentData = replayFullData;
+  replayActive = false; replayArmed = false; replayFullData = null;
+  document.getElementById('replay-btn').classList.remove('active');
+  hideReplayControls();
+  rebuildTimeIndexMap();
+  applyChartType(currentChartType);
+  chart.timeScale().fitContent();
+}
+
+function flashToast(msg){
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.classList.add('show');
+  clearTimeout(flashToast._t);
+  flashToast._t = setTimeout(()=> el.classList.remove('show'), 1800);
+}
+
+/* =========================================================================
+   LOAD DATA / RANGE HANDLING
+   ========================================================================= */
+function priceDecimals(sym){ return SYMBOLS[sym].base < 50 ? 3 : 2; }
+function fmtPrice(v, sym){ return v.toLocaleString(undefined,{minimumFractionDigits:priceDecimals(sym||currentSymbol), maximumFractionDigits:priceDecimals(sym||currentSymbol)}); }
+
+function loadRange(range){
+  if (replayActive || replayArmed) exitReplay();
+  currentRange = range;
+  const d = getData(currentSymbol);
+  const intraday = (range==='1D' || range==='5D');
+  currentMode = intraday? 'intraday':'daily';
+  currentData = intraday ? d.intraday : d.daily;
+  rebuildTimeIndexMap();
+  chart.applyOptions({ timeScale:{ timeVisible: intraday, secondsVisible:false } });
+  applyChartType(currentChartType);
+  // set visible window
+  const ts = chart.timeScale();
+  requestAnimationFrame(()=>{
+    if (range==='1D'){
+      const lastSession = currentData[currentData.length-1].sessionIdx;
+      const bars = currentData.filter(b=>b.sessionIdx===lastSession);
+      ts.setVisibleRange({ from:bars[0].time, to:bars[bars.length-1].time });
+    } else if (range==='5D'){
+      ts.setVisibleRange({ from:currentData[Math.max(0,currentData.length-78*5)].time, to:currentData[currentData.length-1].time });
+    } else {
+      const n = { '1M':22, '3M':66, '6M':132, '1Y':252, 'ALL':currentData.length }[range] || currentData.length;
+      const from = currentData[Math.max(0,currentData.length-n)].time;
+      ts.setVisibleRange({ from, to: currentData[currentData.length-1].time });
+    }
+    renderOverlay();
+  });
+  document.querySelectorAll('.range-btn').forEach(b=> b.classList.toggle('active', b.dataset.range===range));
+}
+
+/* =========================================================================
+   SERIES SWITCHING (17 chart types)
+   ========================================================================= */
+function clearMainSeries(){
+  if (mainSeries){ chart.removeSeries(mainSeries); mainSeries=null; }
+  if (mainSeries2){ chart.removeSeries(mainSeries2); mainSeries2=null; }
+}
+function markersFor(data){
+  const marks = [];
+  for (let i=8;i<data.length;i+=17){
+    marks.push({ time:data[i].time, position:'aboveBar', color:'#eab308', shape:'circle', text:'D' });
+  }
+  for (let i=15;i<data.length;i+=23){
+    marks.push({ time:data[i].time, position:'belowBar', color:'#a855f7', shape:'circle', text:'⚡' });
+  }
+  marks.sort((a,b)=> (a.time>b.time?1:-1));
+  return marks;
+}
+
+function applyChartType(type){
+  currentChartType = type;
+  clearMainSeries();
+  const data = currentData;
+  const closeData = data.map(d=>({ time:d.time, value:d.close }));
+
+  switch(type){
+    case 'bars':
+      mainSeries = chart.addBarSeries({ upColor:UP, downColor:DOWN, thinBars:false });
+      mainSeries.setData(data); break;
+    case 'candles':
+      mainSeries = chart.addCandlestickSeries({ upColor:UP, downColor:DOWN, borderUpColor:UP, borderDownColor:DOWN, wickUpColor:UP, wickDownColor:DOWN });
+      mainSeries.setData(data); break;
+    case 'hollow':
+      mainSeries = chart.addCandlestickSeries({ upColor:'rgba(11,13,16,1)', downColor:DOWN, borderUpColor:UP, borderDownColor:DOWN, wickUpColor:UP, wickDownColor:DOWN });
+      mainSeries.setData(data); break;
+    case 'volumeCandles': {
+      mainSeries = chart.addCandlestickSeries({ upColor:UP, downColor:DOWN, borderUpColor:UP, borderDownColor:DOWN, wickUpColor:UP, wickDownColor:DOWN });
+      const maxVol = Math.max(...data.map(d=>d.volume));
+      mainSeries.setData(data.map(d=>{
+        const inten = 0.3+0.7*(d.volume/maxVol); const base = d.close>=d.open?UP:DOWN; const c = withAlpha(base, inten);
+        return { time:d.time, open:d.open, high:d.high, low:d.low, close:d.close, color:c, wickColor:c, borderColor:c };
+      })); break;
+    }
+    case 'line':
+      mainSeries = chart.addLineSeries({ color:ACCENT, lineWidth:2 }); mainSeries.setData(closeData); break;
+    case 'lineMarkers':
+      mainSeries = chart.addLineSeries({ color:ACCENT, lineWidth:2, pointMarkersVisible:true, pointMarkersRadius:3 }); mainSeries.setData(closeData); break;
+    case 'stepLine':
+      mainSeries = chart.addLineSeries({ color:ACCENT, lineWidth:2, lineType:LightweightCharts.LineType.WithSteps }); mainSeries.setData(closeData); break;
+    case 'area':
+      mainSeries = chart.addAreaSeries({ lineColor:ACCENT, topColor:withAlpha(ACCENT,.35), bottomColor:withAlpha(ACCENT,0) }); mainSeries.setData(closeData); break;
+    case 'hlcArea':
+      mainSeries = chart.addAreaSeries({ lineColor:UP, topColor:withAlpha(UP,.28), bottomColor:withAlpha(UP,0), lineWidth:1 });
+      mainSeries.setData(data.map(d=>({ time:d.time, value:d.high })));
+      mainSeries2 = chart.addAreaSeries({ lineColor:DOWN, topColor:withAlpha(DOWN,0), bottomColor:withAlpha(DOWN,.28), lineWidth:1 });
+      mainSeries2.setData(data.map(d=>({ time:d.time, value:d.low }))); break;
+    case 'baseline': {
+      const avg = data.reduce((s,d)=>s+d.close,0)/data.length;
+      mainSeries = chart.addBaselineSeries({ baseValue:{ type:'price', price:avg }, topLineColor:UP, bottomLineColor:DOWN, topFillColor1:withAlpha(UP,.25), topFillColor2:withAlpha(UP,.02), bottomFillColor1:withAlpha(DOWN,.02), bottomFillColor2:withAlpha(DOWN,.25) });
+      mainSeries.setData(closeData); break;
+    }
+    case 'columns':
+      mainSeries = chart.addHistogramSeries({ priceFormat:{ type:'price' } });
+      mainSeries.setData(data.map(d=>({ time:d.time, value:d.close, color: d.close>=d.open? withAlpha(UP,.7):withAlpha(DOWN,.7) })));
+      break;
+    case 'highLow':
+      mainSeries = chart.addCandlestickSeries({ upColor:UP, downColor:UP, borderUpColor:UP, borderDownColor:UP, wickVisible:false });
+      mainSeries.setData(data.map(d=>({ time:d.time, open:d.low, high:d.high, low:d.low, close:d.high })));
+      break;
+    case 'footprint':
+    case 'tpo':
+    case 'sessionVolumeProfile':
+      mainSeries = chart.addCandlestickSeries({ upColor:UP, downColor:DOWN, borderUpColor:UP, borderDownColor:DOWN, wickUpColor:UP, wickDownColor:DOWN, borderVisible:true });
+      mainSeries.setData(data);
+      break;
+    case 'heikinAshi':
+      mainSeries = chart.addCandlestickSeries({ upColor:UP, downColor:DOWN, borderUpColor:UP, borderDownColor:DOWN, wickUpColor:UP, wickDownColor:DOWN });
+      mainSeries.setData(toHeikinAshi(data)); break;
+    case 'renko':
+      mainSeries = chart.addCandlestickSeries({ upColor:UP, downColor:DOWN, borderUpColor:UP, borderDownColor:DOWN, wickVisible:false });
+      mainSeries.setData(toRenko(data)); break;
+    case 'lineBreak':
+      mainSeries = chart.addCandlestickSeries({ upColor:UP, downColor:DOWN, borderUpColor:UP, borderDownColor:DOWN, wickVisible:false });
+      mainSeries.setData(toLineBreak(data)); break;
+  }
+  if (['bars','candles','hollow','volumeCandles','footprint','tpo','sessionVolumeProfile'].includes(type)){
+    mainSeries.setMarkers(markersFor(data));
+  }
+  volumeSeries.setData(data.map(d=>({ time:d.time, value:d.volume, color: d.close>=d.open? withAlpha(UP,.5):withAlpha(DOWN,.5) })));
+
+  // reflect selection in dropdown + toolbar icon
+  document.querySelectorAll('.dd-item[data-key]').forEach(el=> el.classList.toggle('selected', el.dataset.key===type));
+  const def = CHART_TYPES.find(c=>c.key===type);
+  document.getElementById('charttype-icon').innerHTML = def.icon;
+
+  recomputeAllIndicators();
+  reapplyAlerts();
+  relayoutPanes();
+  renderOverlay();
+}
+
+/* =========================================================================
+   OVERLAY RENDER (session breaks, footprint/TPO/volume-profile, drawings)
+   ========================================================================= */
+function xFor(time){ try { return chart.timeScale().timeToCoordinate(time); } catch(e){ return null; } }
+function yFor(price){ if (!mainSeries) return null; try { return mainSeries.priceToCoordinate(price); } catch(e){ return null; } }
+
+function renderOverlay(){
+  const rect = container.getBoundingClientRect();
+  octx.clearRect(0,0,rect.width,rect.height);
+  drawPaneDividers(rect);
+  drawSessionSeparators(rect);
+  if (currentChartType==='footprint') drawFootprint(rect);
+  if (currentChartType==='tpo') drawTPO(rect);
+  if (currentChartType==='sessionVolumeProfile') drawSessionVolumeProfile(rect);
+  if (showDrawings) { drawAllDrawings(); drawSelectionHandles(); }
+  drawInProgress();
+  updateOhlcReadout();
+  syncStyleToolbarPosition();
+}
+
+function drawPaneDividers(rect){
+  const paneIndicators = activeIndicators.filter(a=>a.def.kind==='pane');
+  if (!paneIndicators.length) return;
+  octx.save(); octx.strokeStyle='#20262e'; octx.lineWidth=1;
+  for (const entry of paneIndicators){
+    const y = Math.round(entry.bandTop*rect.height)+0.5;
+    octx.beginPath(); octx.moveTo(0,y); octx.lineTo(rect.width,y); octx.stroke();
+  }
+  const volY = Math.round((1-0.14)*rect.height)+0.5;
+  octx.beginPath(); octx.moveTo(0,volY); octx.lineTo(rect.width,volY); octx.stroke();
+  octx.restore();
+}
+
+function drawSessionSeparators(rect){
+  octx.save();
+  octx.font = '9px ui-monospace, monospace';
+  if (currentMode==='intraday'){
+    let lastSession=-1;
+    for (let i=0;i<currentData.length;i++){
+      const b = currentData[i];
+      if (b.sessionIdx!==lastSession){
+        const x = xFor(b.time);
+        if (x!=null){
+          drawDashedVert(x, rect.height, '#3a4048');
+          badge(x, 14, 'SOD', '#3a4048');
+        }
+        if (i>0){
+          const prevX = xFor(currentData[i-1].time);
+          if (prevX!=null){ drawDashedVert(prevX, rect.height, '#3a4048'); badge(prevX, 14, 'EOD', '#3a4048'); }
+        }
+        lastSession = b.sessionIdx;
+      }
+    }
+  } else {
+    let lastMonth=-1;
+    for (let i=0;i<currentData.length;i++){
+      const b = currentData[i];
+      const m = b.dateObj? b.dateObj.getMonth() : null;
+      if (m!==null && m!==lastMonth){
+        const x = xFor(b.time);
+        if (x!=null){ drawDashedVert(x, rect.height, '#3a4048'); badge(x, 14, 'SOM', '#3a4048'); }
+        if (i>0){
+          const prevX = xFor(currentData[i-1].time);
+          if (prevX!=null){ drawDashedVert(prevX, rect.height, '#3a4048'); badge(prevX, 14, 'EOM', '#3a4048'); }
+        }
+        lastMonth = m;
+      }
+    }
+  }
+  octx.restore();
+}
+function drawDashedVert(x, h, color){
+  octx.beginPath(); octx.setLineDash([3,3]); octx.strokeStyle=color; octx.lineWidth=1;
+  octx.moveTo(x+0.5, 0); octx.lineTo(x+0.5, h-24); octx.stroke(); octx.setLineDash([]);
+}
+function badge(x, y, text, color){
+  octx.font='9px ui-monospace, monospace';
+  const w = octx.measureText(text).width+8;
+  octx.fillStyle='#12161b'; octx.strokeStyle=color; octx.lineWidth=1;
+  octx.fillRect(x-w/2,y-7,w,14); octx.strokeRect(x-w/2,y-7,w,14);
+  octx.fillStyle='#9aa4af'; octx.textAlign='center'; octx.textBaseline='middle';
+  octx.fillText(text, x, y+1);
+}
+
+function visibleBars(){
+  const ts = chart.timeScale();
+  const range = ts.getVisibleLogicalRange();
+  if (!range) return [];
+  const from = Math.max(0, Math.floor(range.from));
+  const to = Math.min(currentData.length-1, Math.ceil(range.to));
+  const out = [];
+  for (let i=from;i<=to;i++) if (currentData[i]) out.push({ i, bar:currentData[i] });
+  return out;
+}
+
+function drawFootprint(rect){
+  const bars = visibleBars(); if (bars.length>60) return; // too dense to label
+  octx.save(); octx.font='8px ui-monospace, monospace'; octx.textAlign='center';
+  for (const {i,bar} of bars){
+    const x = xFor(bar.time); const yTop = yFor(bar.high); const yBot = yFor(bar.low);
+    if (x==null||yTop==null||yBot==null) continue;
+    const rng = makeRng(hashCode(currentSymbol+i+'fp'));
+    const buyPct = 0.35+rng()*0.3;
+    const buyVol = Math.round(bar.volume*buyPct), sellVol = bar.volume-buyVol;
+    const w = 46;
+    octx.fillStyle='rgba(15,18,22,.92)'; octx.strokeStyle='#262c33';
+    octx.fillRect(x-w/2, yTop, w, Math.max(yBot-yTop,20));
+    octx.strokeRect(x-w/2, yTop, w, Math.max(yBot-yTop,20));
+    octx.fillStyle = UP; octx.fillText((buyVol/1000).toFixed(1)+'K', x, yTop+11);
+    octx.fillStyle = DOWN; octx.fillText((sellVol/1000).toFixed(1)+'K', x, yTop+23);
+  }
+  octx.restore();
+}
+
+function drawTPO(rect){
+  const bars = visibleBars(); if (!bars.length) return;
+  const sessionSize = currentMode==='intraday'? 78: 22;
+  octx.save(); octx.font='7px ui-monospace, monospace'; octx.fillStyle='#7b8794';
+  const letters='ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  const groups = {};
+  for (const {i,bar} of bars){ const g = Math.floor(i/sessionSize); (groups[g]=groups[g]||[]).push({i,bar}); }
+  for (const g in groups){
+    const items = items_ok(groups[g]);
+    const xs = items.map(o=>xFor(o.bar.time)).filter(v=>v!=null);
+    if (!xs.length) continue;
+    const xStart = Math.min(...xs);
+    const minP = Math.min(...items.map(o=>o.bar.low)), maxP = Math.max(...items.map(o=>o.bar.high));
+    const step = (maxP-minP)/14 || 1;
+    for (let lvl=0; lvl<14; lvl++){
+      const p = minP+lvl*step; const y = yFor(p); if (y==null) continue;
+      let count=0;
+      for (const o of items){ if (o.bar.low<=p && o.bar.high>=p) count++; }
+      for (let k=0;k<Math.min(count,10);k++){
+        octx.fillText(letters[(g*0+k)%letters.length], xStart-40+k*7, y);
+      }
+    }
+  }
+  octx.restore();
+  function items_ok(x){ return x; }
+}
+
+function drawSessionVolumeProfile(rect){
+  const bars = visibleBars(); if (!bars.length) return;
+  const sessionSize = currentMode==='intraday'? 78: 22;
+  octx.save();
+  const groups = {};
+  for (const {i,bar} of bars){ const g = Math.floor(i/sessionSize); (groups[g]=groups[g]||[]).push(bar); }
+  const groupKeys = Object.keys(groups);
+  for (const g of groupKeys){
+    const items = groups[g];
+    const lastBar = items[items.length-1];
+    const xEdge = xFor(lastBar.time); if (xEdge==null) continue;
+    const minP = Math.min(...items.map(b=>b.low)), maxP = Math.max(...items.map(b=>b.high));
+    const bins = 16; const step = (maxP-minP)/bins || 1;
+    const vols = new Array(bins).fill(0);
+    for (const b of items){
+      const lo = Math.max(0, Math.floor((b.low-minP)/step));
+      const hi = Math.min(bins-1, Math.floor((b.high-minP)/step));
+      for (let k=lo;k<=hi;k++) vols[k]+= b.volume/(hi-lo+1);
+    }
+    const maxV = Math.max(...vols,1);
+    for (let k=0;k<bins;k++){
+      const p0 = minP+k*step, p1=minP+(k+1)*step;
+      const y0 = yFor(p0), y1 = yFor(p1);
+      if (y0==null||y1==null) continue;
+      const w = (vols[k]/maxV)*38;
+      octx.fillStyle = 'rgba(43,110,242,.35)';
+      octx.fillRect(xEdge+2, Math.min(y0,y1), w, Math.max(Math.abs(y1-y0)-1,1));
+    }
+  }
+  octx.restore();
+}
+
+/* ---- Drawing tools ---- */
+function timeIndex(time){
+  // linear search is fine for mock dataset sizes (<=1600 bars)
+  for (let i=0;i<currentData.length;i++) if (currentData[i].time===time) return i;
+  return -1;
+}
+function ptPx(p){ const x=xFor(p.time), y=yFor(p.price); return (x==null||y==null)? null : {x,y}; }
+
+function drawAllDrawings(){
+  for (const d of drawings()) drawOne(d, false);
+}
+function drawInProgress(){
+  if (!pendingPoints.length) return;
+  const shell = { type:activeTool, points: pendingPoints };
+  drawOne(shell, true);
+  if (mousePixel){
+    const last = ptPx(pendingPoints[pendingPoints.length-1]);
+    if (last){
+      octx.save(); octx.strokeStyle='#5b6670'; octx.setLineDash([3,3]); octx.lineWidth=1;
+      octx.beginPath(); octx.moveTo(last.x,last.y); octx.lineTo(mousePixel.x, mousePixel.y); octx.stroke();
+      octx.restore();
+    }
+  }
+  for (const p of pendingPoints){
+    const px = ptPx(p); if (!px) continue;
+    octx.beginPath(); octx.fillStyle=ACCENT; octx.arc(px.x,px.y,3,0,7); octx.fill();
+  }
+}
+
+function drawOne(d, isPreview){
+  const pts = d.points.map(ptPx);
+  if (pts.some(p=>!p) ) { /* still draw the ones we have */ }
+  octx.save();
+  const baseColor = isPreview ? '#5b6670' : (d.color || ACCENT);
+  const isActive = d.id!=null && (d.id===selectedDrawingId || d.id===hoverDrawingId);
+  octx.lineWidth = (d.width || 1.4) + (isActive ? 0.8 : 0);
+  octx.strokeStyle = baseColor;
+  octx.fillStyle = baseColor;
+  octx.font = '10px ui-monospace, monospace';
+
+  switch(d.type){
+    case 'trendline': case 'arrow': {
+      if (pts.length<2 || !pts[0] || !pts[1]) break;
+      line(pts[0],pts[1]);
+      if (d.type==='arrow') arrowHead(pts[0],pts[1]);
+      break;
+    }
+    case 'horizontalRay': {
+      if (!pts[0]) break;
+      const rect = container.getBoundingClientRect();
+      octx.beginPath(); octx.moveTo(pts[0].x, pts[0].y); octx.lineTo(rect.width, pts[0].y); octx.stroke();
+      break;
+    }
+    case 'parallelChannel': {
+      if (pts.length<2 || !pts[0] || !pts[1]) break;
+      const rect = container.getBoundingClientRect();
+      const dx = pts[1].x-pts[0].x, dy = pts[1].y-pts[0].y;
+      const extend = 400;
+      const ext = dx!==0 ? extend : 0;
+      line({x:pts[0].x-ext*0.15, y:pts[0].y-dy*0.15}, {x:pts[1].x+ext, y:pts[1].y+dy*( (pts[1].x+ext-pts[0].x)/(dx||1) -1 )});
+      if (pts[2]){
+        const t = dx!==0 ? (pts[2].x-pts[0].x)/dx : 0;
+        const lineYatP3x = pts[0].y + dy*t;
+        const offset = pts[2].y - lineYatP3x;
+        octx.setLineDash([4,3]);
+        line({x:pts[0].x-ext*0.15, y:pts[0].y-dy*0.15+offset}, {x:pts[1].x+ext, y:pts[1].y+dy*( (pts[1].x+ext-pts[0].x)/(dx||1) -1 )+offset});
+        octx.setLineDash([]);
+      }
+      break;
+    }
+    case 'headShoulders': {
+      const valid = pts.filter(Boolean);
+      if (valid.length<2) break;
+      octx.beginPath(); octx.moveTo(valid[0].x, valid[0].y);
+      for (let i=1;i<valid.length;i++) octx.lineTo(valid[i].x, valid[i].y);
+      octx.stroke();
+      const labels=['LS','','H','','RS'];
+      pts.forEach((p,i)=>{ if (p && labels[i]) { octx.textAlign='center'; octx.fillText(labels[i], p.x, p.y-8); } });
+      if (pts[1] && pts[3]){
+        octx.save(); octx.strokeStyle='#eab308'; octx.setLineDash([4,3]);
+        const dx=pts[3].x-pts[1].x, dy=pts[3].y-pts[1].y;
+        const ext = 60;
+        line({x:pts[1].x-ext*(dx/(Math.abs(dx)||1))*0, y:pts[1].y}, {x:pts[3].x+ext, y:pts[3].y+dy*(ext/(dx||1))});
+        octx.restore();
+      }
+      break;
+    }
+    case 'abcd': {
+      const valid = pts.filter(Boolean);
+      if (valid.length<2) break;
+      octx.beginPath(); octx.moveTo(valid[0].x, valid[0].y);
+      for (let i=1;i<valid.length;i++) octx.lineTo(valid[i].x, valid[i].y);
+      octx.stroke();
+      const labels=['A','B','C','D'];
+      pts.forEach((p,i)=>{ if (p) { octx.textAlign='center'; octx.fillText(labels[i], p.x, p.y-8); } });
+      break;
+    }
+    case 'fib': {
+      if (pts.length<2 || !pts[0] || !pts[1]) break;
+      const priceA = d.points[0].price, priceB = d.points[1].price;
+      const xL = Math.min(pts[0].x, pts[1].x), xR = Math.max(pts[0].x, pts[1].x)+120;
+      const levels = [0,0.236,0.382,0.5,0.618,0.786,1];
+      octx.textAlign='left';
+      for (const lvl of levels){
+        const price = priceA - (priceA-priceB)*lvl;
+        const y = yFor(price); if (y==null) continue;
+        octx.beginPath(); octx.setLineDash([4,3]); octx.strokeStyle= lvl===0||lvl===1? '#5b6670':baseColor;
+        octx.moveTo(xL,y); octx.lineTo(xR,y); octx.stroke(); octx.setLineDash([]);
+        octx.fillStyle=baseColor;
+        octx.fillText(`${lvl.toFixed(3)}  ${price.toFixed(2)}`, xR+4, y+3);
+      }
+      break;
+    }
+    case 'ruler': {
+      if (pts.length<2 || !pts[0] || !pts[1]) break;
+      octx.setLineDash([4,3]); line(pts[0],pts[1]); octx.setLineDash([]);
+      const p1 = d.points[0], p2 = d.points[1];
+      const dPrice = p2.price-p1.price, dPct = (dPrice/p1.price)*100;
+      const i1 = timeIndex(p1.time), i2 = timeIndex(p2.time);
+      const bars = i1>=0&&i2>=0? Math.abs(i2-i1) : '?';
+      const mx = (pts[0].x+pts[1].x)/2, my=(pts[0].y+pts[1].y)/2;
+      const text1 = `${dPrice>=0?'+':''}${dPrice.toFixed(2)} (${dPct>=0?'+':''}${dPct.toFixed(2)}%)`;
+      const text2 = `${bars} bars`;
+      octx.font='11px ui-monospace, monospace';
+      const w = Math.max(octx.measureText(text1).width, octx.measureText(text2).width)+16;
+      octx.fillStyle = dPrice>=0? withAlpha(UP,.9): withAlpha(DOWN,.9);
+      octx.fillRect(mx-w/2, my-20, w, 34);
+      octx.fillStyle='#fff'; octx.textAlign='center';
+      octx.fillText(text1, mx, my-6); octx.fillText(text2, mx, my+10);
+      break;
+    }
+  }
+  octx.restore();
+  function line(a,b){ if(!a||!b) return; octx.beginPath(); octx.moveTo(a.x,a.y); octx.lineTo(b.x,b.y); octx.stroke(); }
+  function arrowHead(a,b){ if(!a||!b) return; const ang=Math.atan2(b.y-a.y,b.x-a.x); const len=9;
+    octx.beginPath(); octx.moveTo(b.x,b.y);
+    octx.lineTo(b.x-len*Math.cos(ang-0.4), b.y-len*Math.sin(ang-0.4));
+    octx.moveTo(b.x,b.y);
+    octx.lineTo(b.x-len*Math.cos(ang+0.4), b.y-len*Math.sin(ang+0.4));
+    octx.stroke();
+  }
+}
+
+function distToSeg(px,py,ax,ay,bx,by){
+  const dx=bx-ax, dy=by-ay; const len2=dx*dx+dy*dy;
+  let t = len2? ((px-ax)*dx+(py-ay)*dy)/len2 : 0; t=Math.max(0,Math.min(1,t));
+  const cx=ax+t*dx, cy=ay+t*dy; return Math.hypot(px-cx,py-cy);
+}
+function tryEraseAt(clientX, clientY){
+  const rect = overlayCanvas.getBoundingClientRect();
+  const x = clientX-rect.left, y = clientY-rect.top;
+  const list = drawings();
+  for (let i=list.length-1;i>=0;i--){
+    const pts = list[i].points.map(ptPx).filter(Boolean);
+    for (let k=0;k<pts.length-1;k++){
+      if (distToSeg(x,y,pts[k].x,pts[k].y,pts[k+1].x,pts[k+1].y) < 7){ pushUndo(); list.splice(i,1); renderOverlay(); return; }
+    }
+    if (pts.length===1 && Math.hypot(x-pts[0].x,y-pts[0].y)<8){ pushUndo(); list.splice(i,1); renderOverlay(); return; }
+  }
+}
+
+/* Pointer handling on overlay */
+function setActiveTool(tool){
+  activeTool = tool; pendingPoints = [];
+  document.querySelectorAll('.left-tool[data-tool]').forEach(el=> el.classList.toggle('active', el.dataset.tool===tool));
+  const drawingTools = Object.keys(REQUIRED_POINTS).concat(['eraser']);
+  overlayCanvas.style.pointerEvents = drawingTools.includes(tool) ? 'auto' : 'none';
+  overlayCanvas.style.cursor = tool==='eraser' ? 'not-allowed' : (drawingTools.includes(tool) ? 'crosshair' : 'default');
+  renderOverlay();
+}
+document.querySelectorAll('.left-tool[data-tool]').forEach(el=>{
+  el.addEventListener('click', ()=> setActiveTool(el.dataset.tool));
+});
+document.getElementById('eye-toggle').addEventListener('click', function(){
+  showDrawings = !showDrawings;
+  this.classList.toggle('active', showDrawings);
+  this.querySelector('i').className = showDrawings? 'fa-solid fa-eye' : 'fa-solid fa-eye-slash';
+  renderOverlay();
+});
+document.getElementById('lock-toggle').addEventListener('click', function(){
+  drawingsLocked = !drawingsLocked; this.classList.toggle('active', drawingsLocked);
+  this.querySelector('i').className = drawingsLocked? 'fa-solid fa-lock' : 'fa-solid fa-lock-open';
+});
+document.getElementById('trash-btn').addEventListener('click', ()=>{
+  if (!drawings().length){ flashToast('No drawings to remove'); return; }
+  pushUndo(); drawingsBySymbol[currentSymbol]=[]; selectedDrawingId=null; hideStyleToolbar(); renderOverlay();
+});
+
+overlayCanvas.addEventListener('mousemove', (e)=>{
+  const rect = overlayCanvas.getBoundingClientRect();
+  mousePixel = { x:e.clientX-rect.left, y:e.clientY-rect.top };
+  if (pendingPoints.length) renderOverlay();
+});
+overlayCanvas.addEventListener('mouseleave', ()=>{ mousePixel=null; });
+overlayCanvas.addEventListener('click', (e)=>{
+  if (activeTool==='eraser'){ if(!drawingsLocked) tryEraseAt(e.clientX,e.clientY); return; }
+  if (!(activeTool in REQUIRED_POINTS) || drawingsLocked) return;
+  const rect = overlayCanvas.getBoundingClientRect();
+  const x = e.clientX-rect.left, y = e.clientY-rect.top;
+  const ts = chart.timeScale();
+  const logical = ts.coordinateToLogical(x);
+  if (logical==null || !mainSeries) return;
+  const idx = Math.round(logical);
+  const bar = currentData[Math.max(0,Math.min(currentData.length-1,idx))];
+  const price = mainSeries.coordinateToPrice(y);
+  if (!bar || price==null) return;
+  pendingPoints.push({ time:bar.time, price: snapPrice(bar.time, price) });
+  const need = REQUIRED_POINTS[activeTool];
+  if (pendingPoints.length>=need){
+    pushUndo();
+    const id = nextDrawId++;
+    drawings().push({ id, type:activeTool, points:[...pendingPoints], color: ACCENT, width: 1.4 });
+    pendingPoints = [];
+    setActiveTool('cursor');
+    selectedDrawingId = id;
+    showStyleToolbar(drawings().find(d=>d.id===id));
+  }
+  renderOverlay();
+});
+
+chart.timeScale().subscribeVisibleLogicalRangeChange(()=> renderOverlay());
+chart.subscribeCrosshairMove((param)=>{
+  const idx = (param && param.time!=null) ? timeIndexMap[param.time] : undefined;
+  updateLegendValues(idx);
+  updateDataWindow(idx);
+});
+chart.subscribeClick((param)=>{
+  if (placingAlert){
+    if (!param.point || !mainSeries) return;
+    const price = mainSeries.coordinateToPrice(param.point.y);
+    if (price==null) return;
+    const id = 'al'+(nextAlertId++);
+    const priceLine = mainSeries.createPriceLine({ price, color:'#eab308', lineWidth:1, lineStyle:LightweightCharts.LineStyle.Dashed, axisLabelVisible:true, title:'Alert' });
+    currentAlerts().push({ id, price, priceLine });
+    placingAlert = false;
+    document.getElementById('alert-btn').classList.remove('active');
+    renderAlertsList();
+    flashToast(`Alert set at ${fmtPrice(price)}`);
+    return;
+  }
+  if (replayArmed) handleReplayStartClick(param);
+});
+
+/* =========================================================================
+   TOP BAR: OHLC readout, chart type dropdown, symbol dropdown, timeframe
+   ========================================================================= */
+function updateOhlcReadout(){
+  const last = currentData[currentData.length-1];
+  if (!last) return;
+  const chg = last.close-last.open, chgPct = (chg/last.open)*100;
+  const el = document.getElementById('ohlc-vals');
+  const color = chg>=0? UP:DOWN;
+  el.innerHTML = `O<span style="color:#c8ced6">${fmtPrice(last.open)}</span> H<span style="color:#c8ced6">${fmtPrice(last.high)}</span> L<span style="color:#c8ced6">${fmtPrice(last.low)}</span> C<span style="color:${color}">${fmtPrice(last.close)}</span> <span style="color:${color}">${chg>=0?'+':''}${chg.toFixed(2)} (${chgPct>=0?'+':''}${chgPct.toFixed(2)}%)</span>`;
+}
+
+function closeAllDropdowns(){ document.querySelectorAll('.dropdown-panel').forEach(p=>p.remove()); }
+document.addEventListener('click', (e)=>{
+  if (!e.target.closest('#charttype-btn,#symbol-btn,#tf-btn,#indicators-btn,.dropdown-panel')) closeAllDropdowns();
+});
+
+/* ---- Indicators dropdown (searchable, grouped, click to add/remove) ---- */
+document.getElementById('indicators-btn').addEventListener('click', (e)=>{
+  e.stopPropagation();
+  if (document.getElementById('indicators-dd')) { closeAllDropdowns(); return; }
+  closeAllDropdowns();
+  const panel = document.createElement('div');
+  panel.className='dropdown-panel'; panel.id='indicators-dd';
+  const btnRect = document.getElementById('indicators-btn').getBoundingClientRect();
+  panel.style.top='44px'; panel.style.left = btnRect.left+'px'; panel.style.width='280px'; panel.style.maxHeight='420px'; panel.style.display='flex'; panel.style.flexDirection='column';
+  panel.innerHTML = `<input type="text" class="indicator-search" placeholder="Search indicators..." id="indicator-search-input" />
+    <div id="indicator-list" style="overflow-y:auto;max-height:360px"></div>`;
+  document.body.appendChild(panel);
+  const renderList = (query)=>{
+    const q = (query||'').toLowerCase();
+    const cats = ['Trend','Momentum','Volatility','Volume'];
+    let html='';
+    for (const cat of cats){
+      const items = Object.entries(INDICATOR_DEFS).filter(([k,d])=> d.cat===cat && d.label.toLowerCase().includes(q));
+      if (!items.length) continue;
+      html += `<div class="ind-cat">${cat}</div>`;
+      for (const [key,d] of items){
+        const active = activeIndicators.some(a=>a.key===key);
+        html += `<div class="dd-item ${active?'selected':''}" data-key="${key}"><i class="fa-solid ${active?'fa-check':'fa-chart-line'} text-[11px]" style="width:14px"></i><span>${d.label}</span></div>`;
+      }
+    }
+    document.getElementById('indicator-list').innerHTML = html || '<div class="dd-item" style="color:var(--muted)">No matches</div>';
+    document.querySelectorAll('#indicator-list .dd-item[data-key]').forEach(item=>{
+      item.addEventListener('click', (e)=>{
+        e.stopPropagation(); // this handler replaces #indicator-list's innerHTML (detaching `item`);
+                              // without stopping propagation the bubbled event's target is a detached
+                              // node, closest('.dropdown-panel') then fails and the panel gets closed.
+        const key = item.dataset.key;
+        const existing = activeIndicators.find(a=>a.key===key);
+        if (existing) removeIndicator(existing.id); else addIndicator(key);
+        renderList(document.getElementById('indicator-search-input').value);
+      });
+    });
+  };
+  renderList('');
+  document.getElementById('indicator-search-input').addEventListener('input', (e2)=> renderList(e2.target.value));
+  document.getElementById('indicator-search-input').focus();
+});
+
+/* ---- Alert placement ---- */
+document.getElementById('alert-btn').addEventListener('click', ()=>{
+  placingAlert = !placingAlert;
+  document.getElementById('alert-btn').classList.toggle('active', placingAlert);
+  if (placingAlert){ setActiveTool('cursor'); flashToast('Click on the chart to place an alert'); }
+});
+
+/* ---- Replay ---- */
+document.getElementById('replay-btn').addEventListener('click', ()=>{
+  if (replayActive){ exitReplay(); return; }
+  replayArmed = !replayArmed;
+  document.getElementById('replay-btn').classList.toggle('active', replayArmed);
+  if (replayArmed){ setActiveTool('cursor'); placingAlert=false; document.getElementById('alert-btn').classList.remove('active'); flashToast('Click a bar to start replay from there'); }
+});
+document.getElementById('replay-play').addEventListener('click', ()=>{ if (replayTimer) pauseReplay(); else playReplay(); });
+document.getElementById('replay-step').addEventListener('click', replayStepForward);
+document.getElementById('replay-speed').addEventListener('change', ()=>{ if (replayTimer){ pauseReplay(); playReplay(); } });
+document.getElementById('replay-exit').addEventListener('click', exitReplay);
+
+/* ---- Screenshot (composites the chart canvas + drawing overlay) ---- */
+document.getElementById('screenshot-btn').addEventListener('click', ()=>{
+  const chartCanvas = chart.takeScreenshot();
+  const combined = document.createElement('canvas');
+  combined.width = chartCanvas.width; combined.height = chartCanvas.height;
+  const cctx = combined.getContext('2d');
+  cctx.drawImage(chartCanvas, 0, 0);
+  cctx.drawImage(overlayCanvas, 0, 0, chartCanvas.width, chartCanvas.height);
+  combined.toBlob((blob)=>{
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href=url; a.download = `${currentSymbol}-${currentChartType}-${Date.now()}.png`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=> URL.revokeObjectURL(url), 2000);
+  });
+  flashToast('Screenshot downloaded');
+});
+
+/* ---- Save / restore session (localStorage) ---- */
+const STORAGE_KEY = 'tv-clone-session-v1';
+document.getElementById('save-btn').addEventListener('click', ()=>{
+  const payload = {
+    symbol: currentSymbol, range: currentRange, chartType: currentChartType,
+    drawingsBySymbol,
+    alertsBySymbol: Object.fromEntries(Object.entries(alertsBySymbol).map(([k,v])=> [k, v.map(a=>({ id:a.id, price:a.price }))])),
+    indicators: activeIndicators.map(a=>({ key:a.key, params:a.params })),
+  };
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  flashToast('Layout saved');
+});
+function tryRestoreSession(){
+  let payload;
+  try { const raw = localStorage.getItem(STORAGE_KEY); if (!raw) return; payload = JSON.parse(raw); } catch(e){ return; }
+  if (payload.symbol && SYMBOLS[payload.symbol]) currentSymbol = payload.symbol;
+  if (payload.drawingsBySymbol) drawingsBySymbol = payload.drawingsBySymbol;
+  if (payload.alertsBySymbol){
+    alertsBySymbol = {};
+    for (const k in payload.alertsBySymbol) alertsBySymbol[k] = payload.alertsBySymbol[k].map(a=>({ id:a.id, price:a.price, priceLine:null }));
+  }
+  if (payload.chartType && CHART_TYPES.some(c=>c.key===payload.chartType)) currentChartType = payload.chartType;
+  if (payload.range) currentRange = payload.range;
+  if (payload.indicators) payload.indicators.forEach(ind=> addIndicator(ind.key, ind.params));
+}
+
+document.getElementById('charttype-btn').addEventListener('click', (e)=>{
+  e.stopPropagation();
+  if (document.getElementById('charttype-dd')) { closeAllDropdowns(); return; }
+  closeAllDropdowns();
+  const panel = document.createElement('div');
+  panel.className='dropdown-panel'; panel.id='charttype-dd';
+  panel.style.top = '44px'; panel.style.left = document.getElementById('charttype-btn').getBoundingClientRect().left+'px'; panel.style.width='230px';
+  let html=''; let lastGroup=null;
+  for (const ct of CHART_TYPES){
+    if (lastGroup!==null && ct.group!==lastGroup) html += '<div class="dd-sep"></div>';
+    lastGroup = ct.group;
+    html += `<div class="dd-item ${ct.key===currentChartType?'selected':''}" data-key="${ct.key}">${ct.icon}<span>${ct.label}</span></div>`;
+  }
+  panel.innerHTML = html;
+  document.body.appendChild(panel);
+  panel.querySelectorAll('.dd-item').forEach(item=>{
+    item.addEventListener('click', ()=>{ applyChartType(item.dataset.key); closeAllDropdowns(); });
+  });
+});
+
+document.getElementById('symbol-btn').addEventListener('click', (e)=>{
+  e.stopPropagation();
+  if (document.getElementById('symbol-dd')) { closeAllDropdowns(); return; }
+  closeAllDropdowns();
+  const panel = document.createElement('div');
+  panel.className='dropdown-panel'; panel.id='symbol-dd';
+  panel.style.top='44px'; panel.style.left = document.getElementById('symbol-btn').getBoundingClientRect().left+'px'; panel.style.width='220px';
+  panel.innerHTML = Object.keys(SYMBOLS).map(s=>`<div class="dd-item ${s===currentSymbol?'selected':''}" data-sym="${s}"><span class="wl-badge" style="background:${SYMBOLS[s].color};width:18px;height:18px;font-size:8px">${SYMBOLS[s].icon||s[0]}</span><span>${s}</span><span style="color:var(--muted);font-size:11px">${SYMBOLS[s].name}</span></div>`).join('');
+  document.body.appendChild(panel);
+  panel.querySelectorAll('.dd-item').forEach(item=>{
+    item.addEventListener('click', ()=>{ selectSymbol(item.dataset.sym); closeAllDropdowns(); });
+  });
+});
+
+document.getElementById('tf-btn').addEventListener('click', (e)=>{
+  e.stopPropagation();
+  if (document.getElementById('tf-dd')) { closeAllDropdowns(); return; }
+  closeAllDropdowns();
+  const opts = ['1','5','15','60','D','W','M'];
+  const panel = document.createElement('div'); panel.className='dropdown-panel'; panel.id='tf-dd';
+  panel.style.top='44px'; panel.style.left = document.getElementById('tf-btn').getBoundingClientRect().left+'px'; panel.style.width='90px';
+  panel.innerHTML = opts.map(o=>`<div class="dd-item" data-tf="${o}">${o}</div>`).join('');
+  document.body.appendChild(panel);
+  panel.querySelectorAll('.dd-item').forEach(item=>{
+    item.addEventListener('click', ()=>{ document.getElementById('tf-label').textContent = item.dataset.tf; closeAllDropdowns(); });
+  });
+});
+
+document.querySelectorAll('.range-btn').forEach(btn=>{
+  btn.addEventListener('click', ()=> loadRange(btn.dataset.range));
+});
+
+document.getElementById('fullscreen-btn').addEventListener('click', ()=>{
+  if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(()=>{});
+  else document.exitFullscreen();
+});
+document.addEventListener('fullscreenchange', ()=>{
+  const icon = document.querySelector('#fullscreen-btn i');
+  icon.className = document.fullscreenElement? 'fa-solid fa-compress text-[11px]' : 'fa-solid fa-expand text-[11px]';
+  setTimeout(resizeAll, 60);
+});
+
+/* =========================================================================
+   WATCHLIST / SELECTED SYMBOL CARD / ORDER BOX
+   ========================================================================= */
+function seriesChangePct(sym){
+  const d = getData(sym).daily; const last=d[d.length-1], first=d[Math.max(0,d.length-2)];
+  return ((last.close-first.close)/first.close)*100;
+}
+function buildWatchlist(){
+  const idxHtml = [], stkHtml = [];
+  for (const s of Object.keys(SYMBOLS)){
+    const info = SYMBOLS[s]; const d = getData(s).daily; const last = d[d.length-1];
+    const chgPct = seriesChangePct(s); const up = chgPct>=0;
+    const row = `<div class="wl-row ${s===currentSymbol?'active':''}" data-sym="${s}">
+        <span class="wl-badge" style="background:${info.color}">${info.icon||s[0]}</span>
+        <span class="text-white font-semibold flex-1 truncate">${s}</span>
+        <span class="font-mono text-right" style="min-width:64px">${fmtPrice(last.close,s)}</span>
+        <span class="font-mono text-right text-[11px]" style="min-width:52px;color:${up?UP:DOWN}">${up?'+':''}${chgPct.toFixed(2)}%</span>
+      </div>`;
+    (info.group==='INDICES'? idxHtml : stkHtml).push(row);
+  }
+  document.getElementById('wl-indices').innerHTML = idxHtml.join('');
+  document.getElementById('wl-stocks').innerHTML = stkHtml.join('');
+  document.querySelectorAll('.wl-row').forEach(row=> row.addEventListener('click', ()=> selectSymbol(row.dataset.sym)));
+}
+
+function updateCard(){
+  const info = SYMBOLS[currentSymbol];
+  const d = getData(currentSymbol).daily; const last = d[d.length-1];
+  const chgPct = seriesChangePct(currentSymbol); const chg = last.close*chgPct/100; const up = chgPct>=0;
+  document.getElementById('card-badge').style.background = info.color;
+  document.getElementById('card-badge').textContent = info.icon||currentSymbol[0];
+  document.getElementById('card-name').textContent = info.name;
+  document.getElementById('card-sub').innerHTML = `${info.sub} &middot; ${info.exch}`;
+  document.getElementById('card-price').textContent = fmtPrice(last.close);
+  document.getElementById('card-change').innerHTML = `<span style="color:${up?UP:DOWN}">${up?'+':''}${chg.toFixed(2)}</span><span style="color:${up?UP:DOWN}">${up?'+':''}${chgPct.toFixed(2)}%</span>`;
+
+  document.getElementById('symbol-label').textContent = currentSymbol;
+  document.getElementById('ohlc-symicon').style.background = info.color;
+  document.getElementById('ohlc-symicon').textContent = info.icon||currentSymbol[0];
+  document.getElementById('ohlc-symname').textContent = currentSymbol;
+  document.getElementById('ohlc-symsub').textContent = `${info.name} · ${document.getElementById('tf-label').textContent} · ${info.exch}`;
+
+  const spread = last.close*0.0086;
+  document.getElementById('sell-price').textContent = fmtPrice(last.close-spread/2);
+  document.getElementById('buy-price').textContent = fmtPrice(last.close+spread/2);
+  document.getElementById('spread-label').textContent = spread.toFixed(2);
+
+  const perf = ['1W','1M','3M'].map(label=>{
+    const days = { '1W':5,'1M':22,'3M':66 }[label];
+    const base = d[Math.max(0,d.length-1-days)].close;
+    const pct = ((last.close-base)/base)*100;
+    return { label, pct };
+  });
+  document.getElementById('perf-tiles').innerHTML = perf.map(p=>`
+    <div class="perf-tile"><div class="font-mono font-bold text-[12px]" style="color:${p.pct>=0?UP:DOWN}">${p.pct>=0?'+':''}${p.pct.toFixed(2)}%</div><div class="text-[9px] mt-0.5" style="color:var(--muted)">${p.label}</div></div>
+  `).join('');
+
+  document.getElementById('update-time').textContent = last.dateObj ? last.dateObj.toLocaleString() : '';
+}
+
+function selectSymbol(sym){
+  if (replayActive || replayArmed) exitReplay();
+  currentSymbol = sym;
+  // selection + history are per-symbol; drop them so undo can't cross symbols
+  selectedDrawingId = null; hoverDrawingId = null;
+  undoStack.length = 0; redoStack.length = 0;
+  hideStyleToolbar();
+  loadRange(currentRange);
+  buildWatchlist();
+  updateCard();
+  renderAlertsList();
+}
+
+/* =========================================================================
+   INTERACTIVITY — selection, drag, hover, context menu, undo/redo,
+   magnet snapping, per-drawing styling, keyboard shortcuts, data window
+   ========================================================================= */
+let selectedDrawingId = null;
+let hoverDrawingId = null;
+let magnetMode = false;
+let dragState = null;
+let alertDragState = null;
+let undoStack = [], redoStack = [];
+
+const PALETTE = ['#2b6ef2','#26a69a','#ef5350','#eab308','#a855f7','#f97316','#38bdf8','#e5e7eb'];
+const WIDTHS = [1, 1.4, 2, 3];
+
+/* ---- undo / redo (scoped to the active symbol) ---- */
+function cloneDrawings(list){ return list.map(d=>({ ...d, points: d.points.map(p=>({...p})) })); }
+function snapshot(){ return { symbol: currentSymbol, drawings: cloneDrawings(drawings()) }; }
+function pushUndo(){
+  undoStack.push(snapshot());
+  if (undoStack.length>80) undoStack.shift();
+  redoStack.length = 0;
+}
+function applySnapshot(snap){
+  drawingsBySymbol[snap.symbol] = cloneDrawings(snap.drawings);
+  selectedDrawingId = null; hideStyleToolbar(); renderOverlay();
+}
+function doUndo(){
+  if (!undoStack.length){ flashToast('Nothing to undo'); return; }
+  redoStack.push(snapshot());
+  applySnapshot(undoStack.pop());
+}
+function doRedo(){
+  if (!redoStack.length){ flashToast('Nothing to redo'); return; }
+  undoStack.push(snapshot());
+  applySnapshot(redoStack.pop());
+}
+document.getElementById('undo-btn').addEventListener('click', doUndo);
+document.getElementById('redo-btn').addEventListener('click', doRedo);
+
+/* ---- magnet snapping to OHLC ---- */
+function snapPrice(time, price){
+  if (!magnetMode) return price;
+  const i = timeIndexMap[time]; if (i==null) return price;
+  const b = currentData[i]; if (!b) return price;
+  let best = price, bd = Infinity;
+  for (const v of [b.open, b.high, b.low, b.close]){ const dd = Math.abs(v-price); if (dd<bd){ bd=dd; best=v; } }
+  return best;
+}
+function toggleMagnet(){
+  magnetMode = !magnetMode;
+  document.getElementById('magnet-toggle').classList.toggle('active', magnetMode);
+  flashToast(magnetMode? 'Magnet mode ON — points snap to OHLC' : 'Magnet mode OFF');
+}
+document.getElementById('magnet-toggle').addEventListener('click', toggleMagnet);
+
+/* ---- geometry / hit testing ---- */
+function localPt(e){ const r = container.getBoundingClientRect(); return { x:e.clientX-r.left, y:e.clientY-r.top }; }
+
+/** The floating panels live inside #chart-container, so capture-phase chart
+ *  handlers must ignore events that originated inside them. */
+const UI_CHROME = '#style-toolbar,#replay-controls,#data-window,#alerts-list,#overlay-legend,#pane-legends,#toast';
+function isUiChrome(e){ return !!(e.target && e.target.closest && e.target.closest(UI_CHROME)); }
+
+function pxToPoint(x, y){
+  const logical = chart.timeScale().coordinateToLogical(x);
+  if (logical==null || !mainSeries) return null;
+  const idx = Math.max(0, Math.min(currentData.length-1, Math.round(logical)));
+  const bar = currentData[idx]; if (!bar) return null;
+  const rawPrice = mainSeries.coordinateToPrice(y);
+  if (rawPrice==null) return null;
+  return { time: bar.time, price: snapPrice(bar.time, rawPrice), rawPrice, idx };
+}
+
+/** Pixel-space segments that make up a drawing, used for both hit-testing and hover. */
+function drawingSegments(d){
+  const pts = d.points.map(ptPx);
+  const segs = [];
+  const rect = container.getBoundingClientRect();
+  if (pts.some(p=>!p)) return { pts, segs };
+  switch(d.type){
+    case 'horizontalRay':
+      segs.push([{x:pts[0].x,y:pts[0].y},{x:rect.width,y:pts[0].y}]); break;
+    case 'fib': {
+      const a = d.points[0].price, b = d.points[1].price;
+      const xL = Math.min(pts[0].x,pts[1].x), xR = Math.max(pts[0].x,pts[1].x)+120;
+      for (const lvl of [0,0.236,0.382,0.5,0.618,0.786,1]){
+        const y = yFor(a-(a-b)*lvl); if (y==null) continue;
+        segs.push([{x:xL,y},{x:xR,y}]);
+      }
+      break;
+    }
+    default:
+      for (let i=0;i<pts.length-1;i++) segs.push([pts[i],pts[i+1]]);
+  }
+  return { pts, segs };
+}
+function hitTestDrawing(d, x, y){
+  const { pts, segs } = drawingSegments(d);
+  for (let i=0;i<pts.length;i++){
+    if (pts[i] && Math.hypot(x-pts[i].x, y-pts[i].y) <= 7) return { mode:'anchor', anchorIdx:i };
+  }
+  for (const [a,b] of segs){
+    if (a && b && distToSeg(x,y,a.x,a.y,b.x,b.y) <= 6) return { mode:'body' };
+  }
+  return null;
+}
+function findDrawingAt(x, y){
+  const list = drawings();
+  for (let i=list.length-1;i>=0;i--){
+    const hit = hitTestDrawing(list[i], x, y);
+    if (hit) return { drawing:list[i], hit };
+  }
+  return null;
+}
+function findAlertAt(y){
+  for (const a of currentAlerts()){
+    const ay = yFor(a.price);
+    if (ay!=null && Math.abs(ay-y) <= 5) return a;
+  }
+  return null;
+}
+
+/* ---- selection handles ---- */
+function drawSelectionHandles(){
+  for (const d of drawings()){
+    const isSel = d.id===selectedDrawingId, isHov = d.id===hoverDrawingId;
+    if (!isSel && !isHov) continue;
+    for (const p of d.points.map(ptPx)){
+      if (!p) continue;
+      octx.save();
+      octx.fillStyle = isSel ? '#ffffff' : 'rgba(255,255,255,.55)';
+      octx.strokeStyle = d.color || ACCENT; octx.lineWidth = 1.5;
+      octx.beginPath(); octx.rect(p.x-3.5, p.y-3.5, 7, 7); octx.fill(); octx.stroke();
+      octx.restore();
+    }
+  }
+}
+
+/* ---- floating style toolbar for the selected drawing ---- */
+const styleToolbar = document.getElementById('style-toolbar');
+function showStyleToolbar(d){
+  if (!d){ hideStyleToolbar(); return; }
+  styleToolbar.innerHTML =
+    PALETTE.map(c=>`<span class="sw ${((d.color||ACCENT).toLowerCase()===c.toLowerCase())?'active':''}" data-color="${c}" style="background:${c}"></span>`).join('') +
+    '<span class="st-sep"></span>' +
+    WIDTHS.map(w=>`<span class="wbtn ${(d.width||1.4)===w?'active':''}" data-width="${w}">${w}</span>`).join('') +
+    '<span class="st-sep"></span>' +
+    '<span class="wbtn" id="st-clone" title="Duplicate"><i class="fa-regular fa-clone"></i></span>' +
+    '<span class="wbtn" id="st-delete" title="Delete (Del)"><i class="fa-solid fa-trash"></i></span>';
+  styleToolbar.classList.add('show');
+  styleToolbar.querySelectorAll('.sw').forEach(sw=> sw.addEventListener('click', (e)=>{
+    e.stopPropagation();
+    const target = drawings().find(x=>x.id===selectedDrawingId); if (!target) return;
+    pushUndo(); target.color = sw.dataset.color; showStyleToolbar(target); renderOverlay();
+  }));
+  styleToolbar.querySelectorAll('.wbtn[data-width]').forEach(wb=> wb.addEventListener('click', (e)=>{
+    e.stopPropagation();
+    const target = drawings().find(x=>x.id===selectedDrawingId); if (!target) return;
+    pushUndo(); target.width = Number(wb.dataset.width); showStyleToolbar(target); renderOverlay();
+  }));
+  styleToolbar.querySelector('#st-clone').addEventListener('click', (e)=>{ e.stopPropagation(); cloneSelected(); });
+  styleToolbar.querySelector('#st-delete').addEventListener('click', (e)=>{ e.stopPropagation(); deleteSelected(); });
+  syncStyleToolbarPosition();
+}
+function hideStyleToolbar(){ styleToolbar.classList.remove('show'); }
+function syncStyleToolbarPosition(){
+  if (!styleToolbar.classList.contains('show')) return;
+  const d = drawings().find(x=>x.id===selectedDrawingId);
+  if (!d){ hideStyleToolbar(); return; }
+  const pts = d.points.map(ptPx).filter(Boolean);
+  if (!pts.length){ hideStyleToolbar(); return; }
+  const rect = container.getBoundingClientRect();
+  const minX = Math.min(...pts.map(p=>p.x)), minY = Math.min(...pts.map(p=>p.y));
+  const w = styleToolbar.offsetWidth || 260, h = styleToolbar.offsetHeight || 30;
+  styleToolbar.style.left = Math.max(4, Math.min(minX, rect.width - w - 6)) + 'px';
+  styleToolbar.style.top  = Math.max(4, minY - h - 10) + 'px';
+}
+
+function deleteSelected(){
+  const list = drawings();
+  const idx = list.findIndex(d=>d.id===selectedDrawingId);
+  if (idx<0) return;
+  pushUndo(); list.splice(idx,1);
+  selectedDrawingId = null; hideStyleToolbar(); renderOverlay();
+}
+function cloneSelected(){
+  const src = drawings().find(d=>d.id===selectedDrawingId);
+  if (!src) return;
+  pushUndo();
+  const shifted = src.points.map(p=>{
+    const i = timeIndexMap[p.time];
+    const ni = i==null? null : Math.min(currentData.length-1, i+3);
+    return { time: ni==null? p.time : currentData[ni].time, price: p.price };
+  });
+  const id = nextDrawId++;
+  drawings().push({ ...src, id, points: shifted });
+  selectedDrawingId = id;
+  showStyleToolbar(drawings().find(d=>d.id===id));
+  renderOverlay();
+}
+
+/* ---- drag: capture-phase on the container so we can intercept before the
+       chart's own pan handler, but only when actually grabbing something ---- */
+function onDragMove(e){
+  if (!dragState) return;
+  e.preventDefault(); e.stopPropagation();
+  const { x, y } = localPt(e);
+  const cur = pxToPoint(x, y); if (!cur) return;
+  const d = drawings().find(dd=>dd.id===dragState.id); if (!d) return;
+  if (!dragState.moved){
+    dragState.moved = true;
+    undoStack.push(dragState.snapshot); redoStack.length = 0;
+    if (undoStack.length>80) undoStack.shift();
+  }
+  if (dragState.mode==='anchor'){
+    d.points[dragState.anchorIdx] = { time: cur.time, price: cur.price };
+  } else {
+    const dIdx = cur.idx - dragState.start.idx;
+    const dPrice = cur.rawPrice - dragState.start.rawPrice;
+    d.points = dragState.startPoints.map(p=>{
+      const i0 = timeIndexMap[p.time];
+      const ni = i0==null ? null : Math.max(0, Math.min(currentData.length-1, i0+dIdx));
+      return { time: ni==null? p.time : currentData[ni].time, price: p.price + dPrice };
+    });
+  }
+  renderOverlay();
+}
+function onDragEnd(e){
+  if (dragState && e) e.stopPropagation();
+  dragState = null;
+  window.removeEventListener('mousemove', onDragMove, true);
+  window.removeEventListener('mouseup', onDragEnd, true);
+  container.style.cursor = '';
+}
+function onAlertDragMove(e){
+  if (!alertDragState) return;
+  e.preventDefault(); e.stopPropagation();
+  const { y } = localPt(e);
+  const price = mainSeries && mainSeries.coordinateToPrice(y);
+  if (price==null) return;
+  alertDragState.alert.price = price;
+  try { alertDragState.alert.priceLine.applyOptions({ price }); } catch(err){}
+  renderAlertsList();
+}
+function onAlertDragEnd(e){
+  if (alertDragState && e) e.stopPropagation();
+  if (alertDragState) flashToast(`Alert moved to ${fmtPrice(alertDragState.alert.price)}`);
+  alertDragState = null;
+  window.removeEventListener('mousemove', onAlertDragMove, true);
+  window.removeEventListener('mouseup', onAlertDragEnd, true);
+  container.style.cursor = '';
+}
+
+container.addEventListener('mousedown', (e)=>{
+  if (e.button!==0 || isUiChrome(e)) return;
+  hideContextMenu();
+  if (activeTool!=='cursor' || placingAlert || replayArmed) return;
+  const { x, y } = localPt(e);
+
+  // dragging an existing alert line takes priority
+  const al = findAlertAt(y);
+  if (al && !findDrawingAt(x,y)){
+    e.preventDefault(); e.stopPropagation();
+    alertDragState = { alert: al };
+    container.style.cursor = 'ns-resize';
+    window.addEventListener('mousemove', onAlertDragMove, true);
+    window.addEventListener('mouseup', onAlertDragEnd, true);
+    return;
+  }
+
+  if (drawingsLocked || !showDrawings) return;
+  const found = findDrawingAt(x, y);
+  if (!found){
+    if (selectedDrawingId){ selectedDrawingId = null; hideStyleToolbar(); renderOverlay(); }
+    return; // let the event through so the chart pans
+  }
+  e.preventDefault(); e.stopPropagation();
+  selectedDrawingId = found.drawing.id;
+  dragState = {
+    id: found.drawing.id, mode: found.hit.mode, anchorIdx: found.hit.anchorIdx,
+    start: pxToPoint(x,y), startPoints: found.drawing.points.map(p=>({...p})),
+    snapshot: snapshot(), moved: false,
+  };
+  container.style.cursor = found.hit.mode==='anchor' ? 'grabbing' : 'move';
+  showStyleToolbar(found.drawing);
+  renderOverlay();
+  window.addEventListener('mousemove', onDragMove, true);
+  window.addEventListener('mouseup', onDragEnd, true);
+}, true);
+
+/* hover feedback — never stops propagation, so the crosshair keeps working */
+container.addEventListener('mousemove', (e)=>{
+  if (dragState || alertDragState || activeTool!=='cursor') return;
+  if (isUiChrome(e)){ container.style.cursor=''; return; }
+  const { x, y } = localPt(e);
+  const found = (showDrawings && !drawingsLocked) ? findDrawingAt(x,y) : null;
+  const overAlert = !found && findAlertAt(y);
+  container.style.cursor = found ? (found.hit.mode==='anchor' ? 'grab' : 'move') : (overAlert ? 'ns-resize' : '');
+  const id = found ? found.drawing.id : null;
+  if (id!==hoverDrawingId){ hoverDrawingId = id; renderOverlay(); }
+}, true);
+container.addEventListener('mouseleave', ()=>{
+  if (hoverDrawingId!==null){ hoverDrawingId = null; renderOverlay(); }
+  container.style.cursor = '';
+});
+
+/* ---- right-click context menu ---- */
+const ctxMenu = document.getElementById('ctx-menu');
+function hideContextMenu(){ ctxMenu.classList.remove('show'); }
+function buildContextMenu(items){
+  ctxMenu.innerHTML = items.map(it=> it.sep
+    ? '<div class="ctx-sep"></div>'
+    : `<div class="ctx-item" data-act="${it.act}"><i class="fa-solid ${it.icon}"></i><span>${it.label}</span>${it.hint?`<span class="ctx-hint">${it.hint}</span>`:''}</div>`
+  ).join('');
+  ctxMenu.querySelectorAll('.ctx-item').forEach(el=> el.addEventListener('click', ()=>{
+    const found = items.find(i=>i.act===el.dataset.act);
+    hideContextMenu();
+    if (found && found.run) found.run();
+  }));
+}
+container.addEventListener('contextmenu', (e)=>{
+  if (isUiChrome(e)) return;
+  e.preventDefault();
+  const { x, y } = localPt(e);
+  const found = (showDrawings && !drawingsLocked) ? findDrawingAt(x,y) : null;
+  const pt = pxToPoint(x,y);
+  const items = [];
+  if (found){
+    selectedDrawingId = found.drawing.id;
+    showStyleToolbar(found.drawing);
+    renderOverlay();
+    items.push(
+      { act:'del',   icon:'fa-trash',        label:'Remove drawing', hint:'Del', run: deleteSelected },
+      { act:'clone', icon:'fa-clone',        label:'Duplicate',      run: cloneSelected },
+      { act:'front', icon:'fa-arrow-up',     label:'Bring to front', run(){ const l=drawings(); const i=l.findIndex(d=>d.id===found.drawing.id); if(i>=0){ pushUndo(); l.push(l.splice(i,1)[0]); renderOverlay(); } } },
+      { act:'back',  icon:'fa-arrow-down',   label:'Send to back',   run(){ const l=drawings(); const i=l.findIndex(d=>d.id===found.drawing.id); if(i>=0){ pushUndo(); l.unshift(l.splice(i,1)[0]); renderOverlay(); } } },
+      { sep:true },
+    );
+  }
+  items.push(
+    { act:'alert', icon:'fa-bell', label: pt? `Add alert at ${fmtPrice(pt.rawPrice)}` : 'Add alert here', run(){
+        if (!pt || !mainSeries) return;
+        const id = 'al'+(nextAlertId++);
+        const priceLine = mainSeries.createPriceLine({ price: pt.rawPrice, color:'#eab308', lineWidth:1, lineStyle:LightweightCharts.LineStyle.Dashed, axisLabelVisible:true, title:'Alert' });
+        currentAlerts().push({ id, price: pt.rawPrice, priceLine });
+        renderAlertsList(); flashToast(`Alert set at ${fmtPrice(pt.rawPrice)}`);
+      } },
+    { act:'magnet', icon:'fa-magnet', label: magnetMode? 'Turn magnet off' : 'Turn magnet on', hint:'M', run: toggleMagnet },
+    { sep:true },
+    { act:'fit',   icon:'fa-expand',        label:'Fit chart to data', hint:'Alt+R', run(){ chart.timeScale().fitContent(); } },
+    { act:'auto',  icon:'fa-arrows-up-down',label:'Auto-fit price scale', run(){ chart.priceScale('right').applyOptions({ autoScale:true }); } },
+    { act:'reset', icon:'fa-rotate',        label:'Reset chart view', run(){ loadRange(currentRange); } },
+    { sep:true },
+    { act:'clear', icon:'fa-eraser',        label:'Remove all drawings', run(){ if(drawings().length){ pushUndo(); drawingsBySymbol[currentSymbol]=[]; selectedDrawingId=null; hideStyleToolbar(); renderOverlay(); } } },
+  );
+  buildContextMenu(items);
+  ctxMenu.classList.add('show');
+  const mw = ctxMenu.offsetWidth, mh = ctxMenu.offsetHeight;
+  ctxMenu.style.left = Math.min(e.clientX, window.innerWidth - mw - 8) + 'px';
+  ctxMenu.style.top  = Math.min(e.clientY, window.innerHeight - mh - 8) + 'px';
+});
+document.addEventListener('click', (e)=>{ if (!e.target.closest('#ctx-menu')) hideContextMenu(); });
+document.addEventListener('contextmenu', (e)=>{ if (!e.target.closest('#chart-container')) hideContextMenu(); });
+
+/* ---- keyboard shortcuts ---- */
+window.addEventListener('keydown', (e)=>{
+  const tag = (e.target.tagName||'').toLowerCase();
+  const inField = (tag==='input' || tag==='select' || tag==='textarea');
+  // Escape must work even from the indicator search box
+  if (e.key==='Escape' && inField){ closeAllDropdowns(); hideContextMenu(); e.target.blur(); return; }
+  if (inField) return;
+  const mod = e.ctrlKey || e.metaKey;
+
+  if (e.key==='Escape'){
+    hideContextMenu();
+    closeAllDropdowns();
+    if (pendingPoints.length){ pendingPoints=[]; setActiveTool('cursor'); }
+    else if (placingAlert){ placingAlert=false; document.getElementById('alert-btn').classList.remove('active'); }
+    else if (replayArmed){ replayArmed=false; document.getElementById('replay-btn').classList.remove('active'); }
+    else if (selectedDrawingId){ selectedDrawingId=null; hideStyleToolbar(); }
+    renderOverlay(); return;
+  }
+  if ((e.key==='Delete' || e.key==='Backspace') && selectedDrawingId){ e.preventDefault(); deleteSelected(); return; }
+  if (mod && e.key.toLowerCase()==='z'){ e.preventDefault(); e.shiftKey ? doRedo() : doUndo(); return; }
+  if (mod && e.key.toLowerCase()==='y'){ e.preventDefault(); doRedo(); return; }
+  if (mod && e.key.toLowerCase()==='d' && selectedDrawingId){ e.preventDefault(); cloneSelected(); return; }
+  if (mod && e.key.toLowerCase()==='s'){ e.preventDefault(); document.getElementById('save-btn').click(); return; }
+  if (mod) return;
+
+  if (e.key.toLowerCase()==='m'){ toggleMagnet(); return; }
+  if (e.altKey && e.key.toLowerCase()==='r'){ e.preventDefault(); chart.timeScale().fitContent(); return; }
+  if (e.key.toLowerCase()==='t'){ setActiveTool('trendline'); return; }
+  if (e.key.toLowerCase()==='h'){ setActiveTool('horizontalRay'); return; }
+  if (e.key.toLowerCase()==='f'){ setActiveTool('fib'); return; }
+  if (e.key.toLowerCase()==='r'){ setActiveTool('ruler'); return; }
+  if (e.key.toLowerCase()==='a'){ document.getElementById('alert-btn').click(); return; }
+  if (e.key===' '){ if (replayActive){ e.preventDefault(); replayTimer? pauseReplay() : playReplay(); } return; }
+  if (e.key.toLowerCase()==='d' && !e.altKey){ document.getElementById('datawindow-btn').click(); return; }
+});
+
+/* ---- data window ---- */
+const dataWindow = document.getElementById('data-window');
+document.getElementById('datawindow-btn').addEventListener('click', ()=>{
+  dataWindow.classList.toggle('show');
+  document.getElementById('datawindow-btn').classList.toggle('active', dataWindow.classList.contains('show'));
+  updateDataWindow();
+});
+document.getElementById('dw-close').addEventListener('click', ()=>{
+  dataWindow.classList.remove('show');
+  document.getElementById('datawindow-btn').classList.remove('active');
+});
+function updateDataWindow(idx){
+  if (!dataWindow.classList.contains('show')) return;
+  const i = idx!=null ? idx : currentData.length-1;
+  const b = currentData[i]; if (!b) return;
+  const chg = b.close-b.open, pct = (chg/b.open)*100;
+  const when = b.dateObj ? b.dateObj.toLocaleString(undefined,{ month:'short', day:'numeric', year:'numeric',
+                            ...(currentMode==='intraday'? { hour:'2-digit', minute:'2-digit' } : {}) }) : '';
+  let html = `<div class="dw-row"><span class="dw-key">Date</span><span>${when}</span></div>`;
+  for (const [k,v] of [['Open',b.open],['High',b.high],['Low',b.low],['Close',b.close]]){
+    html += `<div class="dw-row"><span class="dw-key">${k}</span><span>${fmtPrice(v)}</span></div>`;
+  }
+  html += `<div class="dw-row"><span class="dw-key">Change</span><span style="color:${chg>=0?UP:DOWN}">${chg>=0?'+':''}${chg.toFixed(2)} (${pct>=0?'+':''}${pct.toFixed(2)}%)</span></div>`;
+  html += `<div class="dw-row"><span class="dw-key">Volume</span><span>${b.volume.toLocaleString()}</span></div>`;
+  if (activeIndicators.length){
+    html += '<div class="dw-sec"></div>';
+    for (const entry of activeIndicators){
+      for (const p of entry.plots){
+        const v = p.values[i];
+        html += `<div class="dw-row"><span class="dw-key">${p.name}</span><span style="color:${p.color}">${v==null?'—':(entry.def.kind==='pane'? v.toFixed(2) : fmtPrice(v))}</span></div>`;
+      }
+    }
+  }
+  document.getElementById('dw-body').innerHTML = html;
+}
+
+/* ---- double-click the chart to fit content (TradingView-style) ---- */
+container.addEventListener('dblclick', (e)=>{
+  if (activeTool!=='cursor' || isUiChrome(e)) return;
+  const { x, y } = localPt(e);
+  if (findDrawingAt(x,y)) return;
+  chart.timeScale().fitContent();
+  chart.priceScale('right').applyOptions({ autoScale:true });
+});
+
+/* =========================================================================
+   CLOCK
+   ========================================================================= */
+function tickClock(){
+  document.getElementById('clock-label').textContent = new Date().toISOString().substr(11,8)+' UTC';
+}
+setInterval(tickClock, 1000); tickClock();
+
+/* =========================================================================
+   INIT
+   ========================================================================= */
+setActiveTool('cursor');
+tryRestoreSession();
+buildWatchlist();
+updateCard();
+loadRange(currentRange);
+renderAlertsList();
+resizeAll();
+window.addEventListener('resize', resizeAll);
+</script>
+</body>
+</html>
