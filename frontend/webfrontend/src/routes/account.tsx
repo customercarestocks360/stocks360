@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
-import { useAuth, type Order, type Transaction } from "@/components/AuthProvider";
+import { useAuth, type KycProfile, type Order, type Transaction } from "@/components/AuthProvider";
 import { useFavorites } from "@/components/FavoritesProvider";
 import { FavoriteStar } from "@/components/ui/favorite-star";
 import { MiniSparkline } from "@/components/ui/marketing";
@@ -52,6 +52,79 @@ const TIME_FILTERS = [
   { value: "90d", label: "Last 90 days" },
 ] as const;
 type TimeFilterValue = (typeof TIME_FILTERS)[number]["value"];
+
+/** Keeps the first/last few characters and blanks out the rest, for values too sensitive to show in full. */
+function mask(value: string, keepStart = 2, keepEnd = 2) {
+  if (!value) return "—";
+  if (value.length <= keepStart + keepEnd) return "•".repeat(value.length);
+  return `${value.slice(0, keepStart)}${"•".repeat(Math.min(value.length - keepStart - keepEnd, 8))}${value.slice(-keepEnd)}`;
+}
+
+function DetailRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-4 py-2.5 text-sm">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="text-right font-medium text-foreground">{value}</span>
+    </div>
+  );
+}
+
+function DetailGroup({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</h3>
+      <div className="mt-1 divide-y divide-border/60">{children}</div>
+    </div>
+  );
+}
+
+/** Read-only view of the KYC profile the user submitted — fields can't be edited here, and anything sensitive is partially masked. */
+function KycDetails({ profile }: { profile: KycProfile }) {
+  return (
+    <div className="mt-5 space-y-5">
+      <DetailGroup title="Personal">
+        <DetailRow label="Full name" value={`${profile.personal.first_name} ${profile.personal.last_name}`} />
+        <DetailRow label="Date of birth" value={mask(profile.personal.date_of_birth, 0, 4)} />
+        <DetailRow label="Gender" value={profile.personal.gender} />
+        <DetailRow label="Place of birth" value={profile.personal.place_of_birth_country} />
+      </DetailGroup>
+
+      <DetailGroup title="Contact">
+        <DetailRow
+          label="Mobile number"
+          value={`${profile.contact.mobile_country_code} ${mask(profile.contact.mobile_number, 2, 2)}`}
+        />
+        <DetailRow label="Nationality" value={profile.contact.nationality} />
+        <DetailRow label="Country of residence" value={profile.contact.country_of_residence} />
+      </DetailGroup>
+
+      <DetailGroup title="Address">
+        <DetailRow label="Residential address" value={mask(profile.address.residential.line1, 3, 0)} />
+        <DetailRow label="City" value={profile.address.residential.city} />
+        <DetailRow label="State" value={profile.address.residential.state} />
+        <DetailRow label="Postal code" value={mask(profile.address.residential.postal_code, 0, 2)} />
+        <DetailRow label="Country" value={profile.address.residential.country} />
+      </DetailGroup>
+
+      <DetailGroup title="Identity document">
+        <DetailRow label="Document type" value={profile.identity.document_type} />
+        <DetailRow label="Document number" value={mask(profile.identity.document_number, 0, 4)} />
+        <DetailRow label="Issuing country" value={profile.identity.issuing_country} />
+      </DetailGroup>
+
+      <DetailGroup title="Tax">
+        <DetailRow label="Tax residency" value={profile.tax.tax_residency_country} />
+        <DetailRow label="Tax ID" value={mask(profile.tax.tax_identification_number, 0, 4)} />
+        <DetailRow label="US person" value={profile.tax.is_us_person ? "Yes" : "No"} />
+        <DetailRow label="Source of funds" value={profile.tax.source_of_funds} />
+      </DetailGroup>
+
+      <p className="text-xs text-muted-foreground/70">
+        These details were verified at signup and can't be edited. Contact support if anything needs correcting.
+      </p>
+    </div>
+  );
+}
 
 function filterTransactions(list: Transaction[], query: string, time: TimeFilterValue) {
   const cutoffDays = time === "7d" ? 7 : time === "30d" ? 30 : time === "90d" ? 90 : null;
@@ -175,7 +248,8 @@ function AssetRow({ asset }: { asset: Asset }) {
 function AccountPage() {
   const navigate = useNavigate();
   const { tab } = Route.useSearch();
-  const { isLoggedIn, email, name, kycCompleted, balances, transactions, orders, logout, setName } = useAuth();
+  const { isLoggedIn, email, name, kycCompleted, kycProfile, balances, transactions, orders, logout, setName } =
+    useAuth();
   const { isFavorite } = useFavorites();
   const [sidebar, setSidebar] = useState<SidebarKey>(tab ?? "dashboard");
   const [marketTab, setMarketTab] = useState<MarketTab>("Holding");
@@ -593,19 +667,31 @@ function AccountPage() {
               {sidebar === "account" && (
                 <div className="mt-6 space-y-4">
                   <div className="rounded-2xl border border-border bg-card p-6">
-                    <h2 className="text-lg font-bold text-foreground">Identity verification</h2>
+                    <div className="flex items-center justify-between gap-3">
+                      <h2 className="text-lg font-bold text-foreground">Account details</h2>
+                      {kycCompleted && (
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-up/10 px-2.5 py-0.5 text-xs font-semibold text-up">
+                          <i className="fa-solid fa-check text-[10px]" />
+                          Verified
+                        </span>
+                      )}
+                    </div>
                     <p className="mt-1 text-sm text-muted-foreground">
                       {kycCompleted
-                        ? "Your identity has been verified. You're all set to deposit and trade."
+                        ? "Submitted at signup and verified. These can only be viewed here, not changed."
                         : "Complete your account details"}
                     </p>
-                    {!kycCompleted && (
-                      <Link
-                        to="/kyc"
-                        className="mt-4 inline-block rounded-xl bg-primary px-5 py-2.5 text-sm font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90"
-                      >
-                        Complete account details
-                      </Link>
+                    {kycCompleted && kycProfile ? (
+                      <KycDetails profile={kycProfile} />
+                    ) : (
+                      !kycCompleted && (
+                        <Link
+                          to="/kyc"
+                          className="mt-4 inline-block rounded-xl bg-primary px-5 py-2.5 text-sm font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90"
+                        >
+                          Complete account details
+                        </Link>
+                      )
                     )}
                   </div>
 

@@ -1,44 +1,43 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
-import { QrCode } from "@/components/ui/qr-code";
-import { useAuth, txKind, txStatus, txNetwork, type DepositMethod } from "@/components/AuthProvider";
+import {
+  useAuth,
+  txKind,
+  txStatus,
+  lockedAmount,
+  NETWORK_OF,
+  type DepositMethod,
+} from "@/components/AuthProvider";
+import { ConvertWidget } from "@/components/ui/convert-widget";
 
-export const Route = createFileRoute("/deposit")({
+export const Route = createFileRoute("/withdraw")({
   head: () => ({
     meta: [
-      { title: "Deposit — Stocks360" },
-      { name: "description", content: "Deposit INR or USDT into your Stocks360 account." },
+      { title: "Withdraw — Stocks360" },
+      { name: "description", content: "Withdraw INR or USDT from your Stocks360 account." },
     ],
   }),
-  component: DepositPage,
+  component: WithdrawPage,
 });
-
-type Network = {
-  code: string;
-  name: string;
-  address: string;
-  addressLabel: string;
-  /** What the QR encodes — for UPI a payment intent, for chains the raw address. */
-  payload: (address: string) => string;
-  minimum: string;
-  arrival: string;
-  fee: string;
-  confirmations: string;
-};
 
 type AssetOption = {
   code: DepositMethod;
   name: string;
   symbol: string;
   color: string;
-  networks: Network[];
+  network: string;
+  destinationLabel: string;
+  destinationPlaceholder: string;
+  minimum: string;
+  arrival: string;
+  fee: string;
 };
 
 /**
- * Deposit rails per currency. Rupees settle over UPI and USDT over a chain —
- * the network list is per-asset because a UPI handle can't receive tokens and
- * a BEP20 contract can't receive rupees.
+ * Withdrawal rails per currency. Same two assets as deposit, each settling
+ * out over its one destination type — a bank/UPI handle for rupees, a chain
+ * address for USDT.
  */
 const ASSET_OPTIONS: AssetOption[] = [
   {
@@ -46,57 +45,43 @@ const ASSET_OPTIONS: AssetOption[] = [
     name: "Indian Rupee",
     symbol: "₹",
     color: "#f59e0b",
-    networks: [
-      {
-        code: "UPI",
-        name: "Unified Payments Interface",
-        address: "stocks360@upi",
-        addressLabel: "UPI ID",
-        payload: (a) => `upi://pay?pa=${a}&pn=Stocks360&cu=INR`,
-        minimum: "More than ₹100",
-        arrival: "Instant — usually under 2 minutes",
-        fee: "₹0",
-        confirmations: "1 bank confirmation",
-      },
-    ],
+    network: NETWORK_OF.INR,
+    destinationLabel: "UPI ID",
+    destinationPlaceholder: "yourname@upi",
+    minimum: "More than ₹100",
+    arrival: "Usually settles within 24 hours",
+    fee: "₹0",
   },
   {
     code: "USDT",
     name: "TetherUS",
     symbol: "",
     color: "#26a17b",
-    networks: [
-      {
-        code: "BSC",
-        name: "BNB Smart Chain (BEP20)",
-        address: "0x8cfa8b2fff6d4cec11dd6b53b68793fb4f81ffe3",
-        addressLabel: "Wallet Address (BEP20)",
-        payload: (a) => a,
-        minimum: "More than 0.000002 USDT",
-        arrival: "About 1 minute after network confirmation",
-        fee: "0 USDT",
-        confirmations: "15 network confirmations",
-      },
-    ],
+    network: NETWORK_OF.USDT,
+    destinationLabel: "Wallet Address (BEP20)",
+    destinationPlaceholder: "0x…",
+    minimum: "More than 1 USDT",
+    arrival: "About 15 network confirmations after settlement",
+    fee: "1 USDT",
   },
 ];
 
 const FAQS = [
   {
-    q: "How to deposit? (Step-by-step guide)",
-    a: "Pick the currency you want to fund, choose the network it will arrive on, then send to the address shown. Report the amount you sent and an admin verifies it and credits your balance.",
+    q: "How does a withdrawal actually work?",
+    a: "Requesting a withdrawal locks that amount immediately — it stays in your balance but can't be withdrawn again or spent until the request is settled or cancelled. Settling debits your balance and sends funds to the destination; cancelling releases the lock and changes nothing.",
   },
   {
-    q: "Deposit hasn't arrived?",
-    a: "Check that you sent on the same network you selected here. Funds sent on a different network can't be verified automatically. Once verified, the balance is credited by an admin — it's listed as pending until then.",
+    q: "Why can't I withdraw my full balance?",
+    a: "The amount available to withdraw is your balance minus anything already locked in a pending withdrawal. Once a pending request settles or is cancelled, that amount becomes available again.",
   },
   {
     q: "Deposit & Withdrawal status query",
-    a: "Every deposit and withdrawal is listed in your wallet with its status. Pending withdrawals stay locked until they settle, and you can cancel one to release the funds.",
+    a: "Every withdrawal is listed below with its status — pending, completed, or cancelled. Pending ones can still be settled or cancelled from here or from your wallet.",
   },
   {
     q: "Is there a minimum or a fee?",
-    a: "Each network sets its own minimum and fee — both are shown with the deposit address once you've picked a network. Anything below the minimum may not be credited.",
+    a: "Each asset has its own minimum and network fee, shown once you pick it above. The fee is deducted from your balance, not added on top of the amount you enter.",
   },
 ];
 
@@ -107,20 +92,6 @@ function stamp(iso: string) {
   const d = new Date(iso);
   const p = (v: number) => String(v).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
-}
-
-/** Highlights the leading and trailing characters, the way exchanges do. */
-function AddressText({ address }: { address: string }) {
-  const head = address.slice(0, 6);
-  const tail = address.slice(-5);
-  const middle = address.slice(6, -5);
-  return (
-    <span className="break-all font-mono text-sm leading-6">
-      <span className="text-primary">{head}</span>
-      <span className="text-foreground">{middle}</span>
-      <span className="text-primary">{tail}</span>
-    </span>
-  );
 }
 
 function Dropdown<T>({
@@ -218,14 +189,12 @@ function Step({
   done,
   title,
   last,
-  action,
   children,
 }: {
   n: number;
   done: boolean;
   title: string;
   last?: boolean;
-  action?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
@@ -234,51 +203,48 @@ function Step({
         <StepMarker done={done} n={n} />
       </span>
       {!last && <span className="absolute left-[9px] top-7 bottom-0 w-px bg-border" aria-hidden />}
-      <div className="flex items-center justify-between gap-4">
-        <h2 className="text-xl font-bold text-foreground">{title}</h2>
-        {action}
-      </div>
+      <h2 className="text-xl font-bold text-foreground">{title}</h2>
       <div className={last ? "mt-4" : "mt-4 pb-10"}>{children}</div>
     </li>
   );
 }
 
-function DepositPage() {
-  const { isLoggedIn, kycCompleted, transactions, requestDeposit } = useAuth();
+function WithdrawPage() {
+  const { isLoggedIn, kycCompleted, balances, transactions, requestWithdrawal } = useAuth();
 
   const [asset, setAsset] = useState<AssetOption>(ASSET_OPTIONS[0]!);
-  const [network, setNetwork] = useState<Network>(ASSET_OPTIONS[0]!.networks[0]!);
-  const [copied, setCopied] = useState(false);
-  const [showDetails, setShowDetails] = useState(false);
-  const [openFaq, setOpenFaq] = useState<number | null>(null);
+  const [destination, setDestination] = useState("");
   const [amount, setAmount] = useState("");
   const [stage, setStage] = useState<"idle" | "requested">("idle");
+  const [openFaq, setOpenFaq] = useState<number | null>(null);
+  const [showConvert, setShowConvert] = useState(false);
 
-  const recentDeposits = useMemo(
-    () => transactions.filter((t) => txKind(t) === "deposit").slice(0, 5),
+  /**
+   * What's actually free to withdraw right now — the raw balance minus
+   * whatever's already locked in a pending withdrawal request.
+   */
+  const available = balances[asset.code] - lockedAmount(transactions, asset.code);
+
+  const recentWithdrawals = useMemo(
+    () => transactions.filter((t) => txKind(t) === "withdraw").slice(0, 5),
     [transactions],
   );
 
   const selectAsset = (next: AssetOption) => {
     setAsset(next);
-    setNetwork(next.networks[0]!); // networks are per-asset, so reset the choice
-    setCopied(false);
+    setDestination("");
+    setAmount("");
     setStage("idle");
   };
 
-  const handleCopy = () => {
-    navigator.clipboard?.writeText(network.address).catch(() => {});
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1600);
-  };
-
   const value = parseFloat(amount);
-  const canSubmit = Number.isFinite(value) && value > 0 && stage === "idle";
+  const overBalance = Number.isFinite(value) && value > available;
+  const canSubmit =
+    Number.isFinite(value) && value > 0 && !overBalance && destination.trim().length > 0 && stage === "idle";
 
   const handleSubmit = () => {
     if (!canSubmit) return;
-    requestDeposit(asset.code, value, network.code);
-    setAmount("");
+    requestWithdrawal(asset.code, value, destination.trim());
     setStage("requested");
   };
 
@@ -287,7 +253,7 @@ function DepositPage() {
       ? {
           icon: "fa-lock",
           title: "Sign in required",
-          body: "You need to be signed in to deposit funds into your Stocks360 account.",
+          body: "You need to be signed in to withdraw funds from your Stocks360 account.",
           cta: "Go to sign in",
           to: "/login" as const,
           search: undefined,
@@ -295,7 +261,7 @@ function DepositPage() {
       : {
           icon: "fa-id-card",
           title: "Account details incomplete",
-          body: "Your identity hasn't been verified yet. Complete your account details to unlock deposits.",
+          body: "Your identity hasn't been verified yet. Complete your account details to unlock withdrawals.",
           cta: "Complete account details",
           to: "/account" as const,
           search: { tab: "account" as const },
@@ -326,6 +292,23 @@ function DepositPage() {
         <div className="grid gap-12 lg:grid-cols-[minmax(0,1fr)_300px]">
           {/* ── Stepper ── */}
           <ol className="min-w-0">
+            <li className="relative pl-10 pb-10">
+              <button
+                type="button"
+                onClick={() => setShowConvert((v) => !v)}
+                className="flex items-center gap-2 text-sm font-semibold text-primary transition-opacity hover:opacity-80"
+              >
+                <i className="fa-solid fa-arrow-down-up-across-line text-xs" />
+                Holding the wrong currency? Convert to INR or USDT first
+                <i className={`fa-solid fa-chevron-down text-[10px] transition-transform ${showConvert ? "rotate-180" : ""}`} />
+              </button>
+              {showConvert && (
+                <div className="mt-4 max-w-lg">
+                  <ConvertWidget />
+                </div>
+              )}
+            </li>
+
             <Step n={1} done title="Select Asset">
               <div className="max-w-lg">
                 <Dropdown
@@ -346,149 +329,113 @@ function DepositPage() {
                     </span>
                   )}
                 />
+
+                <div className="mt-4 flex items-center justify-between rounded-xl border border-border bg-card px-4 py-3">
+                  <span className="text-sm text-muted-foreground">Available to withdraw</span>
+                  <span className="font-mono text-sm font-semibold text-foreground">
+                    {asset.symbol}
+                    {fmt(available)} {asset.code === "USDT" ? "USDT" : ""}
+                  </span>
+                </div>
               </div>
             </Step>
 
-            <Step n={2} done title="Select Network">
+            <Step n={2} done title="Withdrawal Network">
               <div className="max-w-lg">
-                <Dropdown
-                  label="Select network"
-                  items={asset.networks}
-                  selected={network}
-                  onSelect={(n) => {
-                    setNetwork(n);
-                    setCopied(false);
-                  }}
-                  render={(n) => (
-                    <span className="flex min-w-0 items-center gap-3">
-                      <span className="shrink-0 font-semibold text-foreground">{n.code}</span>
-                      <span className="truncate text-sm text-muted-foreground">{n.name}</span>
-                    </span>
-                  )}
-                />
+                <div className="flex w-full items-center gap-3 rounded-xl border border-border bg-card px-4 py-3.5">
+                  <span className="font-semibold text-foreground">{asset.network}</span>
+                  <span className="truncate text-sm text-muted-foreground">
+                    {asset.code === "INR" ? "Unified Payments Interface" : "BNB Smart Chain (BEP20)"}
+                  </span>
+                </div>
+
+                <label className="mt-4 block text-sm font-medium text-foreground">
+                  {asset.destinationLabel}
+                  <input
+                    value={destination}
+                    onChange={(e) => setDestination(e.target.value)}
+                    placeholder={asset.destinationPlaceholder}
+                    className="mt-2 w-full rounded-xl border border-border bg-background/60 px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
+                  />
+                </label>
               </div>
             </Step>
 
-            <Step
-              n={3}
-              done={false}
-              last
-              title="Deposit Address"
-            >
+            <Step n={3} done={false} last title="Amount">
               <div className="max-w-lg">
-                <div className="flex flex-wrap items-center gap-5 rounded-xl border border-border bg-card p-4">
-                  <div className="rounded-lg bg-white p-2">
-                    <QrCode
-                      value={network.payload(network.address)}
-                      size={124}
-                      title={`${asset.code} deposit address on ${network.code}`}
-                    />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm text-muted-foreground">Address</div>
-                    <div className="mt-1 flex items-start gap-2">
-                      <AddressText address={network.address} />
-                      <button
-                        type="button"
-                        onClick={handleCopy}
-                        aria-label="Copy deposit address"
-                        className="shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                      >
-                        <i className={`fa-${copied ? "solid fa-check text-up" : "regular fa-copy"} text-sm`} />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setShowDetails((v) => !v)}
-                        aria-label="Toggle address details"
-                        aria-expanded={showDetails}
-                        className="shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                      >
-                        <i className={`fa-solid fa-chevron-down text-xs transition-transform ${showDetails ? "rotate-180" : ""}`} />
-                      </button>
-                    </div>
-                    <div className="mt-1 text-[11px] text-muted-foreground/70">{network.addressLabel}</div>
-                  </div>
-                </div>
-
-                <div className="mt-4 flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Minimum deposit</span>
-                  <span className="font-semibold text-foreground">{network.minimum}</span>
-                </div>
-
-                {showDetails && (
-                  <dl className="mt-4 space-y-2.5 rounded-xl border border-border bg-background/40 p-4 text-sm">
-                    <div className="flex justify-between gap-4">
-                      <dt className="text-muted-foreground">Expected arrival</dt>
-                      <dd className="text-right text-foreground">{network.arrival}</dd>
-                    </div>
-                    <div className="flex justify-between gap-4">
-                      <dt className="text-muted-foreground">Deposit fee</dt>
-                      <dd className="text-right text-foreground">{network.fee}</dd>
-                    </div>
-                    <div className="flex justify-between gap-4">
-                      <dt className="text-muted-foreground">Credited after</dt>
-                      <dd className="text-right text-foreground">{network.confirmations}</dd>
-                    </div>
-                    <div className="flex justify-between gap-4">
-                      <dt className="text-muted-foreground">Selected network</dt>
-                      <dd className="text-right text-foreground">
-                        {network.code} · {network.name}
-                      </dd>
-                    </div>
-                  </dl>
-                )}
-
-                <button
-                  type="button"
-                  onClick={() => setShowDetails((v) => !v)}
-                  className="mx-auto mt-4 flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
-                >
-                  {showDetails ? "Less Details" : "More Details"}
-                  <i className={`fa-solid fa-chevron-down text-[10px] transition-transform ${showDetails ? "rotate-180" : ""}`} />
-                </button>
-
-                {/* Reporting the amount only records the claim — an admin credits the balance once they've verified it landed. */}
-                <div className="mt-8 rounded-xl border border-border bg-card p-4">
+                <div className="rounded-xl border border-border bg-card p-4">
                   {stage === "requested" ? (
                     <div className="text-center">
                       <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-primary/10 text-primary">
                         <i className="fa-solid fa-clock" />
                       </div>
-                      <p className="mt-3 text-sm font-semibold text-foreground">Deposit reported</p>
+                      <p className="mt-3 text-sm font-semibold text-foreground">Withdrawal requested</p>
                       <p className="mt-1 text-xs text-muted-foreground">
-                        It's pending admin confirmation — you'll see it settle under Recent Deposits once
-                        verified.
+                        {fmt(value)} {asset.code} is now locked and pending. An admin will review it and send it
+                        to {destination}.
                       </p>
                       <button
                         type="button"
-                        onClick={() => setStage("idle")}
+                        onClick={() => {
+                          setAmount("");
+                          setDestination("");
+                          setStage("idle");
+                        }}
                         className="mt-4 rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground transition-colors hover:bg-secondary"
                       >
-                        Report another deposit
+                        Make another withdrawal
                       </button>
                     </div>
                   ) : (
                     <>
                       <label className="block text-sm font-medium text-foreground">
-                        Amount sent ({asset.code})
-                        <input
-                          value={amount}
-                          onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))}
-                          placeholder={asset.code === "INR" ? "e.g. 5000" : "e.g. 100"}
-                          inputMode="decimal"
-                          className="mt-2 w-full rounded-xl border border-border bg-background/60 px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
-                        />
+                        Amount ({asset.code})
+                        <div className="relative mt-2">
+                          <input
+                            value={amount}
+                            onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))}
+                            placeholder={asset.code === "INR" ? "e.g. 5000" : "e.g. 100"}
+                            inputMode="decimal"
+                            className="w-full rounded-xl border border-border bg-background/60 px-3 py-2.5 pr-16 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setAmount(available > 0 ? String(available) : "")}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md px-2 py-1 text-xs font-bold text-primary hover:bg-primary/10"
+                          >
+                            MAX
+                          </button>
+                        </div>
                       </label>
+                      {overBalance && (
+                        <p className="mt-2 text-xs text-destructive">
+                          That's more than the {fmt(available)} {asset.code} you have available.
+                        </p>
+                      )}
+
+                      <div className="mt-4 flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground">Minimum withdrawal</span>
+                        <span className="font-semibold text-foreground">{asset.minimum}</span>
+                      </div>
+                      <div className="mt-2 flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground">Network fee</span>
+                        <span className="font-semibold text-foreground">{asset.fee}</span>
+                      </div>
+                      <div className="mt-2 flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground">Expected settlement</span>
+                        <span className="font-semibold text-foreground">{asset.arrival}</span>
+                      </div>
+
                       <button
                         type="button"
                         onClick={handleSubmit}
                         disabled={!canSubmit}
                         className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
                       >
-                        I've sent this amount
+                        Request withdrawal
                       </button>
                       <p className="mt-3 text-center text-[11px] text-muted-foreground/70">
-                        An admin verifies the transfer and credits your balance — it won't apply instantly.
+                        This locks the amount immediately. It's debited from your balance only once settled.
                       </p>
                     </>
                   )}
@@ -521,10 +468,10 @@ function DepositPage() {
           </aside>
         </div>
 
-        {/* ── Recent deposits ── */}
+        {/* ── Recent withdrawals ── */}
         <div className="mt-14 border-t border-border pt-8">
           <div className="flex items-center justify-between">
-            <h2 className="text-xl font-bold text-foreground">Recent Deposits</h2>
+            <h2 className="text-xl font-bold text-foreground">Recent Withdrawals</h2>
             <Link
               to="/wallet"
               className="flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
@@ -533,7 +480,7 @@ function DepositPage() {
             </Link>
           </div>
 
-          {recentDeposits.length === 0 ? (
+          {recentWithdrawals.length === 0 ? (
             <div className="py-14 text-center">
               <i className="fa-regular fa-folder-open text-3xl text-muted-foreground/40" />
               <p className="mt-3 text-sm text-muted-foreground">No records</p>
@@ -551,20 +498,20 @@ function DepositPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {recentDeposits.map((t) => {
+                  {recentWithdrawals.map((t) => {
                     const status = txStatus(t);
+                    const tone =
+                      status === "cancelled"
+                        ? "text-muted-foreground"
+                        : status === "pending"
+                          ? "text-primary"
+                          : "text-down";
                     return (
                       <tr key={t.id} className="border-b border-border last:border-b-0">
                         <td className="px-2 py-4 font-mono text-xs text-muted-foreground">{stamp(t.date)}</td>
                         <td className="px-2 py-4 font-medium text-foreground">{t.method}</td>
-                        <td className="px-2 py-4 text-muted-foreground">{txNetwork(t)}</td>
-                        <td
-                          className={`px-2 py-4 text-right font-mono font-semibold ${
-                            status === "cancelled" ? "text-muted-foreground" : "text-up"
-                          }`}
-                        >
-                          +{fmt(t.amount)}
-                        </td>
+                        <td className="px-2 py-4 text-muted-foreground">{NETWORK_OF[t.method]}</td>
+                        <td className={`px-2 py-4 text-right font-mono font-semibold ${tone}`}>−{fmt(t.amount)}</td>
                         <td className="px-2 py-4 text-right">
                           <span
                             className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ${
@@ -572,7 +519,7 @@ function DepositPage() {
                                 ? "bg-muted text-muted-foreground"
                                 : status === "pending"
                                   ? "bg-primary/10 text-primary"
-                                  : "bg-up/10 text-up"
+                                  : "bg-down/10 text-down"
                             }`}
                           >
                             <span className="h-1.5 w-1.5 rounded-full bg-current" />

@@ -5,7 +5,7 @@ import { Confetti } from "@/components/ui/confetti";
 
 function AuthPageShell({ children }: { children: ReactNode }) {
   return (
-    <div className="h-screen overflow-hidden bg-background text-foreground">
+    <div className="h-dvh overflow-hidden bg-background text-foreground pt-safe pb-safe">
       <div className="relative flex h-full items-center justify-center overflow-hidden px-6 py-4">
         <div className="grid-bg absolute inset-0 opacity-40" />
         <div className="halo absolute inset-0" />
@@ -233,11 +233,11 @@ function KycPage() {
   };
 
   return (
-    <div className="h-screen overflow-y-auto bg-background text-foreground">
+    <div className="h-dvh overflow-y-auto bg-background text-foreground pt-safe">
       {celebrate && <Confetti />}
       <div className="grid-bg fixed inset-0 -z-10 opacity-40" />
 
-      <div className="relative mx-auto max-w-2xl px-6 py-16">
+      <div className="relative mx-auto max-w-2xl px-4 py-10 sm:px-6 sm:py-16">
         {celebrate ? (
           <div className="rounded-3xl border border-border bg-card p-10 text-center shadow-2xl">
             <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-up/10 text-up">
@@ -300,10 +300,10 @@ function KycPage() {
               </div>
 
               {/* ── Step content ── */}
-              <div className="mt-10 rounded-3xl border border-border bg-card p-7 shadow-sm">
+              <div className="mt-10 rounded-3xl border border-border bg-card p-4 shadow-sm sm:p-7">
                 {currentStepKey === "contact" && (
                   <div className="space-y-4">
-                    <div className="grid grid-cols-3 gap-3">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                       <Field label="Country code">
                         <input
                           value={contact.mobile_country_code}
@@ -341,7 +341,7 @@ function KycPage() {
 
                 {currentStepKey === "personal" && (
                   <div className="space-y-4">
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <Field label="First name">
                         <input
                           value={personal.first_name}
@@ -396,7 +396,7 @@ function KycPage() {
                         className={inputClass}
                       />
                     </Field>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <Field label="City">
                         <input
                           value={address.residential.city}
@@ -416,7 +416,7 @@ function KycPage() {
                         />
                       </Field>
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <Field label="Postal code">
                         <input
                           value={address.residential.postal_code}

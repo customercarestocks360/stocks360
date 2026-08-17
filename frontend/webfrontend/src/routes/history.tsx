@@ -266,7 +266,8 @@ function HistoryPage() {
                     No transactions yet. Deposits you make will show up here.
                   </div>
                 ) : (
-                  <table className="w-full border-collapse text-sm">
+                  <div className="overflow-x-auto">
+                  <table className="w-full min-w-[560px] border-collapse text-sm">
                     <thead>
                       <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
                         <th className="px-5 py-3 font-medium">Date</th>
@@ -298,6 +299,7 @@ function HistoryPage() {
                       ))}
                     </tbody>
                   </table>
+                  </div>
                 )}
               </div>
             </>

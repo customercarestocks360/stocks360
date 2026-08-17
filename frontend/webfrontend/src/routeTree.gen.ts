@@ -12,7 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as AccountRouteImport } from './routes/account'
-import { Route as CryptoRouteImport } from './routes/crypto'
+import { Route as AdminRouteImport } from './routes/admin'
 import { Route as DepositRouteImport } from './routes/deposit'
 import { Route as ForexRouteImport } from './routes/forex'
 import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
@@ -21,7 +21,9 @@ import { Route as KycRouteImport } from './routes/kyc'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as MarketsRouteImport } from './routes/markets'
 import { Route as SignupRouteImport } from './routes/signup'
-import { Route as StocksRouteImport } from './routes/stocks'
+import { Route as TradeRouteImport } from './routes/trade'
+import { Route as WalletRouteImport } from './routes/wallet'
+import { Route as WithdrawRouteImport } from './routes/withdraw'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -38,9 +40,9 @@ const AccountRoute = AccountRouteImport.update({
   path: '/account',
   getParentRoute: () => rootRouteImport,
 } as any)
-const CryptoRoute = CryptoRouteImport.update({
-  id: '/crypto',
-  path: '/crypto',
+const AdminRoute = AdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DepositRoute = DepositRouteImport.update({
@@ -83,9 +85,19 @@ const SignupRoute = SignupRouteImport.update({
   path: '/signup',
   getParentRoute: () => rootRouteImport,
 } as any)
-const StocksRoute = StocksRouteImport.update({
-  id: '/stocks',
-  path: '/stocks',
+const TradeRoute = TradeRouteImport.update({
+  id: '/trade',
+  path: '/trade',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WalletRoute = WalletRouteImport.update({
+  id: '/wallet',
+  path: '/wallet',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WithdrawRoute = WithdrawRouteImport.update({
+  id: '/withdraw',
+  path: '/withdraw',
   getParentRoute: () => rootRouteImport,
 } as any)
 
@@ -93,7 +105,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/account': typeof AccountRoute
-  '/crypto': typeof CryptoRoute
+  '/admin': typeof AdminRoute
   '/deposit': typeof DepositRoute
   '/forex': typeof ForexRoute
   '/forgot-password': typeof ForgotPasswordRoute
@@ -102,13 +114,15 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/markets': typeof MarketsRoute
   '/signup': typeof SignupRoute
-  '/stocks': typeof StocksRoute
+  '/trade': typeof TradeRoute
+  '/wallet': typeof WalletRoute
+  '/withdraw': typeof WithdrawRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/account': typeof AccountRoute
-  '/crypto': typeof CryptoRoute
+  '/admin': typeof AdminRoute
   '/deposit': typeof DepositRoute
   '/forex': typeof ForexRoute
   '/forgot-password': typeof ForgotPasswordRoute
@@ -117,14 +131,16 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/markets': typeof MarketsRoute
   '/signup': typeof SignupRoute
-  '/stocks': typeof StocksRoute
+  '/trade': typeof TradeRoute
+  '/wallet': typeof WalletRoute
+  '/withdraw': typeof WithdrawRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/account': typeof AccountRoute
-  '/crypto': typeof CryptoRoute
+  '/admin': typeof AdminRoute
   '/deposit': typeof DepositRoute
   '/forex': typeof ForexRoute
   '/forgot-password': typeof ForgotPasswordRoute
@@ -133,7 +149,9 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/markets': typeof MarketsRoute
   '/signup': typeof SignupRoute
-  '/stocks': typeof StocksRoute
+  '/trade': typeof TradeRoute
+  '/wallet': typeof WalletRoute
+  '/withdraw': typeof WithdrawRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -141,7 +159,7 @@ export interface FileRouteTypes {
     | '/'
     | '/about'
     | '/account'
-    | '/crypto'
+    | '/admin'
     | '/deposit'
     | '/forex'
     | '/forgot-password'
@@ -150,13 +168,15 @@ export interface FileRouteTypes {
     | '/login'
     | '/markets'
     | '/signup'
-    | '/stocks'
+    | '/trade'
+    | '/wallet'
+    | '/withdraw'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/about'
     | '/account'
-    | '/crypto'
+    | '/admin'
     | '/deposit'
     | '/forex'
     | '/forgot-password'
@@ -165,13 +185,15 @@ export interface FileRouteTypes {
     | '/login'
     | '/markets'
     | '/signup'
-    | '/stocks'
+    | '/trade'
+    | '/wallet'
+    | '/withdraw'
   id:
     | '__root__'
     | '/'
     | '/about'
     | '/account'
-    | '/crypto'
+    | '/admin'
     | '/deposit'
     | '/forex'
     | '/forgot-password'
@@ -180,14 +202,16 @@ export interface FileRouteTypes {
     | '/login'
     | '/markets'
     | '/signup'
-    | '/stocks'
+    | '/trade'
+    | '/wallet'
+    | '/withdraw'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AboutRoute: typeof AboutRoute
   AccountRoute: typeof AccountRoute
-  CryptoRoute: typeof CryptoRoute
+  AdminRoute: typeof AdminRoute
   DepositRoute: typeof DepositRoute
   ForexRoute: typeof ForexRoute
   ForgotPasswordRoute: typeof ForgotPasswordRoute
@@ -196,7 +220,9 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   MarketsRoute: typeof MarketsRoute
   SignupRoute: typeof SignupRoute
-  StocksRoute: typeof StocksRoute
+  TradeRoute: typeof TradeRoute
+  WalletRoute: typeof WalletRoute
+  WithdrawRoute: typeof WithdrawRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -222,11 +248,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AccountRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/crypto': {
-      id: '/crypto'
-      path: '/crypto'
-      fullPath: '/crypto'
-      preLoaderRoute: typeof CryptoRouteImport
+    '/admin': {
+      id: '/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AdminRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/deposit': {
@@ -285,11 +311,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SignupRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/stocks': {
-      id: '/stocks'
-      path: '/stocks'
-      fullPath: '/stocks'
-      preLoaderRoute: typeof StocksRouteImport
+    '/trade': {
+      id: '/trade'
+      path: '/trade'
+      fullPath: '/trade'
+      preLoaderRoute: typeof TradeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/wallet': {
+      id: '/wallet'
+      path: '/wallet'
+      fullPath: '/wallet'
+      preLoaderRoute: typeof WalletRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/withdraw': {
+      id: '/withdraw'
+      path: '/withdraw'
+      fullPath: '/withdraw'
+      preLoaderRoute: typeof WithdrawRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -299,7 +339,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AboutRoute: AboutRoute,
   AccountRoute: AccountRoute,
-  CryptoRoute: CryptoRoute,
+  AdminRoute: AdminRoute,
   DepositRoute: DepositRoute,
   ForexRoute: ForexRoute,
   ForgotPasswordRoute: ForgotPasswordRoute,
@@ -308,7 +348,9 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   MarketsRoute: MarketsRoute,
   SignupRoute: SignupRoute,
-  StocksRoute: StocksRoute,
+  TradeRoute: TradeRoute,
+  WalletRoute: WalletRoute,
+  WithdrawRoute: WithdrawRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

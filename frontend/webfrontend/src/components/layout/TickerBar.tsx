@@ -2,10 +2,10 @@ const ticker = [
   { s: "AAPL", p: "229.87", c: "+0.88%", up: true },
   { s: "TSLA", p: "248.53", c: "-1.94%", up: false },
   { s: "SPX", p: "5,631.20", c: "+0.33%", up: true },
-  { s: "BTC/USD", p: "68,412.20", c: "+2.41%", up: true },
-  { s: "ETH/USD", p: "3,584.66", c: "+1.08%", up: true },
+  { s: "NVDA", p: "118.42", c: "+3.45%", up: true },
+  { s: "MSFT", p: "415.32", c: "+1.21%", up: true },
   { s: "NIFTY 50", p: "24,890.05", c: "+0.42%", up: true },
-  { s: "XRP", p: "0.6231", c: "-2.41%", up: false },
+  { s: "EUR/USD", p: "1.0892", c: "-0.18%", up: false },
   { s: "GOLD", p: "2,398.10", c: "+0.19%", up: true },
 ];
 
@@ -13,7 +13,7 @@ export function TickerBar({ bottom = false }: { bottom?: boolean }) {
   const row = [...ticker, ...ticker];
   return (
     <div
-      className={`overflow-hidden border-border bg-card/60 ${bottom ? "border-t" : "border-b"}`}
+      className={`hidden overflow-hidden border-border bg-card/60 md:block ${bottom ? "border-t" : "border-b"}`}
     >
       <div className="marquee-track flex w-max">
         {row.map((t, i) => (

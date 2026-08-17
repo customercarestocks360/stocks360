@@ -200,6 +200,23 @@
   color: var(--muted-foreground);
 }
 
+/* Safe-area helpers for native WebView wrapping (notches / home indicator). */
+@utility pt-safe {
+  padding-top: env(safe-area-inset-top);
+}
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+@utility pl-safe {
+  padding-left: env(safe-area-inset-left);
+}
+@utility pr-safe {
+  padding-right: env(safe-area-inset-right);
+}
+@utility min-h-screen-safe {
+  min-height: 100dvh;
+}
+
 @utility marquee-track {
   animation: marquee 40s linear infinite;
 }
@@ -450,9 +467,36 @@
     border-color: var(--color-border);
   }
 
+  html {
+    height: 100%;
+    /* Avoid the "website" rubber-band bounce feel once wrapped in a native WebView. */
+    overscroll-behavior-y: none;
+  }
+
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
+    min-height: 100dvh;
+    overscroll-behavior-y: none;
+    -webkit-tap-highlight-color: transparent;
+    /* Allow normal vertical scrolling/pinch-zoom pages to opt back in per-element
+       (inputs, textareas) while removing the default text-selection-everywhere feel. */
+    -webkit-touch-callout: none;
+  }
+
+  /* Native apps don't let a stray long-press select chrome text everywhere on
+     touch devices; keep normal selection behavior for mouse/desktop users, and
+     always allow it in inputs/textareas and anything explicitly marked selectable
+     (e.g. wallet addresses, order ids) even on touch. */
+  @media (pointer: coarse) {
+    body, h1, h2, h3, h4, h5, h6, p, span, div, button, a, label {
+      -webkit-user-select: none;
+      user-select: none;
+    }
+    input, textarea, [contenteditable="true"], [data-selectable] {
+      -webkit-user-select: text;
+      user-select: text;
+    }
   }
 
   /*
