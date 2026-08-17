@@ -31,7 +31,22 @@ const STEPS = [
   { key: "address", label: "Address" },
   { key: "identity", label: "Identity" },
   { key: "tax", label: "Tax" },
-  { key: "verification", label: "Verification" },
+  { key: "financial", label: "Financial" },
+  { key: "markets", label: "Markets" },
+  { key: "funding", label: "Funding" },
+  { key: "security", label: "Security" },
+  { key: "agreements", label: "Agreements" },
+] as const;
+
+const AGREEMENT_VERSION = "2026-01-15";
+const AGREEMENT_DOCS = [
+  { key: "terms_of_service", label: "Terms of Service" },
+  { key: "privacy_policy", label: "Privacy Policy" },
+  { key: "tax_declaration", label: "Tax Declaration" },
+  { key: "risk_disclosure_securities", label: "Risk Disclosure — Securities" },
+  { key: "cross_border_remittance", label: "Cross-Border Remittance" },
+  { key: "risk_disclosure_crypto", label: "Risk Disclosure — Crypto" },
+  { key: "risk_disclosure_derivatives", label: "Risk Disclosure — Derivatives" },
 ] as const;
 
 const COUNTRIES = [
@@ -49,6 +64,10 @@ type Personal = KycProfile["personal"];
 type Address = KycProfile["address"];
 type Identity = KycProfile["identity"];
 type Tax = KycProfile["tax"];
+type Financial = KycProfile["financial"];
+type MarketsPrefs = KycProfile["markets"];
+type Funding = KycProfile["funding"];
+type Security = KycProfile["security"];
 
 function CountrySelect({
   value,
@@ -69,6 +88,69 @@ function CountrySelect({
         </option>
       ))}
     </select>
+  );
+}
+
+const CURRENCIES = ["INR", "USD", "EUR", "GBP", "AED", "SGD"];
+const INCOME_BANDS = [
+  { code: "0_100k", label: "Under 100k" },
+  { code: "100k_500k", label: "100k – 500k" },
+  { code: "500k_1m", label: "500k – 1M" },
+  { code: "1m_5m", label: "1M – 5M" },
+  { code: "5m_plus", label: "5M+" },
+];
+
+function CurrencySelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="mt-2 w-full rounded-xl border border-border bg-background/60 px-3 py-2.5 text-sm text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
+    >
+      {CURRENCIES.map((c) => (
+        <option key={c} value={c}>
+          {c}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function BandSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="mt-2 w-full rounded-xl border border-border bg-background/60 px-3 py-2.5 text-sm text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
+    >
+      {INCOME_BANDS.map((b) => (
+        <option key={b.code} value={b.code}>
+          {b.label}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function CheckboxRow({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: () => void;
+}) {
+  return (
+    <label className="flex items-center gap-2 text-sm text-muted-foreground">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={onChange}
+        className="h-4 w-4 shrink-0 cursor-pointer rounded border-border accent-primary"
+      />
+      {label}
+    </label>
   );
 }
 
@@ -121,10 +203,43 @@ function KycPage() {
     pep_status: "none",
     source_of_funds: "salary",
   });
-  const [idUploaded, setIdUploaded] = useState(false);
-  const [selfieUploaded, setSelfieUploaded] = useState(false);
-  const [kycNumber, setKycNumber] = useState("");
+  const [financial, setFinancial] = useState<Financial>({
+    occupation: "salaried_private",
+    employer_name: "",
+    income_currency: "INR",
+    annual_income_band: "100k_500k",
+    net_worth_band: "100k_500k",
+    investment_experience_years: 0,
+    risk_tolerance: "medium",
+    investment_objectives: [],
+  });
+  const [marketsPrefs, setMarketsPrefs] = useState<MarketsPrefs>({
+    products: [],
+    base_currency: "INR",
+  });
+  const [funding, setFunding] = useState<Funding>({
+    primary_method: "bank_transfer",
+    bank_account: {
+      account_holder_name: "",
+      account_number: "",
+      account_type: "savings",
+      bank_name: "",
+      routing_type: "ifsc",
+      routing_code: "",
+      currency: "INR",
+    },
+  });
+  const [security, setSecurity] = useState<Security>({
+    two_factor_method: "totp",
+    anti_phishing_code: "",
+    withdrawal_whitelist_only: true,
+    notify_on_new_device: true,
+  });
+  const [acceptedDocs, setAcceptedDocs] = useState<Set<string>>(new Set());
   const [verifying, setVerifying] = useState(false);
+
+  const toggleInArray = (arr: string[], value: string) =>
+    arr.includes(value) ? arr.filter((v) => v !== value) : [...arr, value];
 
   if (!isLoggedIn) {
     return (
@@ -193,9 +308,25 @@ function KycPage() {
     if (currentStepKey === "tax") {
       if (!tax.tax_identification_number.trim()) return "Tax identification number is required.";
     }
-    if (currentStepKey === "verification") {
-      if (!idUploaded || !selfieUploaded) return "Please upload both your ID document and a selfie.";
-      if (!kycNumber.trim()) return "Enter your KYC verification number.";
+    if (currentStepKey === "financial") {
+      if (financial.occupation.startsWith("salaried") && !financial.employer_name.trim())
+        return "Employer name is required.";
+      if (financial.investment_experience_years < 0) return "Investment experience can't be negative.";
+      if (financial.investment_objectives.length === 0) return "Pick at least one investment objective.";
+    }
+    if (currentStepKey === "markets") {
+      if (marketsPrefs.products.length === 0) return "Pick at least one product you'll trade.";
+    }
+    if (currentStepKey === "funding") {
+      const b = funding.bank_account;
+      if (!b.account_holder_name.trim() || !b.account_number.trim() || !b.bank_name.trim() || !b.routing_code.trim())
+        return "Please complete your bank account details.";
+    }
+    if (currentStepKey === "security") {
+      if (!security.anti_phishing_code.trim()) return "Set an anti-phishing code.";
+    }
+    if (currentStepKey === "agreements") {
+      if (acceptedDocs.size < AGREEMENT_DOCS.length) return "Please accept all agreements to continue.";
     }
     return "";
   };
@@ -217,6 +348,13 @@ function KycPage() {
       address,
       identity: { ...identity, document_number: identity.document_number.toUpperCase() },
       tax,
+      financial,
+      markets: marketsPrefs,
+      funding,
+      security,
+      agreements: {
+        accepted: AGREEMENT_DOCS.map((d) => ({ document: d.key, version: AGREEMENT_VERSION })),
+      },
     };
     setVerifying(true);
     setTimeout(() => {
@@ -536,51 +674,313 @@ function KycPage() {
                   </div>
                 )}
 
-                {currentStepKey === "verification" && (
+                {currentStepKey === "financial" && (
                   <div className="space-y-4">
-                    <p className="text-sm text-muted-foreground">
-                      Upload a photo of your identity document and a selfie so we can confirm they match.
-                    </p>
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <button
-                        type="button"
-                        onClick={() => setIdUploaded(true)}
-                        className={`flex flex-col items-center gap-2 rounded-2xl border border-dashed p-6 text-center transition-colors ${
-                          idUploaded ? "border-up bg-up/5" : "border-border hover:border-primary/40"
-                        }`}
+                    <Field label="Occupation">
+                      <select
+                        value={financial.occupation}
+                        onChange={(e) => setFinancial({ ...financial, occupation: e.target.value })}
+                        className={inputClass}
                       >
-                        <i
-                          className={`fa-solid ${idUploaded ? "fa-circle-check text-up" : "fa-id-card text-muted-foreground"} text-2xl`}
+                        <option value="salaried_private">Salaried — private sector</option>
+                        <option value="salaried_government">Salaried — government</option>
+                        <option value="self_employed">Self-employed</option>
+                        <option value="business_owner">Business owner</option>
+                        <option value="student">Student</option>
+                        <option value="retired">Retired</option>
+                        <option value="unemployed">Unemployed</option>
+                      </select>
+                    </Field>
+                    {financial.occupation.startsWith("salaried") && (
+                      <Field label="Employer name">
+                        <input
+                          value={financial.employer_name}
+                          onChange={(e) => setFinancial({ ...financial, employer_name: e.target.value })}
+                          className={inputClass}
                         />
-                        <span className="text-sm font-medium text-foreground">
-                          {idUploaded ? "ID document uploaded" : "Upload ID document"}
-                        </span>
-                        <span className="text-xs text-muted-foreground">Front side, clearly readable</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setSelfieUploaded(true)}
-                        className={`flex flex-col items-center gap-2 rounded-2xl border border-dashed p-6 text-center transition-colors ${
-                          selfieUploaded ? "border-up bg-up/5" : "border-border hover:border-primary/40"
-                        }`}
-                      >
-                        <i
-                          className={`fa-solid ${selfieUploaded ? "fa-circle-check text-up" : "fa-camera text-muted-foreground"} text-2xl`}
+                      </Field>
+                    )}
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <Field label="Income currency">
+                        <CurrencySelect
+                          value={financial.income_currency}
+                          onChange={(v) => setFinancial({ ...financial, income_currency: v })}
                         />
-                        <span className="text-sm font-medium text-foreground">
-                          {selfieUploaded ? "Selfie uploaded" : "Upload a selfie"}
-                        </span>
-                        <span className="text-xs text-muted-foreground">Holding your ID document</span>
-                      </button>
+                      </Field>
+                      <Field label="Investment experience (years)">
+                        <input
+                          type="number"
+                          min={0}
+                          value={financial.investment_experience_years}
+                          onChange={(e) =>
+                            setFinancial({
+                              ...financial,
+                              investment_experience_years: Math.max(0, Number(e.target.value) || 0),
+                            })
+                          }
+                          className={inputClass}
+                        />
+                      </Field>
                     </div>
-                    <Field label="KYC verification number">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <Field label="Annual income band">
+                        <BandSelect
+                          value={financial.annual_income_band}
+                          onChange={(v) => setFinancial({ ...financial, annual_income_band: v })}
+                        />
+                      </Field>
+                      <Field label="Net worth band">
+                        <BandSelect
+                          value={financial.net_worth_band}
+                          onChange={(v) => setFinancial({ ...financial, net_worth_band: v })}
+                        />
+                      </Field>
+                    </div>
+                    <Field label="Risk tolerance">
+                      <select
+                        value={financial.risk_tolerance}
+                        onChange={(e) => setFinancial({ ...financial, risk_tolerance: e.target.value })}
+                        className={inputClass}
+                      >
+                        <option value="low">Low</option>
+                        <option value="medium">Medium</option>
+                        <option value="high">High</option>
+                      </select>
+                    </Field>
+                    <div>
+                      <span className="text-sm font-medium text-foreground">Investment objectives</span>
+                      <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        {[
+                          { key: "long_term_growth", label: "Long-term growth" },
+                          { key: "income", label: "Income" },
+                          { key: "capital_preservation", label: "Capital preservation" },
+                          { key: "speculation", label: "Speculation" },
+                          { key: "hedging", label: "Hedging" },
+                        ].map((o) => (
+                          <CheckboxRow
+                            key={o.key}
+                            label={o.label}
+                            checked={financial.investment_objectives.includes(o.key)}
+                            onChange={() =>
+                              setFinancial({
+                                ...financial,
+                                investment_objectives: toggleInArray(financial.investment_objectives, o.key),
+                              })
+                            }
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {currentStepKey === "markets" && (
+                  <div className="space-y-4">
+                    <div>
+                      <span className="text-sm font-medium text-foreground">Products you'll trade</span>
+                      <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        {[
+                          { key: "domestic_equity_delivery", label: "Domestic equity (delivery)" },
+                          { key: "foreign_equity", label: "Foreign equity" },
+                          { key: "etf", label: "ETFs" },
+                          { key: "forex", label: "Forex" },
+                          { key: "commodities", label: "Commodities" },
+                          { key: "crypto_spot", label: "Crypto — spot" },
+                          { key: "crypto_derivatives", label: "Crypto — derivatives" },
+                        ].map((o) => (
+                          <CheckboxRow
+                            key={o.key}
+                            label={o.label}
+                            checked={marketsPrefs.products.includes(o.key)}
+                            onChange={() =>
+                              setMarketsPrefs({
+                                ...marketsPrefs,
+                                products: toggleInArray(marketsPrefs.products, o.key),
+                              })
+                            }
+                          />
+                        ))}
+                      </div>
+                    </div>
+                    <Field label="Base currency">
+                      <CurrencySelect
+                        value={marketsPrefs.base_currency}
+                        onChange={(v) => setMarketsPrefs({ ...marketsPrefs, base_currency: v })}
+                      />
+                    </Field>
+                  </div>
+                )}
+
+                {currentStepKey === "funding" && (
+                  <div className="space-y-4">
+                    <Field label="Primary funding method">
+                      <select
+                        value={funding.primary_method}
+                        onChange={(e) => setFunding({ ...funding, primary_method: e.target.value })}
+                        className={inputClass}
+                      >
+                        <option value="bank_transfer">Bank transfer</option>
+                        <option value="card">Card</option>
+                        <option value="crypto_deposit">Crypto deposit</option>
+                      </select>
+                    </Field>
+                    <Field label="Account holder name">
                       <input
-                        value={kycNumber}
-                        onChange={(e) => setKycNumber(e.target.value.toUpperCase())}
-                        placeholder="Enter the KYC number sent to you"
+                        value={funding.bank_account.account_holder_name}
+                        onChange={(e) =>
+                          setFunding({
+                            ...funding,
+                            bank_account: { ...funding.bank_account, account_holder_name: e.target.value },
+                          })
+                        }
                         className={inputClass}
                       />
                     </Field>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <Field label="Bank name">
+                        <input
+                          value={funding.bank_account.bank_name}
+                          onChange={(e) =>
+                            setFunding({
+                              ...funding,
+                              bank_account: { ...funding.bank_account, bank_name: e.target.value },
+                            })
+                          }
+                          className={inputClass}
+                        />
+                      </Field>
+                      <Field label="Account type">
+                        <select
+                          value={funding.bank_account.account_type}
+                          onChange={(e) =>
+                            setFunding({
+                              ...funding,
+                              bank_account: { ...funding.bank_account, account_type: e.target.value },
+                            })
+                          }
+                          className={inputClass}
+                        >
+                          <option value="savings">Savings</option>
+                          <option value="current">Current</option>
+                        </select>
+                      </Field>
+                    </div>
+                    <Field label="Account number">
+                      <input
+                        value={funding.bank_account.account_number}
+                        onChange={(e) =>
+                          setFunding({
+                            ...funding,
+                            bank_account: {
+                              ...funding.bank_account,
+                              account_number: e.target.value.replace(/\s/g, ""),
+                            },
+                          })
+                        }
+                        className={inputClass}
+                      />
+                    </Field>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <Field label="Routing type">
+                        <select
+                          value={funding.bank_account.routing_type}
+                          onChange={(e) =>
+                            setFunding({
+                              ...funding,
+                              bank_account: { ...funding.bank_account, routing_type: e.target.value },
+                            })
+                          }
+                          className={inputClass}
+                        >
+                          <option value="ifsc">IFSC</option>
+                          <option value="swift">SWIFT</option>
+                          <option value="routing_number">Routing number</option>
+                        </select>
+                      </Field>
+                      <Field label={funding.bank_account.routing_type === "ifsc" ? "IFSC code" : "Routing code"}>
+                        <input
+                          value={funding.bank_account.routing_code}
+                          onChange={(e) =>
+                            setFunding({
+                              ...funding,
+                              bank_account: {
+                                ...funding.bank_account,
+                                routing_code: e.target.value.toUpperCase(),
+                              },
+                            })
+                          }
+                          className={inputClass}
+                        />
+                      </Field>
+                    </div>
+                    <Field label="Account currency">
+                      <CurrencySelect
+                        value={funding.bank_account.currency}
+                        onChange={(v) =>
+                          setFunding({ ...funding, bank_account: { ...funding.bank_account, currency: v } })
+                        }
+                      />
+                    </Field>
+                  </div>
+                )}
+
+                {currentStepKey === "security" && (
+                  <div className="space-y-4">
+                    <Field label="Two-factor method">
+                      <select
+                        value={security.two_factor_method}
+                        onChange={(e) => setSecurity({ ...security, two_factor_method: e.target.value })}
+                        className={inputClass}
+                      >
+                        <option value="totp">Authenticator app (TOTP)</option>
+                        <option value="sms">SMS</option>
+                        <option value="email">Email</option>
+                      </select>
+                    </Field>
+                    <Field label="Anti-phishing code">
+                      <input
+                        value={security.anti_phishing_code}
+                        onChange={(e) => setSecurity({ ...security, anti_phishing_code: e.target.value })}
+                        placeholder="Shown in every genuine email we send you"
+                        className={inputClass}
+                      />
+                    </Field>
+                    <CheckboxRow
+                      label="Only allow withdrawals to whitelisted addresses"
+                      checked={security.withdrawal_whitelist_only}
+                      onChange={() =>
+                        setSecurity({ ...security, withdrawal_whitelist_only: !security.withdrawal_whitelist_only })
+                      }
+                    />
+                    <CheckboxRow
+                      label="Notify me when a new device signs in"
+                      checked={security.notify_on_new_device}
+                      onChange={() => setSecurity({ ...security, notify_on_new_device: !security.notify_on_new_device })}
+                    />
+                  </div>
+                )}
+
+                {currentStepKey === "agreements" && (
+                  <div className="space-y-4">
+                    <p className="text-sm text-muted-foreground">
+                      Review and accept the following to finish setting up your account.
+                    </p>
+                    <div className="space-y-2">
+                      {AGREEMENT_DOCS.map((doc) => (
+                        <CheckboxRow
+                          key={doc.key}
+                          label={doc.label}
+                          checked={acceptedDocs.has(doc.key)}
+                          onChange={() =>
+                            setAcceptedDocs((prev) => {
+                              const next = new Set(prev);
+                              next.has(doc.key) ? next.delete(doc.key) : next.add(doc.key);
+                              return next;
+                            })
+                          }
+                        />
+                      ))}
+                    </div>
                   </div>
                 )}
 

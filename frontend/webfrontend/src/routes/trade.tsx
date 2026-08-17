@@ -113,7 +113,7 @@ function TradePage() {
       <section className="relative overflow-hidden border-b border-border min-h-[calc(100vh-250px)]">
         <div className="grid-bg absolute inset-0 opacity-40" />
 
-        <div className="relative mx-auto max-w-7xl px-6 py-16">
+        <div className="relative mx-auto max-w-7xl px-3 py-8 sm:px-6 sm:py-16">
           <div className="mb-10 flex flex-wrap items-end justify-between gap-4">
             <div>
               <div className="label-mono inline-flex items-center gap-2 mb-4">
@@ -135,9 +135,9 @@ function TradePage() {
             </div>
           </div>
 
-          <div className="grid gap-6 lg:grid-cols-5">
+          <div className="grid gap-3 sm:gap-6 lg:grid-cols-5">
             {/* ── Order ticket ── */}
-            <div ref={orderTicketRef} className="space-y-4 lg:col-span-1">
+            <div ref={orderTicketRef} className="order-2 space-y-4 lg:order-1 lg:col-span-1">
               {/* Favorites — tickers starred on this page */}
               <div className="rounded-xl border border-overlay-border bg-surface p-4">
                 <div className="mb-3 flex items-center gap-2">
@@ -175,8 +175,8 @@ function TradePage() {
               />
             </div>
 
-            {/* ── Chart ── */}
-            <div className="space-y-4 lg:col-span-3">
+            {/* ── Chart — first on mobile, center column on desktop ── */}
+            <div className="order-1 space-y-4 lg:order-2 lg:col-span-3">
               <div ref={searchBoxRef} className="relative" onFocusCapture={() => setShowResults(true)}>
                 <SearchInput
                   value={query}
@@ -216,7 +216,7 @@ function TradePage() {
                 )}
               </div>
 
-              <div className="relative overflow-hidden rounded-2xl sm:rounded-[2rem] border border-overlay-border bg-surface-elevated shadow-sm backdrop-blur-xl p-3 h-[460px] flex flex-col sm:p-6 sm:h-[640px] md:h-[720px]">
+              <div className="relative overflow-hidden rounded-xl border-0 sm:rounded-[2rem] sm:border sm:border-overlay-border bg-surface-elevated shadow-sm backdrop-blur-xl p-2 h-[460px] flex flex-col sm:p-6 sm:h-[640px] md:h-[720px]">
                 {/* Mobile: lean header matching the Forex chart card — full ticker/stats block returns at sm+ */}
                 <div className="mb-2 flex shrink-0 items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider text-emerald-500 sm:hidden">
                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
@@ -287,7 +287,7 @@ function TradePage() {
             </div>
 
             {/* ── Order book ── */}
-            <div className="space-y-4 lg:col-span-1">
+            <div className="order-3 space-y-4 lg:col-span-1">
               <OrderBook
                 price={toNumber(selected.p)}
                 currency={selected.p.trim().startsWith("₹") ? "INR" : "USDT"}

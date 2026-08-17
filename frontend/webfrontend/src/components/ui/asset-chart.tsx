@@ -184,6 +184,8 @@ export function AssetChart({
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
 
   const [isFullscreen, setIsFullscreen] = useState(false);
+  /** Below `lg` the tools/watchlist columns don't fit — they become slide-in overlays instead. */
+  const [mobilePanel, setMobilePanel] = useState<"none" | "tools" | "watchlist">("none");
   const [activeTool, setActiveTool] = useState<Tool>("cursor");
   const [showDrawings, setShowDrawings] = useState(true);
   const [locked, setLocked] = useState(false);
@@ -956,8 +958,9 @@ export function AssetChart({
   );
 
   const controls = (
-    <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-      <div className="flex gap-1">
+    <div className="mb-3 space-y-2">
+      {/* Row 1 — timeframes */}
+      <div className={`flex flex-wrap gap-1 ${isFullscreen ? "hidden" : ""}`}>
         {TIMEFRAMES.map((tf) => (
           <button
             key={tf}
@@ -973,6 +976,7 @@ export function AssetChart({
           </button>
         ))}
       </div>
+      {/* Row 2 — chart type + indicators */}
       <div className="flex flex-wrap items-center gap-1">
         <div className="flex gap-1 border-r border-border pr-2">
           {([
@@ -1018,16 +1022,18 @@ export function AssetChart({
             Vol
           </button>
         </HoverTip>
-        <HoverTip label={isFullscreen ? "Exit full screen (Esc)" : "Full screen"}>
-          <button
-            type="button"
-            onClick={() => setIsFullscreen((v) => !v)}
-            aria-label={isFullscreen ? "Exit full screen" : "Full screen"}
-            className="flex h-7 w-7 items-center justify-center rounded border border-border bg-secondary/40 text-muted-foreground transition-colors hover:text-foreground"
-          >
-            <i className={`fa-solid ${isFullscreen ? "fa-compress" : "fa-expand"}`} />
-          </button>
-        </HoverTip>
+        {!isFullscreen && (
+          <HoverTip label="Full screen">
+            <button
+              type="button"
+              onClick={() => setIsFullscreen(true)}
+              aria-label="Full screen"
+              className="flex h-7 w-7 items-center justify-center rounded border border-border bg-secondary/40 text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <i className="fa-solid fa-expand" />
+            </button>
+          </HoverTip>
+        )}
       </div>
     </div>
   );
@@ -1132,33 +1138,172 @@ export function AssetChart({
     );
   }
 
-  return createPortal(
-    <div className="fixed inset-0 z-[200] flex bg-background">
-      {/* Left drawing toolbar — every tool is functional */}
-      <div className="flex w-14 shrink-0 flex-col items-center gap-1 border-r border-border bg-card/60 py-4">
-        {TOOLS.map((t) => (
-          <ToolBtn key={t.key} icon={t.icon} label={t.label} active={activeTool === t.key} onClick={() => setActiveTool(t.key)} />
+  const toolbarButtons = (
+    <>
+      {TOOLS.map((t) => (
+        <ToolBtn
+          key={t.key}
+          icon={t.icon}
+          label={t.label}
+          active={activeTool === t.key}
+          onClick={() => {
+            setActiveTool(t.key);
+            setMobilePanel("none");
+          }}
+        />
+      ))}
+      <div className="my-2 h-px w-6 bg-border" />
+      <ToolBtn icon="fa-magnet" label={magnet ? "Magnet on — snaps to OHLC (M)" : "Magnet off (M)"} active={magnet} onClick={() => setMagnet((v) => !v)} />
+      <ToolBtn icon="fa-rotate-left" label="Undo (Ctrl+Z)" onClick={doUndo} disabled={!undoRef.current.length} />
+      <ToolBtn icon="fa-rotate-right" label="Redo (Ctrl+Shift+Z)" onClick={doRedo} disabled={!redoRef.current.length} />
+      <div className="flex-1" />
+      <ToolBtn icon={showDrawings ? "fa-eye" : "fa-eye-slash"} label={showDrawings ? "Hide drawings" : "Show drawings"} active={showDrawings} onClick={() => setShowDrawings((v) => !v)} />
+      <ToolBtn icon={locked ? "fa-lock" : "fa-lock-open"} label={locked ? "Unlock drawings" : "Lock drawings"} active={locked} onClick={() => setLocked((v) => !v)} />
+      <ToolBtn icon="fa-trash" label="Remove all drawings" onClick={clearDrawings} disabled={!drawings.length} />
+    </>
+  );
+
+  const watchlistPanel = (
+    <>
+      <div className="shrink-0 border-b border-border p-4">
+        <div className="mb-3 flex items-center justify-between">
+          <span className="text-sm font-bold text-foreground">Watchlist</span>
+          <HoverTip label={watchSort === "desc" ? "Sorted: top gainers first" : watchSort === "asc" ? "Sorted: top losers first" : "Sort by change"} side="right">
+            <button
+              type="button"
+              onClick={() => setWatchSort((s) => (s === null ? "desc" : s === "desc" ? "asc" : null))}
+              aria-label="Sort watchlist by change"
+              className={`flex h-7 w-7 items-center justify-center rounded border text-xs transition-colors ${
+                watchSort ? "border-primary bg-primary text-primary-foreground" : "border-border bg-secondary/40 text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <i className={`fa-solid text-[10px] ${watchSort === "asc" ? "fa-arrow-up-short-wide" : watchSort === "desc" ? "fa-arrow-down-wide-short" : "fa-sort"}`} />
+            </button>
+          </HoverTip>
+        </div>
+        <input
+          type="text"
+          value={watchQuery}
+          onChange={(e) => setWatchQuery(e.target.value)}
+          placeholder="Search symbol..."
+          className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
+        />
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto p-2">
+        {groupedWatchlist.length === 0 && <p className="py-6 text-center text-xs text-muted-foreground">No symbols found.</p>}
+        {groupedWatchlist.map((group) => (
+          <div key={group.label} className="mb-3">
+            <div className="px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{group.label}</div>
+            {group.items.map((item) => {
+              const isActive = item.sym === symbol;
+              const itemUp = item.changePct >= 0;
+              return (
+                <HoverTip key={item.sym} label={item.name} side="top">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onSelectSymbol?.(item);
+                      setMobilePanel("none");
+                    }}
+                    className={`flex w-full items-center gap-2 rounded-md px-2 py-2 text-left transition-colors ${isActive ? "bg-primary/10" : "hover:bg-secondary/60"}`}
+                  >
+                    <span
+                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full font-mono text-[10px] font-bold"
+                      style={{ backgroundColor: `${item.color}20`, color: item.color }}
+                    >
+                      {item.sym.slice(0, 2)}
+                    </span>
+                    <span className={`truncate text-xs font-semibold ${isActive ? "text-primary" : "text-foreground"}`}>{item.sym}</span>
+                    <span className="ml-auto text-right">
+                      <span className="block font-mono text-xs text-foreground">{item.price}</span>
+                      <span className={`block font-mono text-[10px] font-semibold ${itemUp ? "text-up" : "text-down"}`}>
+                        {itemUp ? "+" : ""}
+                        {item.changePct.toFixed(2)}%
+                      </span>
+                    </span>
+                  </button>
+                </HoverTip>
+              );
+            })}
+          </div>
         ))}
-        <div className="my-2 h-px w-6 bg-border" />
-        <ToolBtn icon="fa-magnet" label={magnet ? "Magnet on — snaps to OHLC (M)" : "Magnet off (M)"} active={magnet} onClick={() => setMagnet((v) => !v)} />
-        <ToolBtn icon="fa-rotate-left" label="Undo (Ctrl+Z)" onClick={doUndo} disabled={!undoRef.current.length} />
-        <ToolBtn icon="fa-rotate-right" label="Redo (Ctrl+Shift+Z)" onClick={doRedo} disabled={!redoRef.current.length} />
-        <div className="flex-1" />
-        <ToolBtn icon={showDrawings ? "fa-eye" : "fa-eye-slash"} label={showDrawings ? "Hide drawings" : "Show drawings"} active={showDrawings} onClick={() => setShowDrawings((v) => !v)} />
-        <ToolBtn icon={locked ? "fa-lock" : "fa-lock-open"} label={locked ? "Unlock drawings" : "Lock drawings"} active={locked} onClick={() => setLocked((v) => !v)} />
-        <ToolBtn icon="fa-trash" label="Remove all drawings" onClick={clearDrawings} disabled={!drawings.length} />
+      </div>
+
+      <div className="shrink-0 border-t border-border p-4">
+        <div className="flex items-center gap-2 text-xs">
+          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-up shadow-[0_0_5px_var(--up)]" />
+          <span className="font-medium text-foreground">{marketStatusLabel}</span>
+        </div>
+        <div className="mt-2 flex items-baseline gap-2">
+          <span className="font-mono text-xl font-bold text-foreground">{fmt(lastPrice, decimals)}</span>
+          <span className={`font-mono text-xs font-bold ${up ? "text-up" : "text-down"}`}>
+            {up ? "+" : ""}
+            {changePct.toFixed(2)}%
+          </span>
+        </div>
+        <div className="mt-3 grid grid-cols-3 gap-2">
+          {perf.map((p) => (
+            <PerfTile key={p.tf} label={p.tf} pct={p.pct} />
+          ))}
+        </div>
+      </div>
+    </>
+  );
+
+  return createPortal(
+    <div className="fixed inset-0 z-[250] flex overflow-hidden bg-background">
+      {/* Left drawing toolbar — desktop only; mobile gets a slide-in drawer below */}
+      <div className="hidden w-14 shrink-0 flex-col items-center gap-1 border-r border-border bg-card/60 py-4 lg:flex">
+        {toolbarButtons}
       </div>
 
       {/* Center */}
-      <div className="flex min-w-0 flex-1 flex-col">
-        <div className="flex shrink-0 items-center justify-between border-b border-border px-5 py-3">
-          <div className="flex items-baseline gap-2.5">
-            <span className="text-lg font-bold text-foreground">{symbol ?? seed}</span>
-            {name && <span className="text-sm text-muted-foreground">{name}</span>}
-            <span className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px] uppercase text-muted-foreground">{exchange}</span>
-            <span className="font-mono text-[10px] text-muted-foreground">{data.length} bars</span>
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2.5 sm:px-5 sm:py-3">
+          <button
+            type="button"
+            onClick={() => setMobilePanel((p) => (p === "tools" ? "none" : "tools"))}
+            aria-label="Drawing tools"
+            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md border text-sm transition-colors lg:hidden ${
+              mobilePanel === "tools" ? "border-primary bg-primary text-primary-foreground" : "border-border text-muted-foreground hover:bg-secondary"
+            }`}
+          >
+            <i className="fa-solid fa-pencil" />
+          </button>
+          <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto no-scrollbar">
+            <span className="shrink-0 text-base font-bold text-foreground sm:text-lg">{symbol ?? seed}</span>
+            {name && <span className="hidden shrink-0 text-sm text-muted-foreground sm:inline">{name}</span>}
+            <span className="shrink-0 rounded border border-border px-1.5 py-0.5 font-mono text-[10px] uppercase text-muted-foreground">{exchange}</span>
+            <span className="mx-1 hidden h-4 w-px shrink-0 bg-border sm:block" />
+            <div className="hidden shrink-0 gap-1 sm:flex">
+              {TIMEFRAMES.map((tf) => (
+                <button
+                  key={tf}
+                  type="button"
+                  onClick={() => setTimeframe(tf)}
+                  className={`rounded border px-2 py-1 font-mono text-xs transition-colors ${
+                    tf === timeframe
+                      ? "border-primary bg-primary font-bold text-primary-foreground"
+                      : "border-border bg-secondary/40 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                  }`}
+                >
+                  {tf === "ALL" ? "2Y" : tf}
+                </button>
+              ))}
+            </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setMobilePanel((p) => (p === "watchlist" ? "none" : "watchlist"))}
+              aria-label="Watchlist"
+              className={`flex h-8 w-8 items-center justify-center rounded-md border text-sm transition-colors lg:hidden ${
+                mobilePanel === "watchlist" ? "border-primary bg-primary text-primary-foreground" : "border-border text-muted-foreground hover:bg-secondary"
+              }`}
+            >
+              <i className="fa-solid fa-list-ul" />
+            </button>
             <HoverTip label="Exit full screen (Esc)">
               <button
                 type="button"
@@ -1171,95 +1316,52 @@ export function AssetChart({
             </HoverTip>
           </div>
         </div>
-        <div className="flex min-h-0 flex-1 flex-col p-5">
+
+        {/* Timeframe row — its own line on mobile, where the title bar has no room for it */}
+        <div className="flex shrink-0 gap-1 overflow-x-auto no-scrollbar border-b border-border px-3 py-2 sm:hidden">
+          {TIMEFRAMES.map((tf) => (
+            <button
+              key={tf}
+              type="button"
+              onClick={() => setTimeframe(tf)}
+              className={`shrink-0 rounded border px-2.5 py-1 font-mono text-xs transition-colors ${
+                tf === timeframe
+                  ? "border-primary bg-primary font-bold text-primary-foreground"
+                  : "border-border bg-secondary/40 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+              }`}
+            >
+              {tf === "ALL" ? "2Y" : tf}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-3 sm:p-5">
           {header}
           {controls}
           {chartPane}
         </div>
       </div>
 
-      {/* Right: watchlist + performance */}
-      <div className="flex w-80 shrink-0 flex-col border-l border-border bg-card/40">
-        <div className="shrink-0 border-b border-border p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <span className="text-sm font-bold text-foreground">Watchlist</span>
-            <HoverTip label={watchSort === "desc" ? "Sorted: top gainers first" : watchSort === "asc" ? "Sorted: top losers first" : "Sort by change"} side="right">
-              <button
-                type="button"
-                onClick={() => setWatchSort((s) => (s === null ? "desc" : s === "desc" ? "asc" : null))}
-                aria-label="Sort watchlist by change"
-                className={`flex h-7 w-7 items-center justify-center rounded border text-xs transition-colors ${
-                  watchSort ? "border-primary bg-primary text-primary-foreground" : "border-border bg-secondary/40 text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <i className={`fa-solid text-[10px] ${watchSort === "asc" ? "fa-arrow-up-short-wide" : watchSort === "desc" ? "fa-arrow-down-wide-short" : "fa-sort"}`} />
-              </button>
-            </HoverTip>
-          </div>
-          <input
-            type="text"
-            value={watchQuery}
-            onChange={(e) => setWatchQuery(e.target.value)}
-            placeholder="Search symbol..."
-            className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
-          />
-        </div>
+      {/* Right: watchlist + performance — desktop only; mobile gets a slide-in drawer below */}
+      <div className="hidden w-80 shrink-0 flex-col border-l border-border bg-card/40 lg:flex">{watchlistPanel}</div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-2">
-          {groupedWatchlist.length === 0 && <p className="py-6 text-center text-xs text-muted-foreground">No symbols found.</p>}
-          {groupedWatchlist.map((group) => (
-            <div key={group.label} className="mb-3">
-              <div className="px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{group.label}</div>
-              {group.items.map((item) => {
-                const isActive = item.sym === symbol;
-                const itemUp = item.changePct >= 0;
-                return (
-                  <HoverTip key={item.sym} label={item.name} side="top">
-                    <button
-                      type="button"
-                      onClick={() => onSelectSymbol?.(item)}
-                      className={`flex w-full items-center gap-2 rounded-md px-2 py-2 text-left transition-colors ${isActive ? "bg-primary/10" : "hover:bg-secondary/60"}`}
-                    >
-                      <span
-                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full font-mono text-[10px] font-bold"
-                        style={{ backgroundColor: `${item.color}20`, color: item.color }}
-                      >
-                        {item.sym.slice(0, 2)}
-                      </span>
-                      <span className={`truncate text-xs font-semibold ${isActive ? "text-primary" : "text-foreground"}`}>{item.sym}</span>
-                      <span className="ml-auto text-right">
-                        <span className="block font-mono text-xs text-foreground">{item.price}</span>
-                        <span className={`block font-mono text-[10px] font-semibold ${itemUp ? "text-up" : "text-down"}`}>
-                          {itemUp ? "+" : ""}
-                          {item.changePct.toFixed(2)}%
-                        </span>
-                      </span>
-                    </button>
-                  </HoverTip>
-                );
-              })}
-            </div>
-          ))}
-        </div>
-
-        <div className="shrink-0 border-t border-border p-4">
-          <div className="flex items-center gap-2 text-xs">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-up shadow-[0_0_5px_var(--up)]" />
-            <span className="font-medium text-foreground">{marketStatusLabel}</span>
-          </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="font-mono text-xl font-bold text-foreground">{fmt(lastPrice, decimals)}</span>
-            <span className={`font-mono text-xs font-bold ${up ? "text-up" : "text-down"}`}>
-              {up ? "+" : ""}
-              {changePct.toFixed(2)}%
-            </span>
-          </div>
-          <div className="mt-3 grid grid-cols-3 gap-2">
-            {perf.map((p) => (
-              <PerfTile key={p.tf} label={p.tf} pct={p.pct} />
-            ))}
-          </div>
-        </div>
+      {/* Mobile drawers */}
+      {mobilePanel !== "none" && (
+        <div className="fixed inset-0 z-40 bg-black/50 lg:hidden" onClick={() => setMobilePanel("none")} />
+      )}
+      <div
+        className={`fixed inset-y-0 left-0 z-50 flex w-16 -translate-x-full flex-col items-center gap-1 border-r border-border bg-card py-4 shadow-2xl transition-transform duration-200 lg:hidden ${
+          mobilePanel === "tools" ? "translate-x-0" : ""
+        }`}
+      >
+        {toolbarButtons}
+      </div>
+      <div
+        className={`fixed inset-y-0 right-0 z-50 flex w-[85vw] max-w-xs translate-x-full flex-col border-l border-border bg-card shadow-2xl transition-transform duration-200 lg:hidden ${
+          mobilePanel === "watchlist" ? "translate-x-0" : ""
+        }`}
+      >
+        {watchlistPanel}
       </div>
       {contextMenu}
     </div>,

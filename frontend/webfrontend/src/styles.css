@@ -217,6 +217,14 @@
   min-height: 100dvh;
 }
 
+@utility no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 @utility marquee-track {
   animation: marquee 40s linear infinite;
 }

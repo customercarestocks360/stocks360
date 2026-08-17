@@ -195,10 +195,10 @@ function ForexPage() {
       <div>
         {/* ─── Chart + Trending pairs ─── */}
         <section className="relative overflow-hidden">
-          <div className="relative mx-auto max-w-7xl px-6 py-16">
-            <div className="grid gap-6 lg:grid-cols-3">
+          <div className="relative mx-auto max-w-7xl px-3 py-8 sm:px-6 sm:py-16">
+            <div className="grid gap-3 sm:gap-6 lg:grid-cols-3">
               {/* Chart panel */}
-              <div className="relative lg:col-span-2 overflow-hidden rounded-[2rem] border border-overlay-border bg-surface-elevated shadow-[var(--glow)] backdrop-blur-xl p-4 h-[460px] flex flex-col hover:border-primary/20 sm:p-6 sm:h-[560px] md:h-[640px]">
+              <div className="relative lg:col-span-2 overflow-hidden rounded-xl border-0 sm:rounded-[2rem] sm:border sm:border-overlay-border bg-surface-elevated shadow-[var(--glow)] backdrop-blur-xl p-2 h-[460px] flex flex-col hover:border-primary/20 sm:p-6 sm:h-[560px] md:h-[640px]">
                 <div className="mb-2 flex shrink-0 items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider text-emerald-500">
                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
                   Live · {selected.n}

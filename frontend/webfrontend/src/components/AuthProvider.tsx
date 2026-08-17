@@ -147,6 +147,41 @@ export type KycProfile = {
     pep_status: string;
     source_of_funds: string;
   };
+  financial: {
+    occupation: string;
+    employer_name: string;
+    income_currency: string;
+    annual_income_band: string;
+    net_worth_band: string;
+    investment_experience_years: number;
+    risk_tolerance: string;
+    investment_objectives: string[];
+  };
+  markets: {
+    products: string[];
+    base_currency: string;
+  };
+  funding: {
+    primary_method: string;
+    bank_account: {
+      account_holder_name: string;
+      account_number: string;
+      account_type: string;
+      bank_name: string;
+      routing_type: string;
+      routing_code: string;
+      currency: string;
+    };
+  };
+  security: {
+    two_factor_method: string;
+    anti_phishing_code: string;
+    withdrawal_whitelist_only: boolean;
+    notify_on_new_device: boolean;
+  };
+  agreements: {
+    accepted: { document: string; version: string }[];
+  };
 };
 
 /** Who the caller is, as asserted by Firebase and confirmed by the backend. */

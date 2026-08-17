@@ -569,7 +569,7 @@ function Index() {
             {/* Center heading — sits between the two rows with its own breathing room, not overlapping either */}
             <div className="relative z-10 my-8 flex justify-center md:my-10">
               <h2 className="text-2xl font-bold tracking-tight text-foreground/60 md:text-4xl">
-                Trusted by <AnimatedNumber value="2400000" suffix="+" /> traders
+                Trusted by <AnimatedNumber value="78632" suffix="+" /> traders
               </h2>
             </div>
 
