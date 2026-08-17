@@ -7,6 +7,9 @@ import { OrdersPanel } from "@/components/ui/orders-panel";
 import { useFavorites } from "@/components/FavoritesProvider";
 import { FavoriteStar } from "@/components/ui/favorite-star";
 import { AssetChart, type WatchlistItem } from "@/components/ui/asset-chart";
+import { Sparkline } from "@/components/ui/sparkline";
+import { RangeBar52W, VolDiffBadge } from "@/components/ui/market-cells";
+import { deriveMarketStats } from "@/lib/market-stats";
 
 export const Route = createFileRoute("/forex")({
   head: () => ({
@@ -290,41 +293,85 @@ function ForexPage() {
               </div>
             </div>
 
-            {/* ── Trending Currency Pairs — five-across cards, always the full fixed list ── */}
+            {/* ── Trending Currency Pairs ── */}
             <div className="mt-8">
               <h2 className="mb-4 font-mono text-sm uppercase tracking-wider text-muted-foreground">
                 Trending Currency Pairs
               </h2>
-              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-                {forexPairs.map((a) => (
-                    <div
-                      key={a.n}
-                      onClick={() => setSelected(a)}
-                      className={`cursor-pointer overflow-hidden rounded-xl border p-4 shadow-sm backdrop-blur-md transition-colors ${
-                        selected.n === a.n
-                          ? "border-primary/40 bg-primary/5"
-                          : "border-overlay-border bg-surface hover:border-primary/20"
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <FavoriteStar id={`forex:${a.n}`} />
-                        <span
-                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full font-mono text-[10px] font-bold"
-                          style={{ backgroundColor: `${a.color}18`, color: a.color }}
+              <div className="overflow-x-auto rounded-2xl border border-overlay-border bg-surface">
+                <table className="w-full min-w-[980px] border-collapse text-sm">
+                  <thead>
+                    <tr className="border-b border-border bg-secondary/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
+                      <th className="px-5 py-3 font-medium">Pair</th>
+                      <th className="px-5 py-3 font-medium">Chart</th>
+                      <th className="px-5 py-3 font-medium">Market price</th>
+                      <th className="px-5 py-3 font-medium">1D price change</th>
+                      <th className="px-5 py-3 font-medium">Volume</th>
+                      <th className="px-5 py-3 font-medium">1W avg vol diff</th>
+                      <th className="px-5 py-3 font-medium">52W</th>
+                      <th className="px-5 py-3 text-right font-medium">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {forexPairs.map((a) => {
+                      const priceNum = toNumber(a.p);
+                      const stats = deriveMarketStats(a.n, priceNum);
+                      return (
+                        <tr
+                          key={a.n}
+                          onClick={() => setSelected(a)}
+                          className={`cursor-pointer border-b border-border last:border-b-0 transition-colors ${
+                            selected.n === a.n ? "bg-primary/5" : "hover:bg-secondary/30"
+                          }`}
                         >
-                          <i className={`fa-solid ${a.icon} text-xs`} />
-                        </span>
-                        <div className="min-w-0">
-                          <div className="font-bold text-sm truncate">{a.n}</div>
-                          <div className="text-[11px] text-muted-foreground font-mono">Vol {a.v}</div>
-                        </div>
-                      </div>
-                      <div className="mt-3 flex items-center justify-between">
-                        <span className="font-mono text-sm font-bold">{a.p}</span>
-                        <span className={`font-mono text-xs ${a.up ? "text-up" : "text-down"}`}>{a.c}</span>
-                      </div>
-                    </div>
-                ))}
+                          <td className="px-5 py-4">
+                            <div className="flex items-center gap-3">
+                              <span
+                                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full font-mono text-[10px] font-bold"
+                                style={{ backgroundColor: `${a.color}18`, color: a.color }}
+                              >
+                                <i className={`fa-solid ${a.icon} text-xs`} />
+                              </span>
+                              <div className="font-semibold text-foreground">{a.n}</div>
+                            </div>
+                          </td>
+                          <td className="px-5 py-4">
+                            <Sparkline seed={a.n} up={a.up} />
+                          </td>
+                          <td className="px-5 py-4 font-mono text-foreground">{a.p}</td>
+                          <td className="px-5 py-4">
+                            <span className={`font-mono text-sm font-semibold ${a.up ? "text-up" : "text-down"}`}>{a.c}</span>
+                          </td>
+                          <td className="px-5 py-4 font-mono text-muted-foreground">{a.v}</td>
+                          <td className="px-5 py-4">
+                            <VolDiffBadge pct={stats.avgVolDiffPct} />
+                          </td>
+                          <td className="px-5 py-4">
+                            <RangeBar52W low={stats.low52w} high={stats.high52w} price={priceNum} />
+                          </td>
+                          <td className="px-5 py-4">
+                            <div className="flex items-center justify-end gap-2">
+                              <FavoriteStar
+                                id={`forex:${a.n}`}
+                                className="flex h-8 w-8 items-center justify-center rounded-lg border border-border"
+                              />
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelected(a);
+                                }}
+                                className="rounded-lg bg-primary px-3.5 py-1.5 text-xs font-bold uppercase tracking-wide text-primary-foreground transition-opacity hover:opacity-90"
+                              >
+                                Trade
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             </div>
 

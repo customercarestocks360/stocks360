@@ -15,7 +15,7 @@ export const Route = createFileRoute("/withdraw")({
   head: () => ({
     meta: [
       { title: "Withdraw — Stocks360" },
-      { name: "description", content: "Withdraw INR or USDT from your Stocks360 account." },
+      { name: "description", content: "Withdraw USDT from your Stocks360 account." },
     ],
   }),
   component: WithdrawPage,
@@ -26,7 +26,11 @@ type AssetOption = {
   name: string;
   symbol: string;
   color: string;
-  network: string;
+};
+
+type NetworkOption = {
+  code: string;
+  name: string;
   destinationLabel: string;
   destinationPlaceholder: string;
   minimum: string;
@@ -34,34 +38,65 @@ type AssetOption = {
   fee: string;
 };
 
-/**
- * Withdrawal rails per currency. Same two assets as deposit, each settling
- * out over its one destination type — a bank/UPI handle for rupees, a chain
- * address for USDT.
- */
+/** Withdrawal rails — USDT is the only asset the platform pays out. */
 const ASSET_OPTIONS: AssetOption[] = [
+  { code: "USDT", name: "TetherUS", symbol: "", color: "#26a17b" },
+];
+
+/** The 6 USDT networks most traders actually use for withdrawals. */
+const NETWORK_OPTIONS: NetworkOption[] = [
   {
-    code: "INR",
-    name: "Indian Rupee",
-    symbol: "₹",
-    color: "#f59e0b",
-    network: NETWORK_OF.INR,
-    destinationLabel: "UPI ID",
-    destinationPlaceholder: "yourname@upi",
-    minimum: "More than ₹100",
-    arrival: "Usually settles within 24 hours",
-    fee: "₹0",
+    code: "TRC20",
+    name: "Tron (TRC20)",
+    destinationLabel: "Wallet Address (TRC20)",
+    destinationPlaceholder: "T…",
+    minimum: "More than 1 USDT",
+    arrival: "About 20 network confirmations after settlement",
+    fee: "1 USDT",
   },
   {
-    code: "USDT",
-    name: "TetherUS",
-    symbol: "",
-    color: "#26a17b",
-    network: NETWORK_OF.USDT,
+    code: "BEP20",
+    name: "BNB Smart Chain (BEP20)",
     destinationLabel: "Wallet Address (BEP20)",
     destinationPlaceholder: "0x…",
     minimum: "More than 1 USDT",
     arrival: "About 15 network confirmations after settlement",
+    fee: "1 USDT",
+  },
+  {
+    code: "ERC20",
+    name: "Ethereum (ERC20)",
+    destinationLabel: "Wallet Address (ERC20)",
+    destinationPlaceholder: "0x…",
+    minimum: "More than 5 USDT",
+    arrival: "About 12 network confirmations after settlement",
+    fee: "3 USDT",
+  },
+  {
+    code: "SOL",
+    name: "Solana",
+    destinationLabel: "Wallet Address (Solana)",
+    destinationPlaceholder: "Base58 address…",
+    minimum: "More than 1 USDT",
+    arrival: "About 32 network confirmations after settlement",
+    fee: "1 USDT",
+  },
+  {
+    code: "MATIC",
+    name: "Polygon",
+    destinationLabel: "Wallet Address (Polygon)",
+    destinationPlaceholder: "0x…",
+    minimum: "More than 1 USDT",
+    arrival: "About 128 network confirmations after settlement",
+    fee: "1 USDT",
+  },
+  {
+    code: "ARBITRUM",
+    name: "Arbitrum One",
+    destinationLabel: "Wallet Address (Arbitrum)",
+    destinationPlaceholder: "0x…",
+    minimum: "More than 1 USDT",
+    arrival: "About 12 network confirmations after settlement",
     fee: "1 USDT",
   },
 ];
@@ -92,6 +127,22 @@ function stamp(iso: string) {
   const d = new Date(iso);
   const p = (v: number) => String(v).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+/** Diamond marker for a completed step, numbered circle for the one in progress. */
+function StepMarker({ done, n }: { done: boolean; n: number }) {
+  if (done) {
+    return (
+      <span className="flex h-5 w-5 rotate-45 items-center justify-center rounded-[3px] border-2 border-foreground/70">
+        <i className="fa-solid fa-check -rotate-45 text-[9px] text-foreground/70" />
+      </span>
+    );
+  }
+  return (
+    <span className="flex h-5 w-5 items-center justify-center rounded-full border-2 border-foreground/70 text-[10px] font-bold text-foreground/70">
+      {n}
+    </span>
+  );
 }
 
 function Dropdown<T>({
@@ -168,22 +219,6 @@ function Dropdown<T>({
   );
 }
 
-/** Diamond marker for a completed step, numbered circle for the one in progress. */
-function StepMarker({ done, n }: { done: boolean; n: number }) {
-  if (done) {
-    return (
-      <span className="flex h-5 w-5 rotate-45 items-center justify-center rounded-[3px] border-2 border-foreground/70">
-        <i className="fa-solid fa-check -rotate-45 text-[9px] text-foreground/70" />
-      </span>
-    );
-  }
-  return (
-    <span className="flex h-5 w-5 items-center justify-center rounded-full border-2 border-foreground/70 text-[10px] font-bold text-foreground/70">
-      {n}
-    </span>
-  );
-}
-
 function Step({
   n,
   done,
@@ -212,7 +247,8 @@ function Step({
 function WithdrawPage() {
   const { isLoggedIn, kycCompleted, balances, transactions, requestWithdrawal } = useAuth();
 
-  const [asset, setAsset] = useState<AssetOption>(ASSET_OPTIONS[0]!);
+  const asset = ASSET_OPTIONS[0]!;
+  const [network, setNetwork] = useState<NetworkOption>(NETWORK_OPTIONS[0]!);
   const [destination, setDestination] = useState("");
   const [amount, setAmount] = useState("");
   const [stage, setStage] = useState<"idle" | "requested">("idle");
@@ -230,13 +266,6 @@ function WithdrawPage() {
     [transactions],
   );
 
-  const selectAsset = (next: AssetOption) => {
-    setAsset(next);
-    setDestination("");
-    setAmount("");
-    setStage("idle");
-  };
-
   const value = parseFloat(amount);
   const overBalance = Number.isFinite(value) && value > available;
   const canSubmit =
@@ -244,7 +273,7 @@ function WithdrawPage() {
 
   const handleSubmit = () => {
     if (!canSubmit) return;
-    requestWithdrawal(asset.code, value, destination.trim());
+    requestWithdrawal(asset.code, value, destination.trim(), network.code);
     setStage("requested");
   };
 
@@ -299,7 +328,7 @@ function WithdrawPage() {
                 className="flex items-center gap-2 text-sm font-semibold text-primary transition-opacity hover:opacity-80"
               >
                 <i className="fa-solid fa-arrow-down-up-across-line text-xs" />
-                Holding the wrong currency? Convert to INR or USDT first
+                Holding the wrong currency? Convert to USDT first
                 <i className={`fa-solid fa-chevron-down text-[10px] transition-transform ${showConvert ? "rotate-180" : ""}`} />
               </button>
               {showConvert && (
@@ -309,32 +338,26 @@ function WithdrawPage() {
               )}
             </li>
 
-            <Step n={1} done title="Select Asset">
+            <Step n={1} done title="Asset">
               <div className="max-w-lg">
-                <Dropdown
-                  label="Select asset"
-                  items={ASSET_OPTIONS}
-                  selected={asset}
-                  onSelect={selectAsset}
-                  render={(a) => (
-                    <span className="flex min-w-0 items-center gap-3">
-                      <span
-                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full font-mono text-[8px] font-bold"
-                        style={{ backgroundColor: `${a.color}25`, color: a.color }}
-                      >
-                        {a.code.slice(0, 3)}
-                      </span>
-                      <span className="truncate font-semibold text-foreground">{a.code}</span>
-                      <span className="truncate text-sm text-muted-foreground">{a.name}</span>
-                    </span>
-                  )}
-                />
+                <div className="flex w-full items-center gap-3 rounded-xl border border-border bg-card px-4 py-3.5">
+                  <span
+                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full font-mono text-[8px] font-bold"
+                    style={{ backgroundColor: `${asset.color}25`, color: asset.color }}
+                  >
+                    {asset.code.slice(0, 3)}
+                  </span>
+                  <span className="truncate font-semibold text-foreground">{asset.code}</span>
+                  <span className="truncate text-sm text-muted-foreground">{asset.name}</span>
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  USDT is the only asset Stocks360 pays out withdrawals in.
+                </p>
 
                 <div className="mt-4 flex items-center justify-between rounded-xl border border-border bg-card px-4 py-3">
                   <span className="text-sm text-muted-foreground">Available to withdraw</span>
                   <span className="font-mono text-sm font-semibold text-foreground">
-                    {asset.symbol}
-                    {fmt(available)} {asset.code === "USDT" ? "USDT" : ""}
+                    {fmt(available)} USDT
                   </span>
                 </div>
               </div>
@@ -342,19 +365,25 @@ function WithdrawPage() {
 
             <Step n={2} done title="Withdrawal Network">
               <div className="max-w-lg">
-                <div className="flex w-full items-center gap-3 rounded-xl border border-border bg-card px-4 py-3.5">
-                  <span className="font-semibold text-foreground">{asset.network}</span>
-                  <span className="truncate text-sm text-muted-foreground">
-                    {asset.code === "INR" ? "Unified Payments Interface" : "BNB Smart Chain (BEP20)"}
-                  </span>
-                </div>
+                <Dropdown
+                  label="Select network"
+                  items={NETWORK_OPTIONS}
+                  selected={network}
+                  onSelect={(n) => setNetwork(n)}
+                  render={(n) => (
+                    <span className="flex min-w-0 items-center gap-3">
+                      <span className="shrink-0 font-semibold text-foreground">{n.code}</span>
+                      <span className="truncate text-sm text-muted-foreground">{n.name}</span>
+                    </span>
+                  )}
+                />
 
                 <label className="mt-4 block text-sm font-medium text-foreground">
-                  {asset.destinationLabel}
+                  {network.destinationLabel}
                   <input
                     value={destination}
                     onChange={(e) => setDestination(e.target.value)}
-                    placeholder={asset.destinationPlaceholder}
+                    placeholder={network.destinationPlaceholder}
                     className="mt-2 w-full rounded-xl border border-border bg-background/60 px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
                   />
                 </label>
@@ -394,7 +423,7 @@ function WithdrawPage() {
                           <input
                             value={amount}
                             onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))}
-                            placeholder={asset.code === "INR" ? "e.g. 5000" : "e.g. 100"}
+                            placeholder="e.g. 100"
                             inputMode="decimal"
                             className="w-full rounded-xl border border-border bg-background/60 px-3 py-2.5 pr-16 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
                           />
@@ -415,15 +444,15 @@ function WithdrawPage() {
 
                       <div className="mt-4 flex items-center justify-between text-sm">
                         <span className="text-muted-foreground">Minimum withdrawal</span>
-                        <span className="font-semibold text-foreground">{asset.minimum}</span>
+                        <span className="font-semibold text-foreground">{network.minimum}</span>
                       </div>
                       <div className="mt-2 flex items-center justify-between text-sm">
                         <span className="text-muted-foreground">Network fee</span>
-                        <span className="font-semibold text-foreground">{asset.fee}</span>
+                        <span className="font-semibold text-foreground">{network.fee}</span>
                       </div>
                       <div className="mt-2 flex items-center justify-between text-sm">
                         <span className="text-muted-foreground">Expected settlement</span>
-                        <span className="font-semibold text-foreground">{asset.arrival}</span>
+                        <span className="font-semibold text-foreground">{network.arrival}</span>
                       </div>
 
                       <button

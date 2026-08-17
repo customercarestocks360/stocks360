@@ -8,7 +8,7 @@ export const Route = createFileRoute("/deposit")({
   head: () => ({
     meta: [
       { title: "Deposit — Stocks360" },
-      { name: "description", content: "Deposit INR or USDT into your Stocks360 account." },
+      { name: "description", content: "Deposit USDT into your Stocks360 account." },
     ],
   }),
   component: DepositPage,
@@ -35,31 +35,8 @@ type AssetOption = {
   networks: Network[];
 };
 
-/**
- * Deposit rails per currency. Rupees settle over UPI and USDT over a chain —
- * the network list is per-asset because a UPI handle can't receive tokens and
- * a BEP20 contract can't receive rupees.
- */
+/** Deposit rails — USDT is the only asset the platform accepts. */
 const ASSET_OPTIONS: AssetOption[] = [
-  {
-    code: "INR",
-    name: "Indian Rupee",
-    symbol: "₹",
-    color: "#f59e0b",
-    networks: [
-      {
-        code: "UPI",
-        name: "Unified Payments Interface",
-        address: "stocks360@upi",
-        addressLabel: "UPI ID",
-        payload: (a) => `upi://pay?pa=${a}&pn=Stocks360&cu=INR`,
-        minimum: "More than ₹100",
-        arrival: "Instant — usually under 2 minutes",
-        fee: "₹0",
-        confirmations: "1 bank confirmation",
-      },
-    ],
-  },
   {
     code: "USDT",
     name: "TetherUS",
@@ -67,7 +44,18 @@ const ASSET_OPTIONS: AssetOption[] = [
     color: "#26a17b",
     networks: [
       {
-        code: "BSC",
+        code: "TRC20",
+        name: "Tron (TRC20)",
+        address: "TXYZbe1a2Kd8vQmN4rC7wF3pL6sJ9hG5xD",
+        addressLabel: "Wallet Address (TRC20)",
+        payload: (a) => a,
+        minimum: "More than 1 USDT",
+        arrival: "About 1 minute after network confirmation",
+        fee: "0 USDT",
+        confirmations: "20 network confirmations",
+      },
+      {
+        code: "BEP20",
         name: "BNB Smart Chain (BEP20)",
         address: "0x8cfa8b2fff6d4cec11dd6b53b68793fb4f81ffe3",
         addressLabel: "Wallet Address (BEP20)",
@@ -77,6 +65,50 @@ const ASSET_OPTIONS: AssetOption[] = [
         fee: "0 USDT",
         confirmations: "15 network confirmations",
       },
+      {
+        code: "ERC20",
+        name: "Ethereum (ERC20)",
+        address: "0x8cfa8b2fff6d4cec11dd6b53b68793fb4f81ffe3",
+        addressLabel: "Wallet Address (ERC20)",
+        payload: (a) => a,
+        minimum: "More than 5 USDT",
+        arrival: "About 15 minutes after network confirmation",
+        fee: "0 USDT",
+        confirmations: "12 network confirmations",
+      },
+      {
+        code: "SOL",
+        name: "Solana",
+        address: "8pM3nRJZfKQbGxT7yLh1WcS4uVe9AoNqDkYgXsRt2vFj",
+        addressLabel: "Wallet Address (Solana)",
+        payload: (a) => a,
+        minimum: "More than 1 USDT",
+        arrival: "About 30 seconds after network confirmation",
+        fee: "0 USDT",
+        confirmations: "32 network confirmations",
+      },
+      {
+        code: "MATIC",
+        name: "Polygon",
+        address: "0x8cfa8b2fff6d4cec11dd6b53b68793fb4f81ffe3",
+        addressLabel: "Wallet Address (Polygon)",
+        payload: (a) => a,
+        minimum: "More than 1 USDT",
+        arrival: "About 5 minutes after network confirmation",
+        fee: "0 USDT",
+        confirmations: "128 network confirmations",
+      },
+      {
+        code: "ARBITRUM",
+        name: "Arbitrum One",
+        address: "0x8cfa8b2fff6d4cec11dd6b53b68793fb4f81ffe3",
+        addressLabel: "Wallet Address (Arbitrum)",
+        payload: (a) => a,
+        minimum: "More than 1 USDT",
+        arrival: "About 5 minutes after network confirmation",
+        fee: "0 USDT",
+        confirmations: "12 network confirmations",
+      },
     ],
   },
 ];
@@ -84,7 +116,7 @@ const ASSET_OPTIONS: AssetOption[] = [
 const FAQS = [
   {
     q: "How to deposit? (Step-by-step guide)",
-    a: "Pick the currency you want to fund, choose the network it will arrive on, then send to the address shown. Report the amount you sent and an admin verifies it and credits your balance.",
+    a: "Choose the network your USDT will arrive on, then send to the address shown. Report the amount you sent and an admin verifies it and credits your balance.",
   },
   {
     q: "Deposit hasn't arrived?",
@@ -246,8 +278,8 @@ function Step({
 function DepositPage() {
   const { isLoggedIn, kycCompleted, transactions, requestDeposit } = useAuth();
 
-  const [asset, setAsset] = useState<AssetOption>(ASSET_OPTIONS[0]!);
-  const [network, setNetwork] = useState<Network>(ASSET_OPTIONS[0]!.networks[0]!);
+  const asset = ASSET_OPTIONS[0]!;
+  const [network, setNetwork] = useState<Network>(asset.networks[0]!);
   const [copied, setCopied] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
   const [openFaq, setOpenFaq] = useState<number | null>(null);
@@ -258,13 +290,6 @@ function DepositPage() {
     () => transactions.filter((t) => txKind(t) === "deposit").slice(0, 5),
     [transactions],
   );
-
-  const selectAsset = (next: AssetOption) => {
-    setAsset(next);
-    setNetwork(next.networks[0]!); // networks are per-asset, so reset the choice
-    setCopied(false);
-    setStage("idle");
-  };
 
   const handleCopy = () => {
     navigator.clipboard?.writeText(network.address).catch(() => {});
@@ -326,26 +351,21 @@ function DepositPage() {
         <div className="grid gap-12 lg:grid-cols-[minmax(0,1fr)_300px]">
           {/* ── Stepper ── */}
           <ol className="min-w-0">
-            <Step n={1} done title="Select Asset">
+            <Step n={1} done title="Asset">
               <div className="max-w-lg">
-                <Dropdown
-                  label="Select asset"
-                  items={ASSET_OPTIONS}
-                  selected={asset}
-                  onSelect={selectAsset}
-                  render={(a) => (
-                    <span className="flex min-w-0 items-center gap-3">
-                      <span
-                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full font-mono text-[8px] font-bold"
-                        style={{ backgroundColor: `${a.color}25`, color: a.color }}
-                      >
-                        {a.code.slice(0, 3)}
-                      </span>
-                      <span className="truncate font-semibold text-foreground">{a.code}</span>
-                      <span className="truncate text-sm text-muted-foreground">{a.name}</span>
-                    </span>
-                  )}
-                />
+                <div className="flex w-full items-center gap-3 rounded-xl border border-border bg-card px-4 py-3.5">
+                  <span
+                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full font-mono text-[8px] font-bold"
+                    style={{ backgroundColor: `${asset.color}25`, color: asset.color }}
+                  >
+                    {asset.code.slice(0, 3)}
+                  </span>
+                  <span className="truncate font-semibold text-foreground">{asset.code}</span>
+                  <span className="truncate text-sm text-muted-foreground">{asset.name}</span>
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  USDT is the only asset Stocks360 accepts for deposits.
+                </p>
               </div>
             </Step>
 
@@ -474,7 +494,7 @@ function DepositPage() {
                         <input
                           value={amount}
                           onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))}
-                          placeholder={asset.code === "INR" ? "e.g. 5000" : "e.g. 100"}
+                          placeholder="e.g. 100"
                           inputMode="decimal"
                           className="mt-2 w-full rounded-xl border border-border bg-background/60 px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
                         />

@@ -145,7 +145,7 @@ const AuthContext = createContext<
     logout: () => void;
     submitKyc: (profile: KycProfile) => void;
     requestDeposit: (method: DepositMethod, amount: number, network?: string) => void;
-    requestWithdrawal: (method: DepositMethod, amount: number, destination?: string) => void;
+    requestWithdrawal: (method: DepositMethod, amount: number, destination?: string, network?: string) => void;
     settleDeposit: (id: string, outcome: "complete" | "cancel") => void;
     settleWithdrawal: (id: string, outcome: "complete" | "cancel") => void;
     convertBalance: (from: DepositMethod, to: DepositMethod, amount: number) => void;
@@ -249,7 +249,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       };
     });
 
-  const requestWithdrawal = (method: DepositMethod, amount: number, destination?: string) =>
+  const requestWithdrawal = (method: DepositMethod, amount: number, destination?: string, network?: string) =>
     setState((s) => {
       const available = s.balances[method] - lockedAmount(s.transactions, method);
       if (amount <= 0 || amount > available) return s;
@@ -263,6 +263,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             date: new Date().toISOString(),
             kind: "withdraw",
             status: "pending",
+            network: network ?? NETWORK_OF[method],
             ...(destination ? { destination } : {}),
           },
           ...s.transactions,

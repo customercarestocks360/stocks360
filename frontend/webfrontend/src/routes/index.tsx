@@ -5,7 +5,7 @@ import { useTheme } from "@/components/ThemeProvider";
 import { useState, useEffect } from "react";
 import Dither from "@/components/ui/Dither";
 import { useScrollReveal } from "@/hooks/useScrollReveal";
-import { AnimatedNumber, OrbitRing, MiniSparkline, IconTileRow, TestimonialCard } from "@/components/ui/marketing";
+import { AnimatedNumber, OrbitRing, IconTileRow, TestimonialCard } from "@/components/ui/marketing";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -87,10 +87,7 @@ function Index() {
           />
         </div>
         <div className="relative z-10 mx-auto max-w-7xl px-4 py-16 text-center sm:px-6 sm:py-28">
-          <div className="label-mono inline-flex items-center gap-2">
-            <span className="h-1.5 w-1.5 rounded-full bg-primary shadow-[0_0_8px_var(--up)]" />
-            Stocks360 Terminal
-          </div>
+          
           <h1 className="mx-auto mt-6 max-w-3xl text-3xl font-bold leading-[1.1] tracking-tight sm:text-5xl md:text-6xl">
             The unified desk for every market you trade
           </h1>
@@ -128,7 +125,7 @@ function Index() {
               Explore markets
             </Link>
           </div>
-          <div className="label-mono mt-8">Protected by 2FA · SOC 2 Type II</div>
+          
         </div>
       </section>
 
@@ -203,29 +200,12 @@ function Index() {
                   <i className="fa-solid fa-arrow-up-right text-muted-foreground/40 group-hover:text-[#3b82f6] group-hover:translate-x-1 group-hover:-translate-y-1 transition-all" />
                 </div>
 
-                <div className="mt-6 rounded-2xl border border-border bg-background/40 p-5">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-                        RESE · Renewable Energy Solutions
-                      </div>
-                      <div className="mt-1 flex items-baseline gap-2">
-                        <span className="text-2xl font-bold font-mono text-foreground">₹792.52</span>
-                        <span className="text-xs font-mono font-bold text-up">+15.95 (2.24%)</span>
-                      </div>
-                    </div>
-                    <span className="mt-1 h-2 w-2 rounded-full bg-up animate-pulse" />
-                  </div>
-                  <div className="mt-3">
-                    <MiniSparkline color="var(--up)" points={[10, 14, 11, 18, 15, 22, 19, 28, 24, 34, 30, 42]} />
-                  </div>
-                  <div className="mt-2 flex gap-2 font-mono text-[10px] text-muted-foreground">
-                    {["1D", "1W", "1M", "1Y", "All"].map((r, i) => (
-                      <span key={r} className={`px-2 py-0.5 rounded-full ${i === 0 ? "bg-primary text-primary-foreground font-bold" : ""}`}>
-                        {r}
-                      </span>
-                    ))}
-                  </div>
+                <div className="mt-6 h-56 flex-1 overflow-hidden rounded-2xl border border-border bg-background/40">
+                  <img
+                    src={isDark ? "/trade.png" : "/tradelight.png"}
+                    alt="Trade"
+                    className="h-full w-full object-fill"
+                  />
                 </div>
 
                 <div className="mt-6 flex items-center gap-2 font-mono text-xs font-bold text-[#3b82f6] group-hover:gap-3 transition-all">
@@ -320,29 +300,12 @@ function Index() {
                   <i className="fa-solid fa-arrow-up-right text-muted-foreground/40 group-hover:text-[#10b981] group-hover:translate-x-1 group-hover:-translate-y-1 transition-all" />
                 </div>
 
-                <div className="mt-6 rounded-2xl border border-border bg-background/40 p-5">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <div className="flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider text-emerald-500">
-                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                        Live · EUR/USD
-                      </div>
-                      <div className="mt-1 flex items-baseline gap-2">
-                        <span className="text-2xl font-bold font-mono text-foreground">1.0892</span>
-                        <span className="text-xs font-mono font-bold text-up">+0.24%</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="mt-3">
-                    <MiniSparkline color="#10b981" points={[18, 20, 19, 22, 21, 24, 23, 26, 25, 28, 27, 30]} />
-                  </div>
-                  <div className="mt-2 flex gap-2 font-mono text-[10px] text-muted-foreground">
-                    {["1H", "1D", "1W", "1M", "All"].map((r, i) => (
-                      <span key={r} className={`px-2 py-0.5 rounded-full ${i === 1 ? "bg-primary text-primary-foreground font-bold" : ""}`}>
-                        {r}
-                      </span>
-                    ))}
-                  </div>
+                <div className="mt-6 h-56 flex-1 overflow-hidden rounded-2xl border border-border bg-background/40">
+                  <img
+                    src={isDark ? "/forex.png" : "/forexlight.png"}
+                    alt="Forex"
+                    className="h-full w-full object-fill"
+                  />
                 </div>
 
                 <div className="mt-6 flex items-center gap-2 font-mono text-xs font-bold text-[#10b981] group-hover:gap-3 transition-all">
