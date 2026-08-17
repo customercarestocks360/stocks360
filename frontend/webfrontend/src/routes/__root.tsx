@@ -75,17 +75,21 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
   head: () => ({
     meta: [
       { charSet: "utf-8" },
-      { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Stocks360 — Trade crypto, stocks & ETFs" },
+      {
+        name: "viewport",
+        content:
+          "width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no",
+      },
+      { title: "Stocks360 — Trade stocks, forex & ETFs" },
       {
         name: "description",
         content:
-          "One obsidian command center for crypto, equities and ETFs. Millisecond fills, deep charts, instant withdrawals.",
+          "One obsidian command center for equities, ETFs and forex. Millisecond fills, deep charts, instant withdrawals.",
       },
       { property: "og:title", content: "Stocks360" },
       {
         property: "og:description",
-        content: "One command center for crypto, equities and ETFs.",
+        content: "One command center for equities, ETFs and forex.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },

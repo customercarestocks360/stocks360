@@ -2,13 +2,12 @@ import { useRef, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useTheme } from "@/components/ThemeProvider";
 import { useAuth } from "@/components/AuthProvider";
-import { DepositPanel } from "@/components/ui/deposit-drawer";
 
 const NAV_LINKS = [
   { n: "Markets", t: "/markets" },
-  { n: "Crypto", t: "/crypto" },
-  { n: "Stocks", t: "/stocks" },
+  { n: "Trade", t: "/trade" },
   { n: "Forex", t: "/forex" },
+  { n: "Wallet", t: "/wallet" },
   { n: "About Us", t: "/about" },
 ];
 
@@ -16,8 +15,6 @@ export function Header() {
   const { theme, toggleTheme } = useTheme();
   const [menuOpen, setMenuOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
-  const [depositOpen, setDepositOpen] = useState(false);
-  const [verifyAlert, setVerifyAlert] = useState<"login" | "kyc" | null>(null);
   const { isLoggedIn, email, kycCompleted, balances, logout } = useAuth();
   const navigate = useNavigate();
   const initial = email ? email.trim()[0]?.toUpperCase() : "U";
@@ -41,32 +38,12 @@ export function Header() {
     navigate({ to: "/" });
   };
 
-  const handleDepositClick = () => {
-    const isMobile = typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches;
-    if (isMobile) {
-      navigate({ to: "/deposit" });
-      return;
-    }
-    if (!isLoggedIn) {
-      setVerifyAlert("login");
-    } else if (!kycCompleted) {
-      setVerifyAlert("kyc");
-    } else {
-      setDepositOpen(true);
-    }
-  };
-
-  const closeDepositUi = () => {
-    setDepositOpen(false);
-    setVerifyAlert(null);
-  };
-
   return (
-    <header className="sticky top-0 z-30 border-b border-border bg-background/85 backdrop-blur">
-      <div className="mx-auto flex h-16 max-w-7xl items-center gap-8 px-6">
-        <Link to="/" className="flex items-center gap-2" onClick={() => setMenuOpen(false)}>
-          <img src="/mianimg.png" alt="Stocks360" className="h-7 w-7 rounded-md object-cover" />
-          <span className="text-[15px] font-bold tracking-tight">Stocks360</span>
+    <header className="sticky top-0 z-30 border-b border-border bg-background/85 pt-safe backdrop-blur">
+      <div className="mx-auto flex h-14 max-w-7xl items-center gap-8 px-4 sm:px-6 md:h-16">
+        <Link to="/" className="flex shrink-0 items-center gap-2" onClick={() => setMenuOpen(false)}>
+          <img src="/mianimg.png" alt="Stocks360" className="h-7 w-7 shrink-0 rounded-md object-cover" />
+          <span className="whitespace-nowrap text-[15px] font-bold tracking-tight">Stocks360</span>
         </Link>
         <nav className="hidden items-center gap-6 text-sm text-muted-foreground md:flex">
           {NAV_LINKS.map((l) => (
@@ -76,42 +53,9 @@ export function Header() {
           ))}
         </nav>
         <div className="ml-auto flex items-center gap-3">
-          <div className="relative">
-            <button
-              onClick={handleDepositClick}
-              className="flex items-center gap-1.5 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm font-semibold text-primary transition-colors hover:bg-primary/20"
-            >
-              <i className="fa-solid fa-wallet text-xs" />
-              <span className="hidden sm:inline">Deposit</span>
-            </button>
-
-            {(depositOpen || verifyAlert) && (
-              <>
-                <div className="fixed inset-0 z-40" onClick={closeDepositUi} />
-                <div className="absolute right-0 top-11 z-50 w-[26rem] max-w-[calc(100vw-2rem)] rounded-2xl border border-border bg-card p-6 shadow-2xl">
-                  {verifyAlert ? (
-                    <VerificationAlert
-                      reason={verifyAlert}
-                      onClose={closeDepositUi}
-                      onAction={() => {
-                        setVerifyAlert(null);
-                        if (verifyAlert === "login") {
-                          navigate({ to: "/login" });
-                        } else {
-                          navigate({ to: "/account", search: { tab: "account" } });
-                        }
-                      }}
-                    />
-                  ) : (
-                    <DepositPanel onClose={closeDepositUi} />
-                  )}
-                </div>
-              </>
-            )}
-          </div>
           <button
             onClick={toggleTheme}
-            className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-secondary text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground hover:border-foreground/20"
+            className="flex h-10 w-10 items-center justify-center rounded-md border border-border bg-secondary text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground hover:border-foreground/20 sm:h-9 sm:w-9"
             aria-label="Toggle theme"
           >
             {theme === "dark" ? (
@@ -127,11 +71,8 @@ export function Header() {
               onMouseLeave={scheduleCloseProfileMenu}
             >
               <button
-                onClick={() => {
-                  setProfileOpen(false);
-                  navigate({ to: "/account" });
-                }}
-                className="flex h-9 w-9 items-center justify-center rounded-full"
+                onClick={() => setProfileOpen((v) => !v)}
+                className="flex h-10 w-10 items-center justify-center rounded-full sm:h-9 sm:w-9"
                 style={{
                   background: kycCompleted
                     ? "var(--primary)"
@@ -145,8 +86,15 @@ export function Header() {
                 </span>
               </button>
               {profileOpen && (
-                <div className="absolute right-0 top-11 w-56 rounded-md border border-border bg-card p-1.5 shadow-lg">
+                <>
+                  {/* Backdrop — mobile only, closes the sheet on tap outside. */}
+                  <div
+                    className="fixed inset-0 z-40 bg-black/40 md:hidden"
+                    onClick={() => setProfileOpen(false)}
+                  />
+                  <div className="fixed inset-x-0 bottom-0 z-50 max-h-[80vh] overflow-y-auto rounded-t-2xl border border-border bg-card p-1.5 pb-safe shadow-lg md:absolute md:inset-x-auto md:right-0 md:top-11 md:bottom-auto md:z-10 md:w-56 md:max-h-none md:rounded-md">
                   <div className="border-b border-border px-2.5 py-2">
+                    <div className="mb-1 h-1 w-10 rounded-full bg-border mx-auto md:hidden" />
                     <div className="truncate text-xs text-muted-foreground">{email}</div>
                     <div className="mt-1.5 flex items-center gap-3 font-mono text-xs text-foreground">
                       <span>₹{balances.INR.toLocaleString()}</span>
@@ -178,12 +126,20 @@ export function Header() {
                       Dashboard
                     </Link>
                     <Link
+                      to="/wallet"
+                      onClick={() => setProfileOpen(false)}
+                      className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                    >
+                      <i className="fa-solid fa-wallet w-4" />
+                      Wallet
+                    </Link>
+                    <Link
                       to="/account"
                       search={{ tab: "assets" }}
                       onClick={() => setProfileOpen(false)}
                       className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                     >
-                      <i className="fa-solid fa-wallet w-4" />
+                      <i className="fa-solid fa-layer-group w-4" />
                       Assets
                     </Link>
                     <Link
@@ -223,7 +179,8 @@ export function Header() {
                     <i className="fa-solid fa-arrow-right-from-bracket w-4" />
                     Log out
                   </button>
-                </div>
+                  </div>
+                </>
               )}
             </div>
           ) : (
@@ -236,7 +193,7 @@ export function Header() {
               </Link>
               <Link
                 to="/signup"
-                className="cursor-pointer rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+                className="cursor-pointer whitespace-nowrap rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 sm:px-4"
               >
                 Get started
               </Link>
@@ -244,7 +201,7 @@ export function Header() {
           )}
           <button
             onClick={() => setMenuOpen((v) => !v)}
-            className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-secondary text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground hover:border-foreground/20 md:hidden"
+            className="flex h-10 w-10 items-center justify-center rounded-md border border-border bg-secondary text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground hover:border-foreground/20 md:hidden"
             aria-label="Toggle menu"
             aria-expanded={menuOpen}
             aria-controls="mobile-nav"
@@ -284,55 +241,5 @@ export function Header() {
         </nav>
       </div>
     </header>
-  );
-}
-
-function VerificationAlert({
-  reason,
-  onClose,
-  onAction,
-}: {
-  reason: "login" | "kyc";
-  onClose: () => void;
-  onAction: () => void;
-}) {
-  const copy =
-    reason === "login"
-      ? {
-          icon: "fa-lock",
-          title: "Sign in required",
-          body: "You need to be signed in to deposit funds into your Stocks360 account.",
-          action: "Go to sign in",
-        }
-      : {
-          icon: "fa-id-card",
-          title: "Complete your account details",
-          body: "Your identity hasn't been verified yet. Complete your remaining account details to unlock deposits.",
-          action: "Complete account details",
-        };
-
-  return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={onClose}
-        aria-label="Close"
-        className="absolute -right-1 -top-1 text-muted-foreground hover:text-foreground"
-      >
-        <i className="fa-solid fa-xmark" />
-      </button>
-      <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10 text-destructive">
-        <i className={`fa-solid ${copy.icon} text-lg`} />
-      </div>
-      <h3 className="mt-4 text-center text-lg font-bold text-foreground">{copy.title}</h3>
-      <p className="mt-2 text-center text-sm leading-6 text-muted-foreground">{copy.body}</p>
-      <button
-        type="button"
-        onClick={onAction}
-        className="mt-6 w-full rounded-xl bg-primary px-4 py-3 text-sm font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90"
-      >
-        {copy.action}
-      </button>
-    </div>
   );
 }

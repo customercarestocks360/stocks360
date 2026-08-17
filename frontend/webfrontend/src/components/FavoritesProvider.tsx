@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 
 /**
- * Favorites are keyed as "<page>:<id>" (e.g. "crypto:Bitcoin", "stock:AAPL")
+ * Favorites are keyed as "<page>:<id>" (e.g. "stock:AAPL", "forex:EUR/USD")
  * so the same symbol favorited on different pages' mock datasets never collides.
  */
 const STORAGE_KEY = "stocks360-favorites";

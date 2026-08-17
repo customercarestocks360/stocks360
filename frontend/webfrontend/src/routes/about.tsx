@@ -9,7 +9,7 @@ export const Route = createFileRoute("/about")({
       { title: "About — Stocks360" },
       {
         name: "description",
-        content: "Why we built Stocks360 — one unified terminal for crypto, equities and ETFs.",
+        content: "Why we built Stocks360 — one unified terminal for equities, ETFs and forex.",
       },
       { property: "og:title", content: "About — Stocks360" },
       {
@@ -61,7 +61,7 @@ const legalTabs = [
     key: "risk",
     label: "Risk disclosure",
     icon: "fa-triangle-exclamation",
-    d: "Trading crypto, equities and ETFs carries risk of loss, including principal. Past performance doesn't guarantee future results — only trade what you can afford to lose.",
+    d: "Trading equities, ETFs and forex carries risk of loss, including principal. Past performance doesn't guarantee future results — only trade what you can afford to lose.",
   },
   {
     key: "fees",
@@ -107,7 +107,7 @@ function AboutPage() {
               Built by traders, for traders
             </h1>
             <p className="mt-4 text-muted-foreground transition-colors">
-              Stocks360 started as a frustration: managing crypto, equities and ETFs meant juggling
+              Stocks360 started as a frustration: managing equities, ETFs and forex meant juggling
               three logins, three balances and three sets of fees. We built the desk we actually
               wanted to trade on — one terminal, one ledger, no compromises.
             </p>
@@ -155,7 +155,7 @@ function AboutPage() {
                 one balance to manage it.
               </h2>
               <p className="mt-4 text-muted-foreground leading-relaxed max-w-md">
-                Cross-margin across crypto, equities, ETFs and commodities means your capital works
+                Cross-margin across equities, ETFs, forex and commodities means your capital works
                 everywhere at once — no transfers, no fragmented risk, no waiting for settlement
                 between markets. That single idea is the reason Stocks360 exists.
               </p>

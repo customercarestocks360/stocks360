@@ -1,6 +1,6 @@
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
-import { useAuth } from "@/components/AuthProvider";
+import { useAuth, lockedAmount, type DepositMethod } from "@/components/AuthProvider";
 
 /**
  * Buy/Sell entry point shown on each asset row. Opens the gated TradeModal
@@ -60,6 +60,25 @@ export function TradeModal({
   const auth = useAuth();
   const [qty, setQty] = useState("1");
   const [placed, setPlaced] = useState(false);
+
+  /** Rupee prices settle out of the INR balance, dollar prices out of USDT (treated as ~$1 each). */
+  const currency: DepositMethod = price.trim().startsWith("₹") ? "INR" : "USDT";
+  const unitPrice = parseFloat(price.replace(/[^0-9.]/g, "")) || 0;
+  const qtyValue = parseFloat(qty) || 0;
+  const cost = qtyValue * unitPrice;
+
+  const availableFunds = auth.balances[currency] - lockedAmount(auth.transactions, currency);
+
+  const heldQty = useMemo(() => {
+    if (action !== "sell") return 0;
+    return auth.orders
+      .filter((o) => o.symbol === symbol)
+      .reduce((sum, o) => sum + (o.action === "buy" ? o.qty : -o.qty), 0);
+  }, [auth.orders, action, symbol]);
+
+  const insufficientFunds = action === "buy" && qtyValue > 0 && cost > availableFunds;
+  const insufficientHoldings = action === "sell" && qtyValue > 0 && qtyValue > heldQty;
+  const canPlace = qtyValue > 0 && !insufficientFunds && !insufficientHoldings;
 
   if (!open) return null;
 
@@ -126,13 +145,43 @@ export function TradeModal({
             className="mt-2 w-full rounded-xl border border-border bg-background/60 px-3 py-2.5 text-sm text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
           />
         </label>
+
+        <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
+          {action === "buy" ? (
+            <>
+              <span>
+                Available: {availableFunds.toLocaleString()} {currency}
+              </span>
+              <span>Cost: {cost.toLocaleString()} {currency}</span>
+            </>
+          ) : (
+            <>
+              <span>Holding: {heldQty.toLocaleString()} {symbol}</span>
+              <span>Selling: {qtyValue.toLocaleString()} {symbol}</span>
+            </>
+          )}
+        </div>
+
+        {insufficientFunds && (
+          <p className="mt-2 text-xs font-medium text-down">
+            Not enough {currency} balance for this order. Deposit more to continue.
+          </p>
+        )}
+        {insufficientHoldings && (
+          <p className="mt-2 text-xs font-medium text-down">
+            You only hold {heldQty.toLocaleString()} {symbol}.
+          </p>
+        )}
+
         <button
           type="button"
+          disabled={!canPlace}
           onClick={() => {
-            auth.placeOrder({ action, symbol, qty: parseFloat(qty) || 0, price });
+            if (!canPlace) return;
+            auth.placeOrder({ action, symbol, qty: qtyValue, price });
             setPlaced(true);
           }}
-          className={`mt-6 w-full rounded-xl px-4 py-3 text-sm font-bold uppercase tracking-wider text-white transition-opacity hover:opacity-90 ${
+          className={`mt-6 w-full rounded-xl px-4 py-3 text-sm font-bold uppercase tracking-wider text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40 ${
             action === "buy" ? "bg-up" : "bg-down"
           }`}
         >
@@ -156,18 +205,20 @@ export function TradeModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-6"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 md:items-center md:px-6"
       onClick={handleClose}
     >
+      {/* Bottom sheet on mobile (native app modal pattern), centered dialog on md+. */}
       <div
-        className="relative w-full max-w-sm rounded-2xl border border-border bg-card p-6 shadow-2xl"
+        className="relative w-full max-h-[90vh] overflow-y-auto rounded-t-2xl border border-border bg-card p-6 pb-safe shadow-2xl md:max-w-sm md:max-h-none md:rounded-2xl"
         onClick={(e) => e.stopPropagation()}
       >
+        <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-border md:hidden" />
         <button
           type="button"
           onClick={handleClose}
           aria-label="Close"
-          className="absolute right-4 top-4 text-muted-foreground hover:text-foreground"
+          className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center text-muted-foreground hover:text-foreground"
         >
           <i className="fa-solid fa-xmark" />
         </button>

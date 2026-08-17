@@ -1,6 +1,6 @@
 export function Footer() {
   return (
-    <footer className="mx-auto max-w-7xl px-6 py-16">
+    <footer className="mx-auto hidden max-w-7xl px-6 py-16 md:block">
       <div className="grid gap-10 md:grid-cols-5">
         <div className="md:col-span-1">
           <div className="flex items-center gap-2">
@@ -8,12 +8,11 @@ export function Footer() {
             <span className="text-[15px] font-bold tracking-tight">Stocks360</span>
           </div>
           <p className="mt-4 text-sm text-muted-foreground">
-            The obsidian observatory for crypto, equities and everything tradable.
+            The obsidian observatory for stocks, forex and everything tradable.
           </p>
         </div>
         {[
-          { h: "Markets", l: ["Crypto", "Stocks", "Forex", "ETFs"] },
-          { h: "Products", l: ["Spot", "Margin", "Options"] },
+          { h: "Markets", l: ["Trade", "Forex", "ETFs"] },
           { h: "Company", l: ["About Us"] },
           { h: "Legal", l: ["Terms", "Privacy", "Risk disclosure", "Fees", "Compliance"] },
         ].map((col) => (

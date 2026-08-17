@@ -14,12 +14,12 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "Trade crypto, equities and ETFs from one obsidian terminal. 8ms fills, pro charts, instant withdrawals.",
+          "Trade equities, ETFs and forex from one obsidian terminal. 8ms fills, pro charts, instant withdrawals.",
       },
       { property: "og:title", content: "Stocks360 — The unified trading desk" },
       {
         property: "og:description",
-        content: "Crypto, equities and ETFs in one command center. 8ms fills, instant withdrawals.",
+        content: "Equities, ETFs and forex in one command center. 8ms fills, instant withdrawals.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -30,7 +30,7 @@ export const Route = createFileRoute("/")({
 
 /* Sample quotes — placeholders until real trader testimonials are collected */
 const TESTIMONIALS = [
-  { name: "Ananya Rao", role: "Full-time Trader", quote: "The unified margin across crypto and equities changed how I manage risk. One dashboard, zero friction." },
+  { name: "Ananya Rao", role: "Full-time Trader", quote: "The unified margin across equities and forex changed how I manage risk. One dashboard, zero friction." },
   { name: "Vikram Shah", role: "Options Trader", quote: "8ms fills aren't marketing fluff — I've clocked it myself during volatile opens." },
   { name: "Meera Iyer", role: "Software Engineer", quote: "Finally a terminal that doesn't feel like it was built in 2012. Dark mode done right." },
   { name: "Rohan Kapoor", role: "Portfolio Analyst", quote: "Cross-margin across ETFs and commodities saved me from constantly shuffling capital." },
@@ -61,7 +61,7 @@ function Index() {
   const bgColor = isDark ? [0.0, 0.0, 0.0] : [1.0, 1.0, 1.0];
   const waveAmplitude = isDark ? 0.15 : 0.05;
 
-  const rotatingWords = ["Crypto", "Equities", "ETFs", "Forex"];
+  const rotatingWords = ["Equities", "ETFs", "Forex", "Commodities"];
 
   return (
     <AppLayout>
@@ -86,16 +86,16 @@ function Index() {
             waveSpeed={0.12}
           />
         </div>
-        <div className="relative z-10 mx-auto max-w-7xl px-6 py-28 text-center">
+        <div className="relative z-10 mx-auto max-w-7xl px-4 py-16 text-center sm:px-6 sm:py-28">
           <div className="label-mono inline-flex items-center gap-2">
             <span className="h-1.5 w-1.5 rounded-full bg-primary shadow-[0_0_8px_var(--up)]" />
             Stocks360 Terminal
           </div>
-          <h1 className="mx-auto mt-6 max-w-3xl text-5xl font-bold leading-[1.05] tracking-tight md:text-6xl">
+          <h1 className="mx-auto mt-6 max-w-3xl text-3xl font-bold leading-[1.1] tracking-tight sm:text-5xl md:text-6xl">
             The unified desk for every market you trade
           </h1>
           <p className="mx-auto mt-5 max-w-xl text-base text-muted-foreground">
-            Crypto, equities, ETFs and commodities in one obsidian command center. Markets are open
+            Equities, ETFs, forex and commodities in one obsidian command center. Markets are open
             — your terminal is ready.
           </p>
           <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
@@ -179,11 +179,11 @@ function Index() {
           </div>
 
           <div className="grid gap-6 lg:grid-cols-2">
-            {/* ── Left column: Stocks (tall) + Commodities & Forex (wide banner) ── */}
+            {/* ── Left column: Trade (tall) + Commodities (wide banner) ── */}
             <div className="flex flex-col gap-6">
-              {/* Stocks Card — mock ticker + sparkline */}
+              {/* Trade Card — mock ticker + sparkline */}
               <Link
-                to="/stocks"
+                to="/trade"
                 data-reveal="approach"
                 className="group relative flex flex-col overflow-hidden rounded-3xl border border-border bg-card p-8 transition-all duration-500 hover:-translate-y-1.5 hover:shadow-2xl hover:border-primary/30 cursor-pointer min-h-[380px]"
               >
@@ -195,7 +195,7 @@ function Index() {
                     <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#3b82f6]/10 text-[#3b82f6] mb-5 group-hover:scale-110 transition-transform duration-500">
                       <i className="fa-solid fa-chart-line text-xl" />
                     </div>
-                    <h3 className="text-2xl font-bold text-foreground mb-1">Stocks</h3>
+                    <h3 className="text-2xl font-bold text-foreground mb-1">Trade</h3>
                     <p className="text-sm text-muted-foreground max-w-xs">
                       US & Indian equities — NASDAQ, NYSE, NSE, BSE. Fractional shares, extended hours.
                     </p>
@@ -229,13 +229,13 @@ function Index() {
                 </div>
 
                 <div className="mt-6 flex items-center gap-2 font-mono text-xs font-bold text-[#3b82f6] group-hover:gap-3 transition-all">
-                  <span>Explore Stocks</span>
+                  <span>Explore Trade</span>
                   <i className="fa-solid fa-arrow-right text-[10px] group-hover:translate-x-1 transition-transform" />
                 </div>
                 <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-[#3b82f6] to-[#3b82f6]/0 scale-x-0 group-hover:scale-x-100 transition-transform origin-left duration-500" />
               </Link>
 
-              {/* Commodities & Forex Banner — icon tiles */}
+              {/* Commodities Banner — icon tiles */}
               <Link
                 to="/markets"
                 data-reveal="approach"
@@ -246,9 +246,9 @@ function Index() {
                   <div className="w-full h-full rounded-full bg-[#eab308] blur-3xl" />
                 </div>
                 <div>
-                  <h3 className="text-2xl font-bold text-foreground mb-1">Commodities & Forex</h3>
+                  <h3 className="text-2xl font-bold text-foreground mb-1">Commodities</h3>
                   <p className="text-sm text-muted-foreground max-w-xs">
-                    Gold, Silver, Crude Oil, Natural Gas & G10 FX pairs.
+                    Gold, Silver, Crude Oil & Natural Gas.
                   </p>
                   <div className="mt-4 flex items-center gap-2 font-mono text-xs font-bold text-[#eab308] group-hover:gap-3 transition-all">
                     <span>Explore Commodities</span>
@@ -259,15 +259,15 @@ function Index() {
                   items={[
                     { icon: "fa-coins", color: "#eab308" },
                     { icon: "fa-water", color: "#3b82f6" },
-                    { icon: "fa-money-bill-transfer", color: "#10b981" },
                     { icon: "fa-fire", color: "#ef4444" },
+                    { icon: "fa-industry", color: "#10b981" },
                   ]}
                 />
                 <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-[#eab308] to-[#eab308]/0 scale-x-0 group-hover:scale-x-100 transition-transform origin-left duration-500" />
               </Link>
             </div>
 
-            {/* ── Right column: ETFs & Indices (banner) + Crypto (tall) ── */}
+            {/* ── Right column: ETFs & Indices (banner) + Forex (tall) ── */}
             <div className="flex flex-col gap-6">
               {/* ETFs & Indices Banner — icon tiles */}
               <Link
@@ -297,27 +297,27 @@ function Index() {
                 <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-[#8b5cf6] to-[#8b5cf6]/0 scale-x-0 group-hover:scale-x-100 transition-transform origin-left duration-500" />
               </Link>
 
-              {/* Crypto Card — mock live ticker + sparkline */}
+              {/* Forex Card — mock live ticker + sparkline */}
               <Link
-                to="/crypto"
+                to="/forex"
                 data-reveal="approach"
                 data-delay="3"
                 className="group relative flex flex-1 flex-col overflow-hidden rounded-3xl border border-border bg-card p-8 transition-all duration-500 hover:-translate-y-1.5 hover:shadow-2xl hover:border-primary/30 cursor-pointer min-h-[380px]"
               >
                 <div className="absolute top-0 right-0 w-56 h-56 opacity-[0.06] group-hover:opacity-[0.12] transition-opacity duration-700 pointer-events-none">
-                  <div className="w-full h-full rounded-full bg-[#f7931a] blur-3xl" />
+                  <div className="w-full h-full rounded-full bg-[#10b981] blur-3xl" />
                 </div>
                 <div className="flex items-start justify-between">
                   <div>
-                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#f7931a]/10 text-[#f7931a] mb-5 group-hover:scale-110 transition-transform duration-500">
-                      <i className="fa-solid fa-bitcoin-sign text-xl" />
+                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#10b981]/10 text-[#10b981] mb-5 group-hover:scale-110 transition-transform duration-500">
+                      <i className="fa-solid fa-money-bill-transfer text-xl" />
                     </div>
-                    <h3 className="text-2xl font-bold text-foreground mb-1">Crypto</h3>
+                    <h3 className="text-2xl font-bold text-foreground mb-1">Forex</h3>
                     <p className="text-sm text-muted-foreground max-w-xs">
-                      Bitcoin, Ethereum, Solana & 200+ tokens. Up to 100x leverage.
+                      Majors, minors & exotics — EUR/USD, GBP/USD, USD/JPY and more.
                     </p>
                   </div>
-                  <i className="fa-solid fa-arrow-up-right text-muted-foreground/40 group-hover:text-[#f7931a] group-hover:translate-x-1 group-hover:-translate-y-1 transition-all" />
+                  <i className="fa-solid fa-arrow-up-right text-muted-foreground/40 group-hover:text-[#10b981] group-hover:translate-x-1 group-hover:-translate-y-1 transition-all" />
                 </div>
 
                 <div className="mt-6 rounded-2xl border border-border bg-background/40 p-5">
@@ -325,16 +325,16 @@ function Index() {
                     <div>
                       <div className="flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider text-emerald-500">
                         <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                        Live · BTC/USD
+                        Live · EUR/USD
                       </div>
                       <div className="mt-1 flex items-baseline gap-2">
-                        <span className="text-2xl font-bold font-mono text-foreground">$67,418</span>
-                        <span className="text-xs font-mono font-bold text-up">+2.9%</span>
+                        <span className="text-2xl font-bold font-mono text-foreground">1.0892</span>
+                        <span className="text-xs font-mono font-bold text-up">+0.24%</span>
                       </div>
                     </div>
                   </div>
                   <div className="mt-3">
-                    <MiniSparkline color="#f7931a" points={[30, 24, 32, 22, 28, 18, 26, 16, 22, 12, 18, 8]} />
+                    <MiniSparkline color="#10b981" points={[18, 20, 19, 22, 21, 24, 23, 26, 25, 28, 27, 30]} />
                   </div>
                   <div className="mt-2 flex gap-2 font-mono text-[10px] text-muted-foreground">
                     {["1H", "1D", "1W", "1M", "All"].map((r, i) => (
@@ -345,11 +345,11 @@ function Index() {
                   </div>
                 </div>
 
-                <div className="mt-6 flex items-center gap-2 font-mono text-xs font-bold text-[#f7931a] group-hover:gap-3 transition-all">
-                  <span>Explore Crypto</span>
+                <div className="mt-6 flex items-center gap-2 font-mono text-xs font-bold text-[#10b981] group-hover:gap-3 transition-all">
+                  <span>Explore Forex</span>
                   <i className="fa-solid fa-arrow-right text-[10px] group-hover:translate-x-1 transition-transform" />
                 </div>
-                <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-[#f7931a] to-[#f7931a]/0 scale-x-0 group-hover:scale-x-100 transition-transform origin-left duration-500" />
+                <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-[#10b981] to-[#10b981]/0 scale-x-0 group-hover:scale-x-100 transition-transform origin-left duration-500" />
               </Link>
             </div>
           </div>
@@ -397,7 +397,8 @@ function Index() {
         </section>
 
         {/* ─── #4 — "Why Stocks360" — Alternating Cinematic Feature Blocks ─── */}
-        <section className="mx-auto max-w-7xl px-6 py-24 md:py-32 space-y-32">
+        <section className="relative bg-white bg-[radial-gradient(ellipse_80%_60%_at_15%_0%,rgba(59,130,246,0.10),transparent_60%),radial-gradient(ellipse_70%_60%_at_100%_100%,rgba(139,92,246,0.09),transparent_55%),linear-gradient(180deg,#ffffff_0%,#eef2fb_45%,#ffffff_100%)] dark:bg-black dark:bg-[radial-gradient(ellipse_80%_60%_at_15%_0%,rgba(59,130,246,0.16),transparent_60%),radial-gradient(ellipse_70%_60%_at_100%_100%,rgba(139,92,246,0.14),transparent_55%),linear-gradient(180deg,#000000_0%,#050414_45%,#000000_100%)]">
+          <div className="mx-auto max-w-7xl space-y-32 px-6 py-24 md:py-32">
           {/* Block 1 — Speed */}
           <div className="grid items-center gap-12 md:grid-cols-2">
             <div data-reveal="fade-left">
@@ -480,15 +481,15 @@ function Index() {
                 One balance.<br />Every market.
               </h3>
               <p className="mt-4 text-muted-foreground leading-relaxed max-w-md">
-                Cross-margin across crypto, equities, ETFs, and commodities. No transferring between wallets. No fragmented capital. One deposit trades everything.
+                Cross-margin across equities, ETFs, forex, and commodities. No transferring between wallets. No fragmented capital. One deposit trades everything.
               </p>
             </div>
             <div data-reveal="fade-right" data-delay="2" className="relative flex items-center justify-center min-h-[280px]">
               <div className="flex flex-col gap-3 w-full max-w-sm">
                 {[
-                  { market: "Crypto", color: "#f7931a", icon: "fa-bitcoin-sign" },
                   { market: "Equities", color: "#3b82f6", icon: "fa-chart-line" },
                   { market: "ETFs", color: "#8b5cf6", icon: "fa-layer-group" },
+                  { market: "Forex", color: "#10b981", icon: "fa-money-bill-transfer" },
                   { market: "Commodities", color: "#eab308", icon: "fa-coins" },
                 ].map((item, i) => (
                   <div
@@ -524,6 +525,7 @@ function Index() {
               </div>
             </div>
           </div>
+          </div>
         </section>
 
         {/* ─── #6 — Platform Features Bento Grid ─── */}
@@ -548,7 +550,7 @@ function Index() {
               },
               {
                 t: "Instant Withdrawals",
-                d: "Bank transfers and on-chain crypto payouts. 24/7, zero fees.",
+                d: "Bank transfers and instant payouts. 24/7, zero fees.",
                 icon: "fa-wallet",
                 span: "",
               },

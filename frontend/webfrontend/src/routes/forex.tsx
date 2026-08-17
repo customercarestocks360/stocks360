@@ -1,11 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
-import { MiniSparkline, IconTileRow, SearchInput } from "@/components/ui/marketing";
-import { BuySellButtons, TradeModal } from "@/components/ui/trade-modal";
+import { SearchInput } from "@/components/ui/marketing";
+import { ConvertWidget } from "@/components/ui/convert-widget";
+import { OrdersPanel } from "@/components/ui/orders-panel";
 import { useFavorites } from "@/components/FavoritesProvider";
 import { FavoriteStar } from "@/components/ui/favorite-star";
-import { AssetChart } from "@/components/ui/asset-chart";
+import { AssetChart, type WatchlistItem } from "@/components/ui/asset-chart";
 
 export const Route = createFileRoute("/forex")({
   head: () => ({
@@ -84,19 +85,107 @@ const forexPairs = [
     icon: "fa-dollar-sign",
     points: [21, 22, 21, 23, 22, 24, 23, 25, 24, 26, 25, 27],
   },
+  {
+    t: "CH",
+    n: "USD/CHF",
+    p: "0.8812",
+    c: "-0.12%",
+    up: false,
+    v: "$32B",
+    color: "#f43f5e",
+    icon: "fa-dollar-sign",
+    points: [26, 25, 26, 24, 25, 23, 24, 22, 23, 21, 22, 20],
+  },
+  {
+    t: "NZ",
+    n: "NZD/USD",
+    p: "0.5891",
+    c: "+0.21%",
+    up: true,
+    v: "$9B",
+    color: "#22d3ee",
+    icon: "fa-dollar-sign",
+    points: [19, 20, 19, 21, 20, 22, 21, 23, 22, 24, 23, 25],
+  },
+  {
+    t: "CN",
+    n: "USD/CNH",
+    p: "7.2418",
+    c: "-0.05%",
+    up: false,
+    v: "$26B",
+    color: "#fb923c",
+    icon: "fa-yen-sign",
+    points: [23, 22, 23, 21, 22, 20, 21, 19, 20, 18, 19, 17],
+  },
+  {
+    t: "SG",
+    n: "USD/SGD",
+    p: "1.3402",
+    c: "+0.06%",
+    up: true,
+    v: "$11B",
+    color: "#a3e635",
+    icon: "fa-dollar-sign",
+    points: [20, 21, 20, 22, 21, 23, 22, 24, 23, 25, 24, 26],
+  },
 ];
+
+function toNumber(price: string) {
+  return parseFloat(price.replace(/[^0-9.]/g, "")) || 0;
+}
 
 function ForexPage() {
   const [query, setQuery] = useState("");
-  const filteredPairs = forexPairs.filter(
-    (a) => a.n.toLowerCase().includes(query.toLowerCase()) || a.t.toLowerCase().includes(query.toLowerCase()),
-  );
-  const [trade, setTrade] = useState<{ action: "buy" | "sell"; symbol: string; price: string } | null>(null);
+  const [showResults, setShowResults] = useState(false);
+  const searchResults = query.trim()
+    ? forexPairs.filter(
+        (a) => a.n.toLowerCase().includes(query.toLowerCase()) || a.t.toLowerCase().includes(query.toLowerCase()),
+      )
+    : [];
+  // Trending Currency Pairs is a fixed leaderboard — searching shouldn't reshuffle it.
+  const [selected, setSelected] = useState(forexPairs[0]!);
+  const searchBoxRef = useRef<HTMLDivElement>(null);
   const { isFavorite } = useFavorites();
   const favoritePairs = useMemo(
     () => forexPairs.filter((a) => isFavorite(`forex:${a.n}`)),
     [isFavorite],
   );
+
+  const watchlist: WatchlistItem[] = useMemo(
+    () =>
+      forexPairs.map((a) => ({
+        sym: a.n,
+        name: a.n,
+        seed: a.n.replace("/", ""),
+        basePrice: toNumber(a.p),
+        color: a.color,
+        price: a.p,
+        changePct: parseFloat(a.c) * (a.up ? 1 : -1),
+        group: "Currency Pairs",
+      })),
+    [],
+  );
+
+  const handleSelectSymbol = (item: WatchlistItem) => {
+    const pair = forexPairs.find((a) => a.n === item.sym);
+    if (pair) setSelected(pair);
+  };
+
+  useEffect(() => {
+    if (!showResults) return;
+    const onDown = (e: MouseEvent) => {
+      if (searchBoxRef.current && !searchBoxRef.current.contains(e.target as Node)) setShowResults(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [showResults]);
+
+  const selectFromSearch = (a: (typeof forexPairs)[number]) => {
+    setSelected(a);
+    setQuery("");
+    setShowResults(false);
+  };
 
   return (
     <AppLayout>
@@ -106,35 +195,29 @@ function ForexPage() {
           <div className="relative mx-auto max-w-7xl px-6 py-16">
             <div className="grid gap-6 lg:grid-cols-3">
               {/* Chart panel */}
-              <div className="relative lg:col-span-2 overflow-hidden rounded-[2rem] border border-overlay-border bg-surface-elevated shadow-[var(--glow)] backdrop-blur-xl p-6 h-[640px] flex flex-col hover:border-primary/20">
+              <div className="relative lg:col-span-2 overflow-hidden rounded-[2rem] border border-overlay-border bg-surface-elevated shadow-[var(--glow)] backdrop-blur-xl p-4 h-[460px] flex flex-col hover:border-primary/20 sm:p-6 sm:h-[560px] md:h-[640px]">
                 <div className="mb-2 flex shrink-0 items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider text-emerald-500">
                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  Live · EUR/USD
+                  Live · {selected.n}
                 </div>
 
                 <div className="relative min-h-0 flex-1">
-                  <AssetChart seed="EURUSD" color="#3b82f6" basePrice={1.0892} />
-                </div>
-
-                <div className="mt-6 grid shrink-0 grid-cols-2 gap-3 border-t border-border pt-6">
-                  <button
-                    onClick={() => setTrade({ action: "buy", symbol: "EUR/USD", price: "1.0892" })}
-                    className="rounded-lg bg-up/10 py-2.5 text-sm font-bold uppercase tracking-wide text-up hover:bg-up/20 transition-colors"
-                  >
-                    Buy EUR/USD
-                  </button>
-                  <button
-                    onClick={() => setTrade({ action: "sell", symbol: "EUR/USD", price: "1.0892" })}
-                    className="rounded-lg bg-down/10 py-2.5 text-sm font-bold uppercase tracking-wide text-down hover:bg-down/20 transition-colors"
-                  >
-                    Sell EUR/USD
-                  </button>
+                  <AssetChart
+                    seed={selected.n.replace("/", "")}
+                    color={selected.color}
+                    basePrice={toNumber(selected.p)}
+                    symbol={selected.n}
+                    exchange="FX"
+                    marketStatusLabel="Forex Market Open"
+                    watchlist={watchlist}
+                    onSelectSymbol={handleSelectSymbol}
+                  />
                 </div>
               </div>
 
               {/* Trending pairs */}
               <div className="space-y-4">
-                
+                <ConvertWidget defaultFrom={selected.n.includes("INR") ? "INR" : "USDT"} />
 
                 {/* Favorites — pairs starred on this page */}
                 <div className="rounded-xl border border-overlay-border bg-surface p-4">
@@ -160,121 +243,100 @@ function ForexPage() {
                       ))}
                     </div>
                   )}
-                  
                 </div>
-                <h2 className="font-mono text-sm uppercase tracking-wider text-muted-foreground mb-4">
-                  Currency Pairs
-                </h2>
 
+                {/* Search — hover/click dropdown results, decoupled from Trending Currency Pairs below */}
+                <div ref={searchBoxRef} className="relative" onFocusCapture={() => setShowResults(true)}>
+                  <SearchInput
+                    value={query}
+                    onChange={(v) => {
+                      setQuery(v);
+                      setShowResults(true);
+                    }}
+                    placeholder="Search a pair..."
+                  />
+                  {showResults && query.trim() && (
+                    <div className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-20 max-h-80 overflow-y-auto rounded-xl border border-overlay-border bg-surface-elevated shadow-xl backdrop-blur-xl">
+                      {searchResults.length === 0 ? (
+                        <p className="px-4 py-4 text-center text-sm text-muted-foreground">No pairs found.</p>
+                      ) : (
+                        searchResults.map((a) => (
+                          <button
+                            type="button"
+                            key={a.n}
+                            onClick={() => selectFromSearch(a)}
+                            className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-primary/10"
+                          >
+                            <span
+                              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full font-mono text-[10px] font-bold"
+                              style={{ backgroundColor: `${a.color}18`, color: a.color }}
+                            >
+                              <i className={`fa-solid ${a.icon} text-xs`} />
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              <div className="truncate text-sm font-semibold text-foreground">{a.n}</div>
+                              <div className="truncate text-xs text-muted-foreground">Vol {a.v}</div>
+                            </div>
+                            <div className="text-right">
+                              <div className="font-mono text-sm font-bold text-foreground">{a.p}</div>
+                              <div className={`font-mono text-xs ${a.up ? "text-up" : "text-down"}`}>{a.c}</div>
+                            </div>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
 
-                <SearchInput value={query} onChange={setQuery} placeholder="Search a pair..." />
-                {filteredPairs.length === 0 && (
-                  <p className="py-6 text-center text-sm text-muted-foreground">No pairs found.</p>
-                )}
-                {filteredPairs.map((a) => (
-                  <div
-                    key={a.n}
-                    className="relative overflow-hidden rounded-xl border border-overlay-border bg-surface p-4 shadow-sm backdrop-blur-md hover:border-primary/20"
-                  >
-                    <div className="flex items-center gap-4">
-                      <FavoriteStar id={`forex:${a.n}`} />
-                      <span
-                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full font-mono text-[11px] font-bold"
-                        style={{ backgroundColor: `${a.color}18`, color: a.color }}
-                      >
-                        <i className={`fa-solid ${a.icon} text-sm`} />
-                      </span>
-                      <div className="min-w-0">
-                        <div className="font-bold text-sm text-foreground">{a.n}</div>
-                        <div className="text-[11px] text-muted-foreground font-mono">Vol {a.v}</div>
+            {/* ── Trending Currency Pairs — five-across cards, always the full fixed list ── */}
+            <div className="mt-8">
+              <h2 className="mb-4 font-mono text-sm uppercase tracking-wider text-muted-foreground">
+                Trending Currency Pairs
+              </h2>
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+                {forexPairs.map((a) => (
+                    <div
+                      key={a.n}
+                      onClick={() => setSelected(a)}
+                      className={`cursor-pointer overflow-hidden rounded-xl border p-4 shadow-sm backdrop-blur-md transition-colors ${
+                        selected.n === a.n
+                          ? "border-primary/40 bg-primary/5"
+                          : "border-overlay-border bg-surface hover:border-primary/20"
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <FavoriteStar id={`forex:${a.n}`} />
+                        <span
+                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full font-mono text-[10px] font-bold"
+                          style={{ backgroundColor: `${a.color}18`, color: a.color }}
+                        >
+                          <i className={`fa-solid ${a.icon} text-xs`} />
+                        </span>
+                        <div className="min-w-0">
+                          <div className="font-bold text-sm truncate">{a.n}</div>
+                          <div className="text-[11px] text-muted-foreground font-mono">Vol {a.v}</div>
+                        </div>
                       </div>
-                      <div className="ml-auto hidden w-20 sm:block">
-                        <MiniSparkline
-                          color={a.up ? "var(--up)" : "var(--down)"}
-                          points={a.points}
-                          className="h-12 w-20"
-                        />
-                      </div>
-                      <div className="text-right">
-                        <div className="font-mono text-sm font-bold text-foreground">{a.p}</div>
-                        <div className={`font-mono text-xs ${a.up ? "text-up" : "text-down"}`}>{a.c}</div>
+                      <div className="mt-3 flex items-center justify-between">
+                        <span className="font-mono text-sm font-bold">{a.p}</span>
+                        <span className={`font-mono text-xs ${a.up ? "text-up" : "text-down"}`}>{a.c}</span>
                       </div>
                     </div>
-                    <BuySellButtons
-                      onBuy={() => setTrade({ action: "buy", symbol: a.n, price: a.p })}
-                      onSell={() => setTrade({ action: "sell", symbol: a.n, price: a.p })}
-                    />
-                  </div>
                 ))}
               </div>
             </div>
-          </div>
-        </section>
 
-        {/* ─── Why trade forex here ─── */}
-        <section className="relative overflow-hidden border-t border-border">
-          <div className="relative mx-auto max-w-7xl px-6 py-20 md:py-28">
-            <div className="text-center mb-14">
-              <div className="label-mono inline-block mb-3 text-[#3b82f6]">Why Stocks360 Forex</div>
-              <h2 className="text-3xl font-bold tracking-tight md:text-5xl">
-                Built for serious currency traders
-              </h2>
+            {/* ── Orders ── */}
+            <div className="mt-8">
+              <h2 className="mb-4 font-mono text-sm uppercase tracking-wider text-muted-foreground">Orders</h2>
+              <OrdersPanel />
             </div>
 
-            <div className="grid gap-4 md:grid-cols-3">
-              {[
-                {
-                  t: "Tight Interbank Spreads",
-                  d: "Institutional liquidity on majors, minors and exotics — spreads from 0.1 pips on EUR/USD.",
-                  icon: "fa-arrows-left-right",
-                },
-                {
-                  t: "24/5 Market Access",
-                  d: "Trade currency pairs from Sydney's open to New York's close, on the same unified balance.",
-                  icon: "fa-clock",
-                },
-                {
-                  t: "No Overnight Swap Fees",
-                  d: "Hold positions across sessions without the usual rollover cost on major pairs.",
-                  icon: "fa-hand-holding-dollar",
-                },
-              ].map((f) => (
-                <div
-                  key={f.t}
-                  className="relative overflow-hidden rounded-2xl border border-border bg-card p-8 shadow-sm hover:border-primary/20"
-                >
-                  <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-secondary text-primary mb-5">
-                    <i className={`fa-solid ${f.icon} text-lg`} />
-                  </div>
-                  <h3 className="text-xl font-bold text-foreground mb-2">{f.t}</h3>
-                  <p className="text-sm text-muted-foreground leading-relaxed">{f.d}</p>
-                </div>
-              ))}
-            </div>
-
-            <div className="mt-12 flex justify-center">
-              <IconTileRow
-                items={[
-                  { icon: "fa-dollar-sign", color: "#10b981" },
-                  { icon: "fa-euro-sign", color: "#3b82f6" },
-                  { icon: "fa-sterling-sign", color: "#8b5cf6" },
-                  { icon: "fa-yen-sign", color: "#ef4444" },
-                  { icon: "fa-indian-rupee-sign", color: "#eab308" },
-                ]}
-              />
-            </div>
           </div>
         </section>
       </div>
-      {trade && (
-        <TradeModal
-          open
-          onClose={() => setTrade(null)}
-          action={trade.action}
-          symbol={trade.symbol}
-          price={trade.price}
-        />
-      )}
     </AppLayout>
   );
 }

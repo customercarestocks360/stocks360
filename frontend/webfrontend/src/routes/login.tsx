@@ -27,7 +27,7 @@ function Login() {
   const [identifier, setIdentifier] = useState("");
 
   return (
-    <div className="h-screen overflow-hidden bg-background text-foreground">
+    <div className="h-dvh overflow-hidden bg-background text-foreground pt-safe pb-safe">
       <div className="relative h-full overflow-hidden">
         <div className="grid-bg absolute inset-0 opacity-40" />
         <div className="halo absolute inset-0" />

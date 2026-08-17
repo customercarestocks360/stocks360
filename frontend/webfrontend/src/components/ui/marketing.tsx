@@ -155,7 +155,7 @@ export function IconTileRow({ items }: { items: { icon: string; color: string }[
   );
 }
 
-/* ────── Search Input — filter bar used on Stocks / Crypto / Markets list pages ────── */
+/* ────── Search Input — filter bar used on Trade / Forex / Markets list pages ────── */
 export function SearchInput({
   value,
   onChange,
