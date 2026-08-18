@@ -60,7 +60,7 @@ function ForgotPassword() {
               destination={method === "email" ? `the email ${contact || "on file"}` : `the phone number ${contact || "on file"}`}
             />
           ) : step === "done" ? (
-            <div className="relative mx-auto w-full max-w-sm rounded-2xl border border-border bg-card/80 p-7 text-center shadow-2xl backdrop-blur-xl">
+            <div className="relative mx-auto w-full max-w-sm rounded sm:rounded-2xl border border-border bg-card/80 p-7 text-center shadow-2xl backdrop-blur-xl">
               <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-secondary text-primary">
                 <i className="fa-solid fa-check text-base" />
               </div>
@@ -97,7 +97,7 @@ function ForgotPassword() {
               <div className="absolute -top-16 -left-16 h-56 w-56 rounded-full bg-primary/20 blur-3xl pointer-events-none" />
               <div className="absolute -bottom-16 -right-10 h-56 w-56 rounded-full bg-[#3b82f6]/20 blur-3xl pointer-events-none" />
 
-              <div className="relative rounded-3xl border border-border bg-card/80 p-7 shadow-2xl backdrop-blur-xl sm:p-9">
+              <div className="relative rounded sm:rounded-3xl border border-border bg-card/80 p-7 shadow-2xl backdrop-blur-xl sm:p-9">
                 <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
                   Set a new password
                 </h1>
@@ -112,7 +112,7 @@ function ForgotPassword() {
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       placeholder="Enter your new password"
-                      className="mt-2 rounded-xl border-border bg-background/60 py-5 focus-visible:ring-primary/40"
+                      className="mt-2 rounded sm:rounded-xl border-border bg-background/60 py-5 focus-visible:ring-primary/40"
                       type="password"
                     />
                   </label>
@@ -122,7 +122,7 @@ function ForgotPassword() {
                       value={confirmPassword}
                       onChange={(e) => setConfirmPassword(e.target.value)}
                       placeholder="Enter your new password again"
-                      className="mt-2 rounded-xl border-border bg-background/60 py-5 focus-visible:ring-primary/40"
+                      className="mt-2 rounded sm:rounded-xl border-border bg-background/60 py-5 focus-visible:ring-primary/40"
                       type="password"
                     />
                   </label>
@@ -161,7 +161,7 @@ function ForgotPassword() {
               <div className="absolute -top-16 -left-16 h-56 w-56 rounded-full bg-primary/20 blur-3xl pointer-events-none" />
               <div className="absolute -bottom-16 -right-10 h-56 w-56 rounded-full bg-[#3b82f6]/20 blur-3xl pointer-events-none" />
 
-              <div className="relative rounded-3xl border border-border bg-card/80 p-7 shadow-2xl backdrop-blur-xl sm:p-9">
+              <div className="relative rounded sm:rounded-3xl border border-border bg-card/80 p-7 shadow-2xl backdrop-blur-xl sm:p-9">
                 <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
                   Reset your password
                 </h1>
@@ -173,7 +173,7 @@ function ForgotPassword() {
                   <button
                     type="button"
                     onClick={() => setMethod("email")}
-                    className={`flex flex-col items-center gap-2 rounded-xl border p-4 text-sm font-medium transition-colors ${
+                    className={`flex flex-col items-center gap-2 rounded sm:rounded-xl border p-4 text-sm font-medium transition-colors ${
                       method === "email"
                         ? "border-primary bg-primary/10 text-foreground"
                         : "border-border text-muted-foreground hover:border-primary/40"
@@ -185,7 +185,7 @@ function ForgotPassword() {
                   <button
                     type="button"
                     onClick={() => setMethod("phone")}
-                    className={`flex flex-col items-center gap-2 rounded-xl border p-4 text-sm font-medium transition-colors ${
+                    className={`flex flex-col items-center gap-2 rounded sm:rounded-xl border p-4 text-sm font-medium transition-colors ${
                       method === "phone"
                         ? "border-primary bg-primary/10 text-foreground"
                         : "border-border text-muted-foreground hover:border-primary/40"
@@ -209,7 +209,7 @@ function ForgotPassword() {
                       value={contact}
                       onChange={(e) => setContact(e.target.value)}
                       placeholder={method === "email" ? "yourEmail@example.com" : "+1 (555) 000-0000"}
-                      className="mt-2 rounded-xl border-border bg-background/60 py-5 focus-visible:ring-primary/40"
+                      className="mt-2 rounded sm:rounded-xl border-border bg-background/60 py-5 focus-visible:ring-primary/40"
                       type={method === "email" ? "email" : "tel"}
                     />
                   </label>

@@ -87,13 +87,13 @@ function MarketsPage() {
       <section className="relative overflow-hidden border-b border-border">
         <div className="grid-bg absolute inset-0 opacity-40" />
 
-        <div className="relative mx-auto max-w-7xl px-6 py-12 md:py-16">
+        <div className="relative mx-auto max-w-7xl px-2 py-6 sm:px-6 md:py-16">
           {/* ── Category strip: Hot / New / Top Gainer / Top Volume ── */}
           <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
             {CATEGORY_PICKS.map((cat) => (
               <div
                 key={cat.title}
-                className="rounded-2xl border border-border bg-card p-5 shadow-sm hover:border-primary/20"
+                className="rounded sm:rounded-2xl border border-border bg-card p-3 sm:p-5 shadow-sm hover:border-primary/20"
               >
                 <div className="mb-3 flex items-center justify-between">
                   <span className="text-sm font-semibold text-foreground">{cat.title}</span>
@@ -122,7 +122,7 @@ function MarketsPage() {
           </div>
 
           {/* ── My Favorites — assets starred on this page ── */}
-          <div className="mt-8 rounded-2xl border border-border bg-card p-5 shadow-sm">
+          <div className="mt-8 rounded sm:rounded-2xl border border-border bg-card p-3 sm:p-5 shadow-sm">
             <div className="mb-3 flex items-center gap-2">
               <i className="fa-solid fa-star text-sm text-amber-400" />
               <span className="text-sm font-semibold text-foreground">My Favorites</span>
@@ -136,7 +136,7 @@ function MarketsPage() {
                 {favoriteAssets.map((a) => (
                   <div
                     key={a.sym}
-                    className="flex items-center gap-2.5 rounded-xl border border-border bg-background/40 px-3 py-2.5"
+                    className="flex items-center gap-2.5 rounded sm:rounded-xl border border-border bg-background/40 px-3 py-2.5"
                   >
                     <FavoriteStar id={favKey(a)} />
                     <AssetIcon asset={a} size="h-7 w-7" />
@@ -164,14 +164,14 @@ function MarketsPage() {
               <p className="py-10 text-center text-sm text-muted-foreground">No assets found.</p>
             )}
 
-            <div className="overflow-x-auto rounded-2xl border border-border bg-card">
+            <div className="overflow-x-auto rounded sm:rounded-2xl border border-border bg-card">
               <table className="w-full min-w-[1080px] border-collapse text-sm">
                 <thead>
                   <tr className="border-b border-border bg-secondary/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
-                    <th className="px-5 py-3 font-medium">Company</th>
-                    <th className="px-5 py-3 font-medium">Chart</th>
-                    <th className="px-5 py-3 font-medium">Market price</th>
-                    <th className="px-5 py-3 font-medium">
+                    <th className="px-2 py-2 sm:px-5 sm:py-3 font-medium">Company</th>
+                    <th className="px-2 py-2 sm:px-5 sm:py-3 font-medium">Chart</th>
+                    <th className="px-2 py-2 sm:px-5 sm:py-3 font-medium">Market price</th>
+                    <th className="px-2 py-2 sm:px-5 sm:py-3 font-medium">
                       <div className="flex items-center gap-2">
                         <div className="relative inline-block">
                           <button
@@ -222,10 +222,10 @@ function MarketsPage() {
                         </button>
                       </div>
                     </th>
-                    <th className="px-5 py-3 font-medium">Volume</th>
-                    <th className="px-5 py-3 font-medium">1W avg vol diff</th>
-                    <th className="px-5 py-3 font-medium">52W</th>
-                    <th className="px-5 py-3 text-right font-medium">Action</th>
+                    <th className="px-2 py-2 sm:px-5 sm:py-3 font-medium">Volume</th>
+                    <th className="px-2 py-2 sm:px-5 sm:py-3 font-medium">1W avg vol diff</th>
+                    <th className="px-2 py-2 sm:px-5 sm:py-3 font-medium">52W</th>
+                    <th className="px-2 py-2 sm:px-5 sm:py-3 text-right font-medium">Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -236,7 +236,7 @@ function MarketsPage() {
                     const stats = deriveMarketStats(a.sym, priceNum);
                     return (
                       <tr key={a.sym} className="border-b border-border last:border-b-0 hover:bg-secondary/30">
-                        <td className="px-5 py-4">
+                        <td className="px-2 py-2.5 sm:px-5 sm:py-4">
                           <div className="flex items-center gap-3">
                             <AssetIcon asset={a} />
                             <div>
@@ -250,21 +250,21 @@ function MarketsPage() {
                             </div>
                           </div>
                         </td>
-                        <td className="px-5 py-4">
+                        <td className="px-2 py-2.5 sm:px-5 sm:py-4">
                           <Sparkline seed={`${a.sym}:${time}`} up={up} />
                         </td>
-                        <td className="px-5 py-4 font-mono text-foreground">{a.price}</td>
-                        <td className="px-5 py-4">
+                        <td className="px-2 py-2.5 sm:px-5 sm:py-4 font-mono text-foreground">{a.price}</td>
+                        <td className="px-2 py-2.5 sm:px-5 sm:py-4">
                           <ChangeCell absStr={changeAbsFor(a, time)} pct={pct} />
                         </td>
-                        <td className="px-5 py-4 font-mono text-muted-foreground">{a.volume}</td>
-                        <td className="px-5 py-4">
+                        <td className="px-2 py-2.5 sm:px-5 sm:py-4 font-mono text-muted-foreground">{a.volume}</td>
+                        <td className="px-2 py-2.5 sm:px-5 sm:py-4">
                           <VolDiffBadge pct={stats.avgVolDiffPct} />
                         </td>
-                        <td className="px-5 py-4">
+                        <td className="px-2 py-2.5 sm:px-5 sm:py-4">
                           <RangeBar52W low={stats.low52w} high={stats.high52w} price={priceNum} />
                         </td>
-                        <td className="px-5 py-4">
+                        <td className="px-2 py-2.5 sm:px-5 sm:py-4">
                           <div className="flex items-center justify-end gap-2">
                             <FavoriteStar id={favKey(a)} className="flex h-8 w-8 items-center justify-center rounded-lg border border-border" />
                             <Link

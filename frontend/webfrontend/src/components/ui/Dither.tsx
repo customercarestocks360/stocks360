@@ -189,7 +189,7 @@ const WrappedRetro = wrapEffect(RetroEffectImpl);
 const RetroEffect = forwardRef<RetroEffectImpl, { colorNum?: number; pixelSize?: number }>(
   (props, ref) => {
     const { colorNum, pixelSize } = props;
-    return <WrappedRetro ref={ref as React.Ref<RetroEffectImpl>} colorNum={colorNum} pixelSize={pixelSize} />;
+    return <WrappedRetro ref={ref as any} {...({ colorNum, pixelSize } as any)} />;
   },
 );
 RetroEffect.displayName = "RetroEffect";
@@ -240,7 +240,7 @@ function DitheredWaves({
     const dpr = gl.getPixelRatio();
     const w = Math.floor(size.width * dpr);
     const h = Math.floor(size.height * dpr);
-    material.uniforms["resolution"].value.set(w, h);
+    (material.uniforms as Record<string, any>)["resolution"].value.set(w, h);
   }, [size, gl, material]);
 
   // Global mouse listener (bypasses z-index occlusion from hero text overlay)
@@ -261,7 +261,7 @@ function DitheredWaves({
   const prevBgColor = useRef([...bgColor]);
 
   useFrame(({ clock }) => {
-    const u = material.uniforms;
+    const u = material.uniforms as Record<string, any>;
 
     // Continuously advance time — this is what drives the animation
     if (!disableAnimation) {

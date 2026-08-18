@@ -131,15 +131,8 @@ function stamp(iso: string) {
 
 /** Diamond marker for a completed step, numbered circle for the one in progress. */
 function StepMarker({ done, n }: { done: boolean; n: number }) {
-  if (done) {
-    return (
-      <span className="flex h-5 w-5 rotate-45 items-center justify-center rounded-[3px] border-2 border-foreground/70">
-        <i className="fa-solid fa-check -rotate-45 text-[9px] text-foreground/70" />
-      </span>
-    );
-  }
   return (
-    <span className="flex h-5 w-5 items-center justify-center rounded-full border-2 border-foreground/70 text-[10px] font-bold text-foreground/70">
+    <span className={`flex h-5 w-5 items-center justify-center rounded-full border-2 text-[10px] font-bold ${done ? "border-primary text-primary" : "border-foreground/70 text-foreground/70"}`}>
       {n}
     </span>
   );
@@ -185,7 +178,7 @@ function Dropdown<T>({
         aria-label={label}
         aria-expanded={open}
         aria-haspopup="listbox"
-        className="flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3.5 text-left transition-colors hover:border-foreground/25"
+        className="flex w-full items-center justify-between gap-3 rounded sm:rounded-xl border border-border bg-card px-4 py-3.5 text-left transition-colors hover:border-foreground/25"
       >
         {render(selected)}
         <i className={`fa-solid fa-chevron-down text-xs text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`} />
@@ -193,7 +186,7 @@ function Dropdown<T>({
       {open && (
         <ul
           role="listbox"
-          className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-20 overflow-hidden rounded-xl border border-border bg-card p-1 shadow-xl"
+          className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-20 overflow-hidden rounded sm:rounded-xl border border-border bg-card p-1 shadow-xl"
         >
           {items.map((item, i) => (
             <li key={i}>
@@ -306,7 +299,7 @@ function WithdrawPage() {
           <Link
             to={locked.to}
             {...(locked.search ? { search: locked.search } : {})}
-            className="mt-6 inline-block rounded-xl bg-primary px-5 py-2.5 text-sm font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90"
+            className="mt-6 inline-block rounded sm:rounded-xl bg-primary px-5 py-2.5 text-sm font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90"
           >
             {locked.cta}
           </Link>
@@ -340,7 +333,7 @@ function WithdrawPage() {
 
             <Step n={1} done title="Asset">
               <div className="max-w-lg">
-                <div className="flex w-full items-center gap-3 rounded-xl border border-border bg-card px-4 py-3.5">
+                <div className="flex w-full items-center gap-3 rounded sm:rounded-xl border border-border bg-card px-4 py-3.5">
                   <span
                     className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full font-mono text-[8px] font-bold"
                     style={{ backgroundColor: `${asset.color}25`, color: asset.color }}
@@ -354,7 +347,7 @@ function WithdrawPage() {
                   USDT is the only asset Stocks360 pays out withdrawals in.
                 </p>
 
-                <div className="mt-4 flex items-center justify-between rounded-xl border border-border bg-card px-4 py-3">
+                <div className="mt-4 flex items-center justify-between rounded sm:rounded-xl border border-border bg-card px-4 py-3">
                   <span className="text-sm text-muted-foreground">Available to withdraw</span>
                   <span className="font-mono text-sm font-semibold text-foreground">
                     {fmt(available)} USDT
@@ -384,7 +377,7 @@ function WithdrawPage() {
                     value={destination}
                     onChange={(e) => setDestination(e.target.value)}
                     placeholder={network.destinationPlaceholder}
-                    className="mt-2 w-full rounded-xl border border-border bg-background/60 px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
+                    className="mt-2 w-full rounded sm:rounded-xl border border-border bg-background/60 px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
                   />
                 </label>
               </div>
@@ -392,7 +385,7 @@ function WithdrawPage() {
 
             <Step n={3} done={false} last title="Amount">
               <div className="max-w-lg">
-                <div className="rounded-xl border border-border bg-card p-4">
+                <div className="rounded sm:rounded-xl border border-border bg-card p-4">
                   {stage === "requested" ? (
                     <div className="text-center">
                       <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-primary/10 text-primary">
@@ -425,7 +418,7 @@ function WithdrawPage() {
                             onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))}
                             placeholder="e.g. 100"
                             inputMode="decimal"
-                            className="w-full rounded-xl border border-border bg-background/60 px-3 py-2.5 pr-16 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
+                            className="w-full rounded sm:rounded-xl border border-border bg-background/60 px-3 py-2.5 pr-16 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
                           />
                           <button
                             type="button"
@@ -459,7 +452,7 @@ function WithdrawPage() {
                         type="button"
                         onClick={handleSubmit}
                         disabled={!canSubmit}
-                        className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
+                        className="mt-4 flex w-full items-center justify-center gap-2 rounded sm:rounded-xl bg-primary px-4 py-3 text-sm font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
                       >
                         Request withdrawal
                       </button>
@@ -519,11 +512,11 @@ function WithdrawPage() {
               <table className="w-full min-w-[620px] border-collapse text-sm">
                 <thead>
                   <tr className="border-b border-border text-left text-xs text-muted-foreground">
-                    <th className="px-2 pb-3 font-medium">Date</th>
-                    <th className="px-2 pb-3 font-medium">Asset</th>
-                    <th className="px-2 pb-3 font-medium">Network</th>
-                    <th className="px-2 pb-3 text-right font-medium">Amount</th>
-                    <th className="px-2 pb-3 text-right font-medium">Status</th>
+                    <th className="px-1 sm:px-2 pb-2 sm:pb-3 font-medium">Date</th>
+                    <th className="px-1 sm:px-2 pb-2 sm:pb-3 font-medium">Asset</th>
+                    <th className="px-1 sm:px-2 pb-2 sm:pb-3 font-medium">Network</th>
+                    <th className="px-1 sm:px-2 pb-2 sm:pb-3 text-right font-medium">Amount</th>
+                    <th className="px-1 sm:px-2 pb-2 sm:pb-3 text-right font-medium">Status</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -537,11 +530,11 @@ function WithdrawPage() {
                           : "text-down";
                     return (
                       <tr key={t.id} className="border-b border-border last:border-b-0">
-                        <td className="px-2 py-4 font-mono text-xs text-muted-foreground">{stamp(t.date)}</td>
-                        <td className="px-2 py-4 font-medium text-foreground">{t.method}</td>
-                        <td className="px-2 py-4 text-muted-foreground">{NETWORK_OF[t.method]}</td>
-                        <td className={`px-2 py-4 text-right font-mono font-semibold ${tone}`}>−{fmt(t.amount)}</td>
-                        <td className="px-2 py-4 text-right">
+                        <td className="px-1 sm:px-2 py-2.5 sm:py-4 font-mono text-xs text-muted-foreground">{stamp(t.date)}</td>
+                        <td className="px-1 sm:px-2 py-2.5 sm:py-4 font-medium text-foreground">{t.method}</td>
+                        <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-muted-foreground">{NETWORK_OF[t.method]}</td>
+                        <td className={`px-1 sm:px-2 py-2.5 sm:py-4 text-right font-mono font-semibold ${tone}`}>−{fmt(t.amount)}</td>
+                        <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-right">
                           <span
                             className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ${
                               status === "cancelled"

@@ -167,7 +167,7 @@ function Index() {
         </section>
 
         {/* ─── #2 — Category Showcase Bento (Groww-style asymmetric grid) ─── */}
-        <section className="mx-auto max-w-7xl px-6 py-24 md:py-32">
+        <section className="mx-auto max-w-7xl px-2 py-16 sm:px-6 md:py-32">
           <div className="text-center mb-16" data-reveal="fade-up">
             <div className="label-mono inline-block mb-3 text-primary">Explore Markets</div>
             <h2 className="text-3xl font-bold tracking-tight md:text-5xl">
@@ -175,21 +175,21 @@ function Index() {
             </h2>
           </div>
 
-          <div className="grid gap-6 lg:grid-cols-2">
+          <div className="grid gap-3 sm:gap-6 lg:grid-cols-2">
             {/* ── Left column: Trade (tall) + Commodities (wide banner) ── */}
-            <div className="flex flex-col gap-6">
+            <div className="flex flex-col gap-3 sm:gap-6">
               {/* Trade Card — mock ticker + sparkline */}
               <Link
                 to="/trade"
                 data-reveal="approach"
-                className="group relative flex flex-col overflow-hidden rounded-3xl border border-border bg-card p-8 transition-all duration-500 hover:-translate-y-1.5 hover:shadow-2xl hover:border-primary/30 cursor-pointer min-h-[380px]"
+                className="group relative flex flex-col overflow-hidden rounded sm:rounded-3xl border border-border bg-card p-4 sm:p-8 transition-all duration-500 hover:-translate-y-1.5 hover:shadow-2xl hover:border-primary/30 cursor-pointer min-h-[380px]"
               >
                 <div className="absolute top-0 right-0 w-56 h-56 opacity-[0.06] group-hover:opacity-[0.12] transition-opacity duration-700 pointer-events-none">
                   <div className="w-full h-full rounded-full bg-[#3b82f6] blur-3xl" />
                 </div>
                 <div className="flex items-start justify-between">
                   <div>
-                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#3b82f6]/10 text-[#3b82f6] mb-5 group-hover:scale-110 transition-transform duration-500">
+                    <div className="flex h-12 w-12 items-center justify-center rounded sm:rounded-2xl bg-[#3b82f6]/10 text-[#3b82f6] mb-5 group-hover:scale-110 transition-transform duration-500">
                       <i className="fa-solid fa-chart-line text-xl" />
                     </div>
                     <h3 className="text-2xl font-bold text-foreground mb-1">Trade</h3>
@@ -200,7 +200,7 @@ function Index() {
                   <i className="fa-solid fa-arrow-up-right text-muted-foreground/40 group-hover:text-[#3b82f6] group-hover:translate-x-1 group-hover:-translate-y-1 transition-all" />
                 </div>
 
-                <div className="mt-6 h-56 flex-1 overflow-hidden rounded-2xl border border-border bg-background/40">
+                <div className="mt-6 h-56 flex-1 overflow-hidden rounded sm:rounded-2xl border border-border bg-background/40">
                   <img
                     src={isDark ? "/trade.png" : "/tradelight.png"}
                     alt="Trade"
@@ -220,7 +220,7 @@ function Index() {
                 to="/markets"
                 data-reveal="approach"
                 data-delay="2"
-                className="group relative flex flex-col md:flex-row md:items-center md:justify-between gap-6 overflow-hidden rounded-3xl border border-border bg-card p-8 transition-all duration-500 hover:-translate-y-1.5 hover:shadow-2xl hover:border-primary/30 cursor-pointer min-h-[180px]"
+                className="group relative flex flex-col md:flex-row md:items-center md:justify-between gap-4 sm:gap-6 overflow-hidden rounded sm:rounded-3xl border border-border bg-card p-4 sm:p-8 transition-all duration-500 hover:-translate-y-1.5 hover:shadow-2xl hover:border-primary/30 cursor-pointer min-h-[180px]"
               >
                 <div className="absolute top-0 right-0 w-40 h-40 opacity-[0.06] group-hover:opacity-[0.12] transition-opacity duration-700 pointer-events-none">
                   <div className="w-full h-full rounded-full bg-[#eab308] blur-3xl" />
@@ -248,13 +248,13 @@ function Index() {
             </div>
 
             {/* ── Right column: ETFs & Indices (banner) + Forex (tall) ── */}
-            <div className="flex flex-col gap-6">
+            <div className="flex flex-col gap-3 sm:gap-6">
               {/* ETFs & Indices Banner — icon tiles */}
               <Link
                 to="/markets"
                 data-reveal="approach"
                 data-delay="1"
-                className="group relative flex flex-col gap-6 overflow-hidden rounded-3xl border border-border bg-card p-8 transition-all duration-500 hover:-translate-y-1.5 hover:shadow-2xl hover:border-primary/30 cursor-pointer min-h-[180px]"
+                className="group relative flex flex-col gap-4 sm:gap-6 overflow-hidden rounded sm:rounded-3xl border border-border bg-card p-4 sm:p-8 transition-all duration-500 hover:-translate-y-1.5 hover:shadow-2xl hover:border-primary/30 cursor-pointer min-h-[180px]"
               >
                 <div className="absolute top-0 right-0 w-40 h-40 opacity-[0.06] group-hover:opacity-[0.12] transition-opacity duration-700 pointer-events-none">
                   <div className="w-full h-full rounded-full bg-[#8b5cf6] blur-3xl" />
@@ -282,14 +282,14 @@ function Index() {
                 to="/forex"
                 data-reveal="approach"
                 data-delay="3"
-                className="group relative flex flex-1 flex-col overflow-hidden rounded-3xl border border-border bg-card p-8 transition-all duration-500 hover:-translate-y-1.5 hover:shadow-2xl hover:border-primary/30 cursor-pointer min-h-[380px]"
+                className="group relative flex flex-1 flex-col overflow-hidden rounded sm:rounded-3xl border border-border bg-card p-4 sm:p-8 transition-all duration-500 hover:-translate-y-1.5 hover:shadow-2xl hover:border-primary/30 cursor-pointer min-h-[380px]"
               >
                 <div className="absolute top-0 right-0 w-56 h-56 opacity-[0.06] group-hover:opacity-[0.12] transition-opacity duration-700 pointer-events-none">
                   <div className="w-full h-full rounded-full bg-[#10b981] blur-3xl" />
                 </div>
                 <div className="flex items-start justify-between">
                   <div>
-                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#10b981]/10 text-[#10b981] mb-5 group-hover:scale-110 transition-transform duration-500">
+                    <div className="flex h-12 w-12 items-center justify-center rounded sm:rounded-2xl bg-[#10b981]/10 text-[#10b981] mb-5 group-hover:scale-110 transition-transform duration-500">
                       <i className="fa-solid fa-money-bill-transfer text-xl" />
                     </div>
                     <h3 className="text-2xl font-bold text-foreground mb-1">Forex</h3>
@@ -300,7 +300,7 @@ function Index() {
                   <i className="fa-solid fa-arrow-up-right text-muted-foreground/40 group-hover:text-[#10b981] group-hover:translate-x-1 group-hover:-translate-y-1 transition-all" />
                 </div>
 
-                <div className="mt-6 h-56 flex-1 overflow-hidden rounded-2xl border border-border bg-background/40">
+                <div className="mt-6 h-56 flex-1 overflow-hidden rounded sm:rounded-2xl border border-border bg-background/40">
                   <img
                     src={isDark ? "/forex.png" : "/forexlight.png"}
                     alt="Forex"
@@ -346,7 +346,7 @@ function Index() {
                   data-delay={String(i + 1)}
                   className="group text-center"
                 >
-                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-secondary mb-5 group-hover:bg-primary group-hover:text-primary-foreground transition-colors duration-500">
+                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded sm:rounded-2xl bg-secondary mb-5 group-hover:bg-primary group-hover:text-primary-foreground transition-colors duration-500">
                     <i className={`fa-solid ${stat.icon} text-lg`} />
                   </div>
                   <div className="font-mono text-4xl md:text-5xl font-bold text-foreground tracking-tight">
@@ -409,7 +409,7 @@ function Index() {
                 ].map((item, i) => (
                   <div
                     key={item.label}
-                    className="group rounded-2xl border border-border bg-card p-5 text-center transition-all duration-300 hover:border-primary/30 hover:shadow-lg hover:-translate-y-1"
+                    className="group rounded sm:rounded-2xl border border-border bg-card p-5 text-center transition-all duration-300 hover:border-primary/30 hover:shadow-lg hover:-translate-y-1"
                     style={{ animationDelay: `${i * 150}ms` }}
                   >
                     <i className={`fa-solid ${item.icon} text-xl text-muted-foreground group-hover:text-primary transition-colors`} />
@@ -457,11 +457,11 @@ function Index() {
                 ].map((item, i) => (
                   <div
                     key={item.market}
-                    className="flex items-center gap-4 rounded-xl border border-border bg-card p-4 transition-all duration-300 hover:border-primary/30"
+                    className="flex items-center gap-4 rounded sm:rounded-xl border border-border bg-card p-4 transition-all duration-300 hover:border-primary/30"
                     style={{ animationDelay: `${i * 100}ms` }}
                   >
                     <div
-                      className="flex h-10 w-10 items-center justify-center rounded-xl"
+                      className="flex h-10 w-10 items-center justify-center rounded sm:rounded-xl"
                       style={{ backgroundColor: `${item.color}15`, color: item.color }}
                     >
                       <i className={`fa-solid ${item.icon}`} />
@@ -492,7 +492,7 @@ function Index() {
         </section>
 
         {/* ─── #6 — Platform Features Bento Grid ─── */}
-        <section className="mx-auto max-w-7xl px-6 py-24 md:py-32">
+        <section className="mx-auto max-w-7xl px-2 py-16 sm:px-6 md:py-32">
           <div className="text-center mb-16" data-reveal="blur">
             <div className="label-mono inline-block mb-3">Platform</div>
             <h2 className="text-3xl font-bold tracking-tight md:text-5xl">
@@ -534,9 +534,9 @@ function Index() {
                 key={f.t}
                 data-reveal="rotate"
                 data-delay={String(i + 1)}
-                className={`group relative overflow-hidden rounded-2xl border border-border bg-card p-8 transition-all duration-500 hover:border-primary/30 hover:shadow-lg ${f.span}`}
+                className={`group relative overflow-hidden rounded sm:rounded-2xl border border-border bg-card p-4 sm:p-8 transition-all duration-500 hover:border-primary/30 hover:shadow-lg ${f.span}`}
               >
-                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-secondary mb-5 group-hover:bg-primary group-hover:text-primary-foreground transition-colors duration-500">
+                <div className="flex h-11 w-11 items-center justify-center rounded sm:rounded-xl bg-secondary mb-5 group-hover:bg-primary group-hover:text-primary-foreground transition-colors duration-500">
                   <i className={`fa-solid ${f.icon} text-lg`} />
                 </div>
                 <h3 className="text-xl font-bold text-foreground mb-2 group-hover:text-primary transition-colors">{f.t}</h3>
@@ -598,9 +598,9 @@ function Index() {
                   key={item.label}
                   data-reveal="scale"
                   data-delay={String(i + 1)}
-                  className="group rounded-2xl border border-border bg-card p-6 text-center transition-all duration-500 hover:shadow-xl hover:-translate-y-1"
+                  className="group rounded sm:rounded-2xl border border-border bg-card p-3 sm:p-6 text-center transition-all duration-500 hover:shadow-xl hover:-translate-y-1"
                 >
-                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-secondary mb-4 group-hover:bg-primary group-hover:text-primary-foreground transition-colors duration-500">
+                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded sm:rounded-xl bg-secondary mb-4 group-hover:bg-primary group-hover:text-primary-foreground transition-colors duration-500">
                     <i className={`fa-solid ${item.icon} text-lg`} />
                   </div>
                   <div className="font-mono text-2xl font-bold text-foreground">{item.stat}</div>
@@ -629,13 +629,13 @@ function Index() {
             <div className="mt-10 flex flex-wrap justify-center gap-4">
               <Link
                 to="/signup"
-                className="cursor-pointer rounded-2xl bg-primary px-10 py-4 font-mono text-sm font-bold uppercase tracking-wider text-primary-foreground shadow-lg transition-all hover:scale-[1.03] hover:shadow-xl active:scale-[0.98]"
+                className="cursor-pointer rounded sm:rounded-2xl bg-primary px-10 py-4 font-mono text-sm font-bold uppercase tracking-wider text-primary-foreground shadow-lg transition-all hover:scale-[1.03] hover:shadow-xl active:scale-[0.98]"
               >
                 Open free account
               </Link>
               <Link
                 to="/markets"
-                className="cursor-pointer rounded-2xl border border-border bg-card px-10 py-4 font-mono text-sm uppercase tracking-wider text-foreground transition-colors hover:bg-secondary"
+                className="cursor-pointer rounded sm:rounded-2xl border border-border bg-card px-10 py-4 font-mono text-sm uppercase tracking-wider text-foreground transition-colors hover:bg-secondary"
               >
                 Explore markets
               </Link>

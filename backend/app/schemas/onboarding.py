@@ -440,7 +440,7 @@ class TaxStep(_Strict):
 class FinancialStep(_Strict):
     step: Literal[OnboardingStep.financial]
     occupation: Occupation
-    employer_name: str | None = Field(default=None, min_length=2, max_length=128)
+    employer_designation : str | None = Field(default=None, min_length=2, max_length=128)
     income_currency: Currency
     annual_income_band: MoneyBand
     net_worth_band: MoneyBand
@@ -453,8 +453,8 @@ class FinancialStep(_Strict):
         if len(set(self.investment_objectives)) != len(self.investment_objectives):
             raise ValueError("`investment_objectives` must not repeat a value")
         employed = {Occupation.salaried_private, Occupation.salaried_public, Occupation.government}
-        if self.occupation in employed and not self.employer_name:
-            raise ValueError("`employer_name` is required for a salaried occupation")
+        if self.occupation in employed and not self.employer_designation:
+            raise ValueError("`employer_designation` is required for a salaried occupation")
         return self
 
 

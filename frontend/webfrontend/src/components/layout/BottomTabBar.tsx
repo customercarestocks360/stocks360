@@ -1,6 +1,7 @@
 import { Link, useLocation } from "@tanstack/react-router";
 
 const TABS = [
+  { n: "Home", t: "/", icon: "fa-house" },
   { n: "Markets", t: "/markets", icon: "fa-chart-line" },
   { n: "Trade", t: "/trade", icon: "fa-arrow-right-arrow-left" },
   { n: "Forex", t: "/forex", icon: "fa-money-bill-transfer" },
@@ -29,12 +30,12 @@ export function BottomTabBar() {
             <Link
               key={tab.n}
               to={tab.t}
-              className={`flex flex-1 flex-col items-center justify-center gap-1 rounded-md text-[11px] transition-colors ${
+              className={`flex flex-1 flex-col items-center justify-center gap-1 rounded-md text-[10px] sm:text-[11px] transition-colors ${
                 active ? "text-primary" : "text-muted-foreground"
               }`}
             >
-              <i className={`fa-solid ${tab.icon} text-[17px]`} />
-              <span className="font-medium">{tab.n}</span>
+              <i className={`fa-solid ${tab.icon} text-[15px] sm:text-[17px]`} />
+              <span className="font-medium truncate max-w-full px-0.5">{tab.n}</span>
             </Link>
           );
         })}

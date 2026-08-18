@@ -112,35 +112,13 @@ function TradePage() {
     <AppLayout>
       <section className="relative overflow-hidden border-b border-border min-h-[calc(100vh-250px)]">
         <div className="grid-bg absolute inset-0 opacity-40" />
-
-        <div className="relative mx-auto max-w-7xl px-3 py-8 sm:px-6 sm:py-16">
-          <div className="mb-10 flex flex-wrap items-end justify-between gap-4">
-            <div>
-              <div className="label-mono inline-flex items-center gap-2 mb-4">
-                <span className="h-1.5 w-1.5 rounded-full bg-[#3b82f6] shadow-[0_0_8px_#3b82f6]" />
-                Equities & ETFs
-              </div>
-              <h1 className="text-4xl font-bold tracking-tight md:text-5xl">Trade Markets</h1>
-              <p className="mt-4 max-w-xl text-muted-foreground">
-                Trade US and Indian equities on a unified margin account. Extended hours and fractional shares available.
-              </p>
-            </div>
-
-            <div className="rounded-xl border border-overlay-border bg-surface-elevated px-6 py-3 backdrop-blur-md">
-              <div className="text-xs text-muted-foreground uppercase tracking-widest mb-1">Market Status</div>
-              <div className="flex items-center gap-2 text-sm font-medium">
-                <span className="h-2 w-2 rounded-full bg-up shadow-[0_0_5px_var(--up)] animate-pulse" />
-                Markets Open
-              </div>
-            </div>
-          </div>
-
+        <div className="relative mx-auto max-w-7xl px-1 py-4 sm:px-6 sm:py-16">
           <div className="grid gap-3 sm:gap-6 lg:grid-cols-5">
             {/* ── Order ticket ── */}
-            <div ref={orderTicketRef} className="order-2 space-y-4 lg:order-1 lg:col-span-1">
+            <div ref={orderTicketRef} className="order-2 space-y-4 lg:order-1 lg:col-span-1 min-w-0 lg:h-[720px] flex flex-col">
               {/* Favorites — tickers starred on this page */}
-              <div className="rounded-xl border border-overlay-border bg-surface p-4">
-                <div className="mb-3 flex items-center gap-2">
+              <div className="rounded sm:rounded-xl border border-overlay-border bg-surface p-2 sm:p-4 flex-1 flex flex-col min-h-0">
+                <div className="mb-3 flex items-center gap-2 shrink-0">
                   <i className="fa-solid fa-star text-xs text-amber-400" />
                   <span className="text-xs font-semibold uppercase tracking-wide text-foreground">
                     My Favorites
@@ -151,7 +129,7 @@ function TradePage() {
                     Star a ticker below to add it here.
                   </p>
                 ) : (
-                  <div className="space-y-2">
+                  <div className="space-y-2 flex-1 min-h-0 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                     {favoriteAssets.map((a) => (
                       <div
                         key={a.n}
@@ -168,15 +146,17 @@ function TradePage() {
                 )}
               </div>
 
-              <OrderTicket
-                asset={selected}
-                action={action}
-                onActionChange={setAction}
-              />
+              <div className="lg:hidden">
+                <OrderTicket
+                  asset={selected}
+                  action={action}
+                  onActionChange={setAction}
+                />
+              </div>
             </div>
 
             {/* ── Chart — first on mobile, center column on desktop ── */}
-            <div className="order-1 space-y-4 lg:order-2 lg:col-span-3">
+            <div className="order-1 space-y-4 lg:order-2 lg:col-span-3 min-w-0">
               <div ref={searchBoxRef} className="relative" onFocusCapture={() => setShowResults(true)}>
                 <SearchInput
                   value={query}
@@ -187,9 +167,9 @@ function TradePage() {
                   placeholder="Search ticker or company..."
                 />
                 {showResults && query.trim() && (
-                  <div className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-20 max-h-80 overflow-y-auto rounded-xl border border-overlay-border bg-surface-elevated shadow-xl backdrop-blur-xl">
+                  <div className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-20 max-h-80 overflow-y-auto rounded sm:rounded-xl border border-overlay-border bg-surface-elevated shadow-xl backdrop-blur-xl">
                     {searchResults.length === 0 ? (
-                      <p className="px-4 py-4 text-center text-sm text-muted-foreground">No results found.</p>
+                      <p className="px-3 py-3 text-center text-sm text-muted-foreground">No results found.</p>
                     ) : (
                       searchResults.map((a) => (
                         <button
@@ -216,7 +196,7 @@ function TradePage() {
                 )}
               </div>
 
-              <div className="relative overflow-hidden rounded-xl border-0 sm:rounded-[2rem] sm:border sm:border-overlay-border bg-surface-elevated shadow-sm backdrop-blur-xl p-2 h-[460px] flex flex-col sm:p-6 sm:h-[640px] md:h-[720px]">
+              <div className="relative overflow-hidden rounded border border-overlay-border sm:rounded-[2rem] sm:border-overlay-border bg-surface-elevated shadow-sm backdrop-blur-xl p-1 h-[460px] flex flex-col sm:p-6 sm:h-[640px] md:h-[720px] lg:h-[720px] min-w-0">
                 {/* Mobile: lean header matching the Forex chart card — full ticker/stats block returns at sm+ */}
                 <div className="mb-2 flex shrink-0 items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider text-emerald-500 sm:hidden">
                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
@@ -265,7 +245,7 @@ function TradePage() {
                     </div>
                   ))}
                 </div>
-                <div className="relative min-h-0 flex-1 flex flex-col rounded-xl border-0 bg-transparent p-0 sm:border sm:border-subtle-border sm:bg-surface sm:p-6">
+                <div className="relative min-h-0 flex-1 flex flex-col rounded sm:rounded-xl border-0 bg-transparent p-0 sm:border sm:border-subtle-border sm:bg-surface sm:p-6">
                   <div className="mb-2 hidden shrink-0 text-[10px] font-mono uppercase tracking-wider text-muted-foreground sm:block">
                     {selected.t} · Price Chart
                   </div>
@@ -287,16 +267,28 @@ function TradePage() {
             </div>
 
             {/* ── Order book ── */}
-            <div className="order-3 space-y-4 lg:col-span-1">
+            <div className="order-3 space-y-4 lg:col-span-1 min-w-0 lg:h-[720px] flex flex-col">
               <OrderBook
                 price={toNumber(selected.p)}
                 currency={selected.p.trim().startsWith("₹") ? "INR" : "USDT"}
+                className="flex-1 min-h-0"
               />
               <RecentTrades
                 price={toNumber(selected.p)}
                 currency={selected.p.trim().startsWith("₹") ? "INR" : "USDT"}
+                className="flex-1 min-h-0"
               />
             </div>
+          </div>
+
+          {/* ── Desktop Stretched Buy / Sell Station ── */}
+          <div className="mt-6 hidden lg:block">
+            <OrderTicket
+              asset={selected}
+              action={action}
+              onActionChange={setAction}
+              layout="horizontal"
+            />
           </div>
 
           {/* ── Top Volume ── */}
@@ -305,18 +297,18 @@ function TradePage() {
             {topVolume.length === 0 ? (
               <p className="py-6 text-center text-sm text-muted-foreground">No results found.</p>
             ) : (
-              <div className="overflow-x-auto rounded-2xl border border-overlay-border bg-surface">
+              <div className="overflow-x-auto rounded sm:rounded-2xl border border-overlay-border bg-surface">
                 <table className="w-full min-w-[980px] border-collapse text-sm">
                   <thead>
                     <tr className="border-b border-border bg-secondary/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
-                      <th className="px-5 py-3 font-medium">Company</th>
-                      <th className="px-5 py-3 font-medium">Chart</th>
-                      <th className="px-5 py-3 font-medium">Market price</th>
-                      <th className="px-5 py-3 font-medium">1D price change</th>
-                      <th className="px-5 py-3 font-medium">Market cap</th>
-                      <th className="px-5 py-3 font-medium">1W avg vol diff</th>
-                      <th className="px-5 py-3 font-medium">52W</th>
-                      <th className="px-5 py-3 text-right font-medium">Action</th>
+                      <th className="px-2 py-2 sm:px-5 sm:py-3 font-medium">Company</th>
+                      <th className="px-2 py-2 sm:px-5 sm:py-3 font-medium">Chart</th>
+                      <th className="px-2 py-2 sm:px-5 sm:py-3 font-medium">Market price</th>
+                      <th className="px-2 py-2 sm:px-5 sm:py-3 font-medium">1D price change</th>
+                      <th className="px-2 py-2 sm:px-5 sm:py-3 font-medium">Market cap</th>
+                      <th className="px-2 py-2 sm:px-5 sm:py-3 font-medium">1W avg vol diff</th>
+                      <th className="px-2 py-2 sm:px-5 sm:py-3 font-medium">52W</th>
+                      <th className="px-2 py-2 sm:px-5 sm:py-3 text-right font-medium">Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -334,7 +326,7 @@ function TradePage() {
                             selected.t === a.t ? "bg-primary/5" : "hover:bg-secondary/30"
                           }`}
                         >
-                          <td className="px-5 py-4">
+                          <td className="px-2 py-2.5 sm:px-5 sm:py-4">
                             <div className="flex items-center gap-3">
                               <span
                                 className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full font-mono text-[9px] font-bold"
@@ -348,21 +340,21 @@ function TradePage() {
                               </div>
                             </div>
                           </td>
-                          <td className="px-5 py-4">
+                          <td className="px-2 py-2.5 sm:px-5 sm:py-4">
                             <Sparkline seed={a.t} up={a.up} />
                           </td>
-                          <td className="px-5 py-4 font-mono text-foreground">{a.p}</td>
-                          <td className="px-5 py-4">
+                          <td className="px-2 py-2.5 sm:px-5 sm:py-4 font-mono text-foreground">{a.p}</td>
+                          <td className="px-2 py-2.5 sm:px-5 sm:py-4">
                             <span className={`font-mono text-sm font-semibold ${a.up ? "text-up" : "text-down"}`}>{a.c}</span>
                           </td>
-                          <td className="px-5 py-4 font-mono text-muted-foreground">{a.mcap}</td>
-                          <td className="px-5 py-4">
+                          <td className="px-2 py-2.5 sm:px-5 sm:py-4 font-mono text-muted-foreground">{a.mcap}</td>
+                          <td className="px-2 py-2.5 sm:px-5 sm:py-4">
                             <VolDiffBadge pct={stats.avgVolDiffPct} />
                           </td>
-                          <td className="px-5 py-4">
+                          <td className="px-2 py-2.5 sm:px-5 sm:py-4">
                             <RangeBar52W low={stats.low52w} high={stats.high52w} price={priceNum} />
                           </td>
-                          <td className="px-5 py-4">
+                          <td className="px-2 py-2.5 sm:px-5 sm:py-4">
                             <div className="flex items-center justify-end gap-2">
                               <FavoriteStar
                                 id={`stock:${a.t}`}

@@ -80,7 +80,7 @@ function CountrySelect({
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="mt-2 w-full rounded-xl border border-border bg-background/60 px-3 py-2.5 text-sm text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
+      className="mt-2 w-full rounded sm:rounded-xl border border-border bg-background/60 px-3 py-2.5 text-sm text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
     >
       {COUNTRIES.map((c) => (
         <option key={c.code} value={c.code}>
@@ -105,7 +105,7 @@ function CurrencySelect({ value, onChange }: { value: string; onChange: (v: stri
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="mt-2 w-full rounded-xl border border-border bg-background/60 px-3 py-2.5 text-sm text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
+      className="mt-2 w-full rounded sm:rounded-xl border border-border bg-background/60 px-3 py-2.5 text-sm text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
     >
       {CURRENCIES.map((c) => (
         <option key={c} value={c}>
@@ -121,7 +121,7 @@ function BandSelect({ value, onChange }: { value: string; onChange: (v: string) 
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="mt-2 w-full rounded-xl border border-border bg-background/60 px-3 py-2.5 text-sm text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
+      className="mt-2 w-full rounded sm:rounded-xl border border-border bg-background/60 px-3 py-2.5 text-sm text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
     >
       {INCOME_BANDS.map((b) => (
         <option key={b.code} value={b.code}>
@@ -164,7 +164,7 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 }
 
 const inputClass =
-  "mt-2 w-full rounded-xl border border-border bg-background/60 px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40";
+  "mt-2 w-full rounded sm:rounded-xl border border-border bg-background/60 px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40";
 
 function KycPage() {
   const navigate = useNavigate();
@@ -205,7 +205,7 @@ function KycPage() {
   });
   const [financial, setFinancial] = useState<Financial>({
     occupation: "salaried_private",
-    employer_name: "",
+    employer_designation: "",
     income_currency: "INR",
     annual_income_band: "100k_500k",
     net_worth_band: "100k_500k",
@@ -244,7 +244,7 @@ function KycPage() {
   if (!isLoggedIn) {
     return (
       <AuthPageShell>
-        <div className="relative w-full max-w-md rounded-3xl border border-border bg-card/80 p-8 text-center shadow-2xl backdrop-blur-xl">
+        <div className="relative w-full max-w-md rounded sm:rounded-3xl border border-border bg-card/80 p-8 text-center shadow-2xl backdrop-blur-xl">
           <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-secondary text-primary">
             <i className="fa-solid fa-lock text-lg" />
           </div>
@@ -254,7 +254,7 @@ function KycPage() {
           </p>
           <Link
             to="/login"
-            className="mt-6 inline-block rounded-xl bg-primary px-5 py-2.5 text-sm font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90"
+            className="mt-6 inline-block rounded sm:rounded-xl bg-primary px-5 py-2.5 text-sm font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90"
           >
             Go to sign in
           </Link>
@@ -263,27 +263,7 @@ function KycPage() {
     );
   }
 
-  if (kycCompleted && !celebrate) {
-    return (
-      <AuthPageShell>
-        <div className="relative w-full max-w-md rounded-3xl border border-border bg-card/80 p-8 text-center shadow-2xl backdrop-blur-xl">
-          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-up/10 text-up">
-            <i className="fa-solid fa-circle-check text-lg" />
-          </div>
-          <h1 className="mt-4 text-xl font-bold text-foreground">You're already verified</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Your have completed 90% of the details.
-          </p>
-          <Link
-            to="/"
-            className="mt-6 inline-block rounded-xl bg-primary px-5 py-2.5 text-sm font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90"
-          >
-            Back to home
-          </Link>
-        </div>
-      </AuthPageShell>
-    );
-  }
+
 
   const validateStep = (): string => {
     if (currentStepKey === "contact") {
@@ -306,11 +286,11 @@ function KycPage() {
         return "Enter a valid PAN (e.g. ABCDE1234F).";
     }
     if (currentStepKey === "tax") {
-      if (!tax.tax_identification_number.trim()) return "Tax identification number is required.";
+      // Tax identification number is optional — not every jurisdiction issues one.
     }
     if (currentStepKey === "financial") {
-      if (financial.occupation.startsWith("salaried") && !financial.employer_name.trim())
-        return "Employer name is required.";
+      if (financial.occupation.startsWith("salaried") && !financial.employer_designation.trim())
+        return "Employer designation is required.";
       if (financial.investment_experience_years < 0) return "Investment experience can't be negative.";
       if (financial.investment_objectives.length === 0) return "Pick at least one investment objective.";
     }
@@ -361,7 +341,7 @@ function KycPage() {
       setVerifying(false);
       submitKyc(profile);
       setCelebrate(true);
-      setTimeout(() => setCelebrate(false), 3200);
+      setTimeout(() => setCelebrate(true));
     }, 1600);
   };
 
@@ -377,17 +357,17 @@ function KycPage() {
 
       <div className="relative mx-auto max-w-2xl px-4 py-10 sm:px-6 sm:py-16">
         {celebrate ? (
-          <div className="rounded-3xl border border-border bg-card p-10 text-center shadow-2xl">
+          <div className="rounded sm:rounded-3xl border border-border bg-card p-10 text-center shadow-2xl">
             <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-up/10 text-up">
               <i className="fa-solid fa-party-horn text-2xl" />
             </div>
-            <h1 className="mt-5 text-2xl font-bold text-foreground">You're verified! 🎉</h1>
+            <h1 className="mt-5 text-2xl font-bold text-foreground">You're verified! </h1>
             <p className="mt-3 text-sm leading-6 text-muted-foreground">
               Congrats — your KYC verification is complete. You can now deposit funds and start trading.
             </p>
             <Link
               to="/"
-              className="mt-7 inline-block rounded-xl bg-primary px-6 py-3 text-sm font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90"
+              className="mt-7 inline-block rounded sm:rounded-xl bg-primary px-6 py-3 text-sm font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90"
             >
               Go to dashboard
             </Link>
@@ -438,7 +418,7 @@ function KycPage() {
               </div>
 
               {/* ── Step content ── */}
-              <div className="mt-10 rounded-3xl border border-border bg-card p-4 shadow-sm sm:p-7">
+              <div className="mt-10 rounded sm:rounded-3xl border border-border bg-card p-4 shadow-sm sm:p-7">
                 {currentStepKey === "contact" && (
                   <div className="space-y-4">
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -631,10 +611,11 @@ function KycPage() {
                         onChange={(v) => setTax({ ...tax, tax_residency_country: v })}
                       />
                     </Field>
-                    <Field label="Tax identification number">
+                    <Field label="Tax identification number (optional)">
                       <input
                         value={tax.tax_identification_number}
                         onChange={(e) => setTax({ ...tax, tax_identification_number: e.target.value.toUpperCase() })}
+                        placeholder="Leave blank if not applicable"
                         className={inputClass}
                       />
                     </Field>
@@ -692,10 +673,10 @@ function KycPage() {
                       </select>
                     </Field>
                     {financial.occupation.startsWith("salaried") && (
-                      <Field label="Employer name">
+                      <Field label="Employer designation">
                         <input
-                          value={financial.employer_name}
-                          onChange={(e) => setFinancial({ ...financial, employer_name: e.target.value })}
+                          value={financial.employer_designation}
+                          onChange={(e) => setFinancial({ ...financial, employer_designation: e.target.value })}
                           className={inputClass}
                         />
                       </Field>
@@ -991,7 +972,7 @@ function KycPage() {
                     type="button"
                     onClick={stepIndex === 0 ? () => navigate({ to: "/" }) : handleBack}
                     disabled={verifying}
-                    className="rounded-xl border border-border px-5 py-2.5 text-sm font-semibold text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+                    className="rounded sm:rounded-xl border border-border px-5 py-2.5 text-sm font-semibold text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
                   >
                     {stepIndex === 0 ? "Cancel" : "Back"}
                   </button>
@@ -999,7 +980,7 @@ function KycPage() {
                     type="button"
                     onClick={handleContinue}
                     disabled={verifying}
-                    className="flex items-center gap-2 rounded-xl bg-primary px-6 py-2.5 text-sm font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
+                    className="flex items-center gap-2 rounded sm:rounded-xl bg-primary px-6 py-2.5 text-sm font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
                   >
                     {verifying && <i className="fa-solid fa-circle-notch fa-spin" />}
                     {verifying

@@ -88,7 +88,7 @@ function Login() {
             <div className="absolute -top-16 -left-16 h-56 w-56 rounded-full bg-primary/20 blur-3xl pointer-events-none" />
             <div className="absolute -bottom-16 -right-10 h-56 w-56 rounded-full bg-[#3b82f6]/20 blur-3xl pointer-events-none" />
 
-            <div className="relative max-h-[92vh] overflow-y-auto rounded-3xl border border-border bg-card/80 p-7 shadow-2xl backdrop-blur-xl sm:p-9">
+            <div className="relative max-h-[92vh] overflow-y-auto rounded sm:rounded-3xl border border-border bg-card/80 p-7 shadow-2xl backdrop-blur-xl sm:p-9">
               <div className="mb-6">
                 <h1 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
                   Welcome back
@@ -103,7 +103,7 @@ function Login() {
                 type="button"
                 onClick={handleGoogle}
                 disabled={busy}
-                className="flex w-full items-center justify-center gap-3 rounded-xl border border-border bg-white py-3 text-sm font-semibold text-[#1f1f1f] shadow-sm transition-all hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0 disabled:hover:shadow-sm"
+                className="flex w-full items-center justify-center gap-3 rounded sm:rounded-xl border border-border bg-white py-3 text-sm font-semibold text-[#1f1f1f] shadow-sm transition-all hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0 disabled:hover:shadow-sm"
               >
                 <GoogleIcon />
                 {pending === "google" ? "Opening Google…" : "Continue with Google"}
@@ -122,7 +122,7 @@ function Login() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="yourEmail@example.com"
-                    className="mt-2 rounded-xl border-border bg-background/60 py-5 focus-visible:ring-primary/40"
+                    className="mt-2 rounded sm:rounded-xl border-border bg-background/60 py-5 focus-visible:ring-primary/40"
                     type="email"
                     autoComplete="email"
                     required
@@ -143,7 +143,7 @@ function Login() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="Enter your password"
-                    className="mt-2 rounded-xl border-border bg-background/60 py-5 focus-visible:ring-primary/40"
+                    className="mt-2 rounded sm:rounded-xl border-border bg-background/60 py-5 focus-visible:ring-primary/40"
                     type="password"
                     autoComplete="current-password"
                     required

@@ -43,7 +43,7 @@ export function Header() {
   return (
     <header className="sticky top-0 z-30 border-b border-border bg-background/85 pt-safe backdrop-blur">
       <div className="mx-auto flex h-14 max-w-7xl items-center gap-8 px-4 sm:px-6 md:h-16">
-        <Link to="/" className="flex shrink-0 items-center gap-2" onClick={() => setMenuOpen(false)}>
+        <Link to="/" className="flex shrink-0 items-center gap-2 pointer-events-none md:pointer-events-auto" onClick={() => setMenuOpen(false)}>
           <img src="/mianimg.png" alt="Stocks360" className="h-7 w-7 shrink-0 rounded-md object-cover" />
           <span className="whitespace-nowrap text-[15px] font-bold tracking-tight">Stocks360</span>
         </Link>
@@ -68,7 +68,7 @@ export function Header() {
           </button>
           {isLoggedIn ? (
             <div
-              className="relative"
+              className="relative hidden md:block"
               onMouseEnter={openProfileMenu}
               onMouseLeave={scheduleCloseProfileMenu}
             >
@@ -95,27 +95,26 @@ export function Header() {
                     onClick={() => setProfileOpen(false)}
                   />
                   <div className="fixed inset-x-0 bottom-0 z-50 max-h-[80vh] overflow-y-auto rounded-t-2xl border border-border bg-card p-1.5 pb-safe shadow-lg md:absolute md:inset-x-auto md:right-0 md:top-11 md:bottom-auto md:z-10 md:w-56 md:max-h-none md:rounded-md">
-                  <div className="border-b border-border px-2.5 py-2">
-                    <div className="mb-1 h-1 w-10 rounded-full bg-border mx-auto md:hidden" />
-                    <div className="truncate text-xs text-muted-foreground">{email}</div>
-                    <div className="mt-1.5 flex items-center gap-3 font-mono text-xs text-foreground">
-                      <span>₹{balances.INR.toLocaleString()}</span>
-                      <span>{balances.USDT.toLocaleString()} USDT</span>
-                    </div>
-                    {!kycCompleted && (
-                      <div className="mt-1.5 flex items-center gap-2">
-                        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-secondary">
-                          <div
-                            className="h-full rounded-full bg-primary"
-                            style={{ width: `${profilePercent}%` }}
-                          />
-                        </div>
-                        <span className="text-[10px] font-medium text-muted-foreground">
-                          {profilePercent}%
-                        </span>
+                    <div className="border-b border-border px-2.5 py-2">
+                      <div className="mb-1 h-1 w-10 rounded-full bg-border mx-auto md:hidden" />
+                      <div className="truncate text-xs text-muted-foreground">{email}</div>
+                      <div className="mt-1.5 flex items-center font-mono text-xs text-foreground">
+                        <span>{balances.USDT.toLocaleString()} USDT</span>
                       </div>
-                    )}
-                  </div>
+                      {!kycCompleted && (
+                        <div className="mt-1.5 flex items-center gap-2">
+                          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-secondary">
+                            <div
+                              className="h-full rounded-full bg-primary"
+                              style={{ width: `${profilePercent}%` }}
+                            />
+                          </div>
+                          <span className="text-[10px] font-medium text-muted-foreground">
+                            {profilePercent}%
+                          </span>
+                        </div>
+                      )}
+                    </div>
 
                   <div className="mt-1">
                     <Link
@@ -203,7 +202,7 @@ export function Header() {
           )}
           <button
             onClick={() => setMenuOpen((v) => !v)}
-            className="flex h-10 w-10 items-center justify-center rounded-md border border-border bg-secondary text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground hover:border-foreground/20 md:hidden"
+            className="hidden h-10 w-10 items-center justify-center rounded-md border border-border bg-secondary text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground hover:border-foreground/20"
             aria-label="Toggle menu"
             aria-expanded={menuOpen}
             aria-controls="mobile-nav"
