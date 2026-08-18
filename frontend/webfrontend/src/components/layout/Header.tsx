@@ -40,6 +40,18 @@ export function Header() {
     await navigate({ to: "/" });
   };
 
+  const handleGetStarted = () => {
+    if (!isLoggedIn) {
+      navigate({ to: "/signup" });
+      return;
+    }
+    if (!kycCompleted) {
+      navigate({ to: "/kyc" });
+      return;
+    }
+    navigate({ to: "/markets" });
+  };
+
   return (
     <header className="sticky top-0 z-30 border-b border-border bg-background/85 pt-safe backdrop-blur">
       <div className="mx-auto flex h-14 max-w-7xl items-center gap-8 px-4 sm:px-6 md:h-16">
@@ -192,12 +204,13 @@ export function Header() {
               >
                 Log in
               </Link>
-              <Link
-                to="/signup"
+              <button
+                type="button"
+                onClick={handleGetStarted}
                 className="cursor-pointer whitespace-nowrap rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 sm:px-4"
               >
                 Get started
-              </Link>
+              </button>
             </>
           )}
           <button

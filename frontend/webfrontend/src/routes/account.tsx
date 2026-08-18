@@ -331,6 +331,8 @@ function AccountPage() {
     }
   }, [marketTab, favoriteAssets]);
 
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
   // Async now that signing out revokes refresh tokens server-side.
   const handleLogout = async () => {
     await logout();
@@ -364,13 +366,34 @@ function AccountPage() {
 
         <div className="relative mx-auto max-w-7xl px-6 py-10">
           <div className="grid gap-8 lg:grid-cols-[220px_1fr]">
+            {/* ── Mobile Sidebar Toggle ── */}
+            <div className="flex items-center justify-between rounded-lg border border-border bg-card p-4 lg:hidden">
+              <span className="font-semibold text-foreground">
+                {SIDEBAR_ITEMS.find((i) => i.key === sidebar)?.label ?? "Menu"}
+              </span>
+              <button
+                type="button"
+                onClick={() => setMobileMenuOpen((v) => !v)}
+                className="flex h-8 w-8 items-center justify-center rounded-md bg-secondary text-muted-foreground transition-colors hover:text-foreground"
+              >
+                <i className={`fa-solid ${mobileMenuOpen ? "fa-xmark" : "fa-bars"}`} />
+              </button>
+            </div>
+
             {/* ── Sidebar ── */}
-            <nav className="flex gap-1 overflow-x-auto lg:flex-col lg:overflow-visible">
+            <nav
+              className={`${
+                mobileMenuOpen ? "flex" : "hidden"
+              } flex-col gap-1 lg:flex lg:flex-col lg:overflow-visible`}
+            >
               {SIDEBAR_ITEMS.map((item) => (
                 <button
                   key={item.key}
                   type="button"
-                  onClick={() => setSidebar(item.key)}
+                  onClick={() => {
+                    setSidebar(item.key);
+                    setMobileMenuOpen(false);
+                  }}
                   className={`flex shrink-0 items-center gap-3 rounded sm:rounded-xl px-4 py-2.5 text-sm font-medium transition-colors ${
                     sidebar === item.key
                       ? "bg-secondary text-foreground"
