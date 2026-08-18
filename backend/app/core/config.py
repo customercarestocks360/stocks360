@@ -262,6 +262,32 @@ STOCKS_MAX_SYMBOLS_PER_WATCHLIST = _bounded_int("STOCKS_MAX_SYMBOLS_PER_WATCHLIS
 STOCKS_MAX_SOCKETS_PER_USER = _bounded_int("STOCKS_MAX_SOCKETS_PER_USER", 5, 1, 50)
 STOCKS_HEARTBEAT_SECONDS = _bounded_int("STOCKS_HEARTBEAT_SECONDS", 20, 5, 300)
 
+# --- Public market overview (unauthenticated) ---
+# "Top" here is a curated list, not a live ranking. Binance could rank by 24h volume, but
+# the forex and equity providers expose no ranking at all, so a per-market fixed list is
+# the only definition that means the same thing across all three feeds. Override any of
+# them to re-point a deployment at different headline symbols.
+OVERVIEW_CRYPTO_SYMBOLS = _csv("OVERVIEW_CRYPTO_SYMBOLS") or [
+    "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT",
+]
+OVERVIEW_FOREX_SYMBOLS = _csv("OVERVIEW_FOREX_SYMBOLS") or [
+    "EUR-USD", "USD-JPY", "GBP-USD", "USD-INR", "AUD-USD",
+]
+OVERVIEW_STOCKS_SYMBOLS = _csv("OVERVIEW_STOCKS_SYMBOLS") or [
+    "RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "INFY.NS", "ICICIBANK.NS",
+]
+
+# This socket is unauthenticated, so there is no account to attribute abuse to and the peer
+# address is the only key available. Deliberately looser than the per-user stream caps:
+# many people legitimately share one NAT address.
+OVERVIEW_MAX_SOCKETS_PER_IP = _bounded_int("OVERVIEW_MAX_SOCKETS_PER_IP", 4, 1, 100)
+
+# Total concurrent public sockets on this process. The per-IP cap alone does not bound the
+# server, since addresses are cheap to come by.
+OVERVIEW_MAX_SOCKETS = _bounded_int("OVERVIEW_MAX_SOCKETS", 500, 1, 100_000)
+
+OVERVIEW_HEARTBEAT_SECONDS = _bounded_int("OVERVIEW_HEARTBEAT_SECONDS", 20, 5, 300)
+
 # --- Trading ---
 # This is a simulated venue: orders execute against the same live market data the read
 # endpoints serve, and cash is book money this API creates. There is no broker, no

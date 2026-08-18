@@ -1,9 +1,12 @@
-from fastapi import Request
+from starlette.requests import HTTPConnection
 
 from app.core.config import TRUSTED_PROXY_HOPS
 
 
-def client_ip(request: Request) -> str | None:
+# HTTPConnection rather than Request: a WebSocket is one too, and the public overview
+# stream needs the same peer address for its per-IP cap. Both carry .client and .headers,
+# which is all this reads.
+def client_ip(request: HTTPConnection) -> str | None:
     """Best available client IP, without trusting what the client claims to be.
 
     `X-Forwarded-For` is just a request header: any caller can send one, and the value
