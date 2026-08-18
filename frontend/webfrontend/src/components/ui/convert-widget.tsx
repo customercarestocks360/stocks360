@@ -86,49 +86,10 @@ export function ConvertWidget({ defaultFrom }: { defaultFrom?: DepositMethod }) 
         </div>
       </div>
 
-      {/* Swap */}
-      <div className="relative z-10 -my-3 flex justify-center">
-        <button
-          type="button"
-          onClick={swap}
-          aria-label="Swap currencies"
-          className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground shadow-sm transition-colors hover:text-foreground"
-        >
-          <i className="fa-solid fa-arrow-down-up-across-line text-xs" />
-        </button>
-      </div>
+      
 
-      {/* To */}
-      <div className="rounded-xl border border-border bg-background/40 p-4">
-        <div className="flex items-center justify-between text-xs">
-          <span className="text-muted-foreground">To</span>
-          <span className="text-muted-foreground">
-            Available Balance {fmt(balances[to], 2)} {to}
-          </span>
-        </div>
-        <div className="mt-2 flex items-center justify-between gap-3">
-          <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
-            <i className={`fa-solid ${CURRENCY_INFO[to].icon}`} style={{ color: CURRENCY_INFO[to].color }} />
-            {to}
-          </span>
-          <span className="font-mono text-lg text-muted-foreground">{value > 0 ? fmt(converted) : "0.00"}</span>
-        </div>
-      </div>
+      
 
-      {done && (
-        <p className="mt-3 text-center text-xs font-medium text-up">
-          Converted — your {to} balance has been updated.
-        </p>
-      )}
-
-      <button
-        type="button"
-        disabled={!canPreview}
-        onClick={() => setConfirming(true)}
-        className="mt-4 w-full rounded-xl bg-primary px-4 py-3 text-sm font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-      >
-        {value <= 0 ? "Enter an amount" : "Preview"}
-      </button>
 
       {confirming && (
         <div

@@ -112,29 +112,7 @@ function TradePage() {
     <AppLayout>
       <section className="relative overflow-hidden border-b border-border min-h-[calc(100vh-250px)]">
         <div className="grid-bg absolute inset-0 opacity-40" />
-
         <div className="relative mx-auto max-w-7xl px-3 py-8 sm:px-6 sm:py-16">
-          <div className="mb-10 flex flex-wrap items-end justify-between gap-4">
-            <div>
-              <div className="label-mono inline-flex items-center gap-2 mb-4">
-                <span className="h-1.5 w-1.5 rounded-full bg-[#3b82f6] shadow-[0_0_8px_#3b82f6]" />
-                Equities & ETFs
-              </div>
-              <h1 className="text-4xl font-bold tracking-tight md:text-5xl">Trade Markets</h1>
-              <p className="mt-4 max-w-xl text-muted-foreground">
-                Trade US and Indian equities on a unified margin account. Extended hours and fractional shares available.
-              </p>
-            </div>
-
-            <div className="rounded-xl border border-overlay-border bg-surface-elevated px-6 py-3 backdrop-blur-md">
-              <div className="text-xs text-muted-foreground uppercase tracking-widest mb-1">Market Status</div>
-              <div className="flex items-center gap-2 text-sm font-medium">
-                <span className="h-2 w-2 rounded-full bg-up shadow-[0_0_5px_var(--up)] animate-pulse" />
-                Markets Open
-              </div>
-            </div>
-          </div>
-
           <div className="grid gap-3 sm:gap-6 lg:grid-cols-5">
             {/* ── Order ticket ── */}
             <div ref={orderTicketRef} className="order-2 space-y-4 lg:order-1 lg:col-span-1">

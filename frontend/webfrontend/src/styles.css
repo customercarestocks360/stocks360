@@ -225,6 +225,31 @@
   }
 }
 
+/* ─── Global thin scrollbar — replaces the default chunky OS scrollbar everywhere ─── */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--overlay-border) transparent;
+}
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background-color: var(--overlay-border);
+  border-radius: 9999px;
+  border: 1px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--muted-foreground);
+}
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 @utility marquee-track {
   animation: marquee 40s linear infinite;
 }
