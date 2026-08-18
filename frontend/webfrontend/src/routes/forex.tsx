@@ -185,22 +185,24 @@ function ForexPage() {
       <div>
         {/* ─── Chart + Trending pairs ─── */}
         <section className="relative overflow-hidden">
-          <div className="relative mx-auto max-w-7xl px-3 py-8 sm:px-6 sm:py-16">
+          <div className="relative mx-auto max-w-7xl px-1 py-4 sm:px-6 sm:py-16">
             <div className="grid gap-3 sm:gap-6 lg:grid-cols-5">
               {/* Watchlist + order ticket */}
-              <div className="order-2 space-y-4 lg:order-1 lg:col-span-1">
+              <div className="order-2 space-y-4 lg:order-1 lg:col-span-1 min-w-0 lg:h-[720px] flex flex-col">
                 {/* Market watchlist — quote-asset tabs, search, filters, Favorites/All/Recent, sortable list */}
-                <MarketWatchlist items={marketWatchItems} favoriteScope="forex" onSelect={selectFromWatchlist} />
+                <MarketWatchlist items={marketWatchItems} favoriteScope="forex" onSelect={selectFromWatchlist} className="flex-1 min-h-0" />
 
-                <OrderTicket
-                  asset={selected}
-                  action={action}
-                  onActionChange={setAction}
-                />
+                <div className="lg:hidden">
+                  <OrderTicket
+                    asset={selected}
+                    action={action}
+                    onActionChange={setAction}
+                  />
+                </div>
               </div>
 
               {/* Chart panel */}
-              <div className="order-1 relative lg:order-2 lg:col-span-3 overflow-hidden rounded-xl border-0 sm:rounded-[2rem] sm:border sm:border-overlay-border bg-surface-elevated shadow-[var(--glow)] backdrop-blur-xl p-2 h-[460px] flex flex-col hover:border-primary/20 sm:p-6 sm:h-[560px] md:h-[640px]">
+              <div className="order-1 relative lg:order-2 lg:col-span-3 overflow-hidden rounded border border-overlay-border sm:rounded-[2rem] sm:border-overlay-border bg-surface-elevated shadow-[var(--glow)] backdrop-blur-xl p-1 h-[460px] flex flex-col hover:border-primary/20 sm:p-6 sm:h-[560px] md:h-[640px] lg:h-[720px] min-w-0">
                 <div className="mb-2 flex shrink-0 items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider text-emerald-500">
                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
                   Live · {selected.n}
@@ -221,10 +223,20 @@ function ForexPage() {
               </div>
 
               {/* Order book + recent trades */}
-              <div className="order-3 space-y-4 lg:col-span-1">
-                <OrderBook price={toNumber(selected.p)} currency={quoteCurrency} />
-                <RecentTrades price={toNumber(selected.p)} currency={quoteCurrency} />
+              <div className="order-3 space-y-4 lg:col-span-1 min-w-0 lg:h-[720px] flex flex-col">
+                <OrderBook price={toNumber(selected.p)} currency={quoteCurrency} className="flex-1 min-h-0" />
+                <RecentTrades price={toNumber(selected.p)} currency={quoteCurrency} className="flex-1 min-h-0" />
               </div>
+            </div>
+
+            {/* ── Desktop Stretched Buy / Sell Station ── */}
+            <div className="mt-6 hidden lg:block">
+              <OrderTicket
+                asset={selected}
+                action={action}
+                onActionChange={setAction}
+                layout="horizontal"
+              />
             </div>
 
             {/* ── Trending Currency Pairs ── */}
@@ -232,18 +244,18 @@ function ForexPage() {
               <h2 className="mb-4 font-mono text-sm uppercase tracking-wider text-muted-foreground">
                 Trending Currency Pairs
               </h2>
-              <div className="overflow-x-auto rounded-2xl border border-overlay-border bg-surface">
+              <div className="overflow-x-auto rounded sm:rounded-2xl border border-overlay-border bg-surface">
                 <table className="w-full min-w-[980px] border-collapse text-sm">
                   <thead>
                     <tr className="border-b border-border bg-secondary/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
-                      <th className="px-5 py-3 font-medium">Pair</th>
-                      <th className="px-5 py-3 font-medium">Chart</th>
-                      <th className="px-5 py-3 font-medium">Market price</th>
-                      <th className="px-5 py-3 font-medium">1D price change</th>
-                      <th className="px-5 py-3 font-medium">Volume</th>
-                      <th className="px-5 py-3 font-medium">1W avg vol diff</th>
-                      <th className="px-5 py-3 font-medium">52W</th>
-                      <th className="px-5 py-3 text-right font-medium">Action</th>
+                      <th className="px-2 py-2 sm:px-5 sm:py-3 font-medium">Pair</th>
+                      <th className="px-2 py-2 sm:px-5 sm:py-3 font-medium">Chart</th>
+                      <th className="px-2 py-2 sm:px-5 sm:py-3 font-medium">Market price</th>
+                      <th className="px-2 py-2 sm:px-5 sm:py-3 font-medium">1D price change</th>
+                      <th className="px-2 py-2 sm:px-5 sm:py-3 font-medium">Volume</th>
+                      <th className="px-2 py-2 sm:px-5 sm:py-3 font-medium">1W avg vol diff</th>
+                      <th className="px-2 py-2 sm:px-5 sm:py-3 font-medium">52W</th>
+                      <th className="px-2 py-2 sm:px-5 sm:py-3 text-right font-medium">Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -258,7 +270,7 @@ function ForexPage() {
                             selected.n === a.n ? "bg-primary/5" : "hover:bg-secondary/30"
                           }`}
                         >
-                          <td className="px-5 py-4">
+                          <td className="px-2 py-2.5 sm:px-5 sm:py-4">
                             <div className="flex items-center gap-3">
                               <span
                                 className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full font-mono text-[10px] font-bold"
@@ -269,21 +281,21 @@ function ForexPage() {
                               <div className="font-semibold text-foreground">{a.n}</div>
                             </div>
                           </td>
-                          <td className="px-5 py-4">
+                          <td className="px-2 py-2.5 sm:px-5 sm:py-4">
                             <Sparkline seed={a.n} up={a.up} />
                           </td>
-                          <td className="px-5 py-4 font-mono text-foreground">{a.p}</td>
-                          <td className="px-5 py-4">
+                          <td className="px-2 py-2.5 sm:px-5 sm:py-4 font-mono text-foreground">{a.p}</td>
+                          <td className="px-2 py-2.5 sm:px-5 sm:py-4">
                             <span className={`font-mono text-sm font-semibold ${a.up ? "text-up" : "text-down"}`}>{a.c}</span>
                           </td>
-                          <td className="px-5 py-4 font-mono text-muted-foreground">{a.v}</td>
-                          <td className="px-5 py-4">
+                          <td className="px-2 py-2.5 sm:px-5 sm:py-4 font-mono text-muted-foreground">{a.v}</td>
+                          <td className="px-2 py-2.5 sm:px-5 sm:py-4">
                             <VolDiffBadge pct={stats.avgVolDiffPct} />
                           </td>
-                          <td className="px-5 py-4">
+                          <td className="px-2 py-2.5 sm:px-5 sm:py-4">
                             <RangeBar52W low={stats.low52w} high={stats.high52w} price={priceNum} />
                           </td>
-                          <td className="px-5 py-4">
+                          <td className="px-2 py-2.5 sm:px-5 sm:py-4">
                             <div className="flex items-center justify-end gap-2">
                               <FavoriteStar
                                 id={`forex:${a.n}`}

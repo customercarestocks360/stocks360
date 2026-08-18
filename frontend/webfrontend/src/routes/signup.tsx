@@ -109,7 +109,7 @@ function Signup() {
         <div className="absolute left-1/2 top-1/2 -z-0 h-[360px] w-[360px] translate-x-[10%] translate-y-[35%] rounded-full bg-[#3b82f6]/10 blur-3xl" />
 
         <div className="relative mx-auto flex h-full items-center justify-center px-6 py-4">
-          <div className="relative max-h-[94vh] w-full max-w-lg overflow-hidden rounded-3xl border border-border bg-card/80 p-7 shadow-2xl backdrop-blur-xl sm:p-9">
+          <div className="relative max-h-[94vh] w-full max-w-lg overflow-hidden rounded sm:rounded-3xl border border-border bg-card/80 p-7 shadow-2xl backdrop-blur-xl sm:p-9">
             <div className="absolute top-0 right-0 h-56 w-56 opacity-[0.08] pointer-events-none">
               <div className="h-full w-full rounded-full bg-primary blur-3xl" />
             </div>
@@ -126,7 +126,7 @@ function Signup() {
                 type="button"
                 onClick={handleGoogle}
                 disabled={busy}
-                className="mt-6 flex w-full items-center justify-center gap-3 rounded-xl border border-border bg-white py-3 text-sm font-semibold text-[#1f1f1f] shadow-sm transition-all hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0 disabled:hover:shadow-sm"
+                className="mt-6 flex w-full items-center justify-center gap-3 rounded sm:rounded-xl border border-border bg-white py-3 text-sm font-semibold text-[#1f1f1f] shadow-sm transition-all hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0 disabled:hover:shadow-sm"
               >
                 <GoogleIcon />
                 {pending === "google" ? "Opening Google…" : "Continue with Google"}
@@ -145,7 +145,7 @@ function Signup() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="yourEmail@example.com"
-                    className="mt-2 rounded-xl"
+                    className="mt-2 rounded sm:rounded-xl"
                     type="email"
                     autoComplete="email"
                     required
@@ -158,7 +158,7 @@ function Signup() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="At least 6 characters"
-                    className="mt-2 rounded-xl"
+                    className="mt-2 rounded sm:rounded-xl"
                     type="password"
                     autoComplete="new-password"
                     minLength={MIN_PASSWORD_LENGTH}
@@ -173,7 +173,7 @@ function Signup() {
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     placeholder="Enter your password again"
-                    className="mt-2 rounded-xl"
+                    className="mt-2 rounded sm:rounded-xl"
                     type="password"
                     autoComplete="new-password"
                     maxLength={MAX_PASSWORD_LENGTH}

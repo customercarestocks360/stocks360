@@ -1324,11 +1324,12 @@ export function AssetChart({
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
+            {/* Watchlist button disabled on mobile full screen as requested */}
             <button
               type="button"
               onClick={() => setMobilePanel((p) => (p === "watchlist" ? "none" : "watchlist"))}
               aria-label="Watchlist"
-              className={`flex h-8 w-8 items-center justify-center rounded-md border text-sm transition-colors lg:hidden ${
+              className={`hidden h-8 w-8 items-center justify-center rounded-md border text-sm transition-colors lg:hidden ${
                 mobilePanel === "watchlist" ? "border-primary bg-primary text-primary-foreground" : "border-border text-muted-foreground hover:bg-secondary"
               }`}
             >

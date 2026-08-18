@@ -99,9 +99,9 @@ export function MarketWatchlist({
   };
 
   return (
-    <div className={`rounded-xl border border-overlay-border bg-surface p-3 ${className}`}>
+    <div className={`rounded sm:rounded-xl border border-overlay-border bg-surface p-1.5 sm:p-3 flex flex-col ${className}`}>
       {/* Quote-asset tabs */}
-      <div className="flex items-center gap-1 overflow-x-auto border-b border-border pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div className="flex items-center gap-1 overflow-x-auto border-b border-border pb-2 shrink-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {quoteTabs.map((q) => (
           <button
             key={q}
@@ -126,7 +126,7 @@ export function MarketWatchlist({
       </div>
 
       {/* Movement filter */}
-      <div className="mt-2 flex gap-1">
+      <div className="mt-2 flex gap-1 shrink-0">
         {(["all", "gainers", "losers"] as const).map((m) => (
           <button
             key={m}
@@ -144,7 +144,7 @@ export function MarketWatchlist({
       </div>
 
       {/* Search */}
-      <div className="relative mt-3">
+      <div className="relative mt-3 shrink-0">
         <i className="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground" />
         <input
           value={query}
@@ -155,7 +155,7 @@ export function MarketWatchlist({
       </div>
 
       {/* Favorites / All / Recent */}
-      <div className="mt-3 flex items-center gap-4 text-xs font-semibold">
+      <div className="mt-3 flex items-center gap-4 text-xs font-semibold shrink-0">
         <button
           type="button"
           onClick={() => setSubTab("favorites")}
@@ -181,17 +181,17 @@ export function MarketWatchlist({
       </div>
 
       {/* Column headers */}
-      <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
+      <div className="mt-2 flex items-center justify-between text-[10px] sm:text-[11px] text-muted-foreground shrink-0">
         <button type="button" onClick={() => toggleSort("name")} className="flex items-center gap-1 hover:text-foreground">
           Name
           {sortKey === "name" && <i className={`fa-solid fa-caret-${sortAsc ? "up" : "down"}`} />}
         </button>
-        <div className="flex items-center gap-3">
-          <button type="button" onClick={() => toggleSort("price")} className="flex items-center gap-1 hover:text-foreground">
+        <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
+          <button type="button" onClick={() => toggleSort("price")} className="flex items-center gap-0.5 sm:gap-1 hover:text-foreground">
             Last Price
             {sortKey === "price" && <i className={`fa-solid fa-caret-${sortAsc ? "up" : "down"}`} />}
           </button>
-          <button type="button" onClick={() => toggleSort("change")} className="flex items-center gap-1 hover:text-foreground">
+          <button type="button" onClick={() => toggleSort("change")} className="flex items-center gap-0.5 sm:gap-1 hover:text-foreground">
             24h Chg
             {sortKey === "change" && <i className={`fa-solid fa-caret-${sortAsc ? "up" : "down"}`} />}
           </button>
@@ -199,7 +199,7 @@ export function MarketWatchlist({
       </div>
 
       {/* Rows */}
-      <div className="mt-1 max-h-72 overflow-y-auto">
+      <div className="mt-1 flex-1 min-h-0 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {rows.length === 0 ? (
           <p className="py-6 text-center text-xs text-muted-foreground">
             {subTab === "favorites"
@@ -217,17 +217,17 @@ export function MarketWatchlist({
               className="flex w-full items-center gap-2 rounded-lg px-1.5 py-1.5 text-left transition-colors hover:bg-secondary/40"
             >
               <FavoriteStar id={favId(it.symbol)} />
-              <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
+              <span className="min-w-0 flex-1 truncate text-xs sm:text-sm font-medium text-foreground">
                 {it.symbol}
                 {it.badge && (
-                  <span className="ml-1.5 rounded bg-secondary px-1 py-0.5 align-middle text-[10px] font-semibold text-muted-foreground">
+                  <span className="ml-1.5 rounded bg-secondary px-1 py-0.5 align-middle text-[9px] sm:text-[10px] font-semibold text-muted-foreground">
                     {it.badge}
                   </span>
                 )}
               </span>
-              <span className="text-right">
-                <div className="font-mono text-sm text-foreground">{it.price}</div>
-                <div className={`font-mono text-xs ${it.changePct >= 0 ? "text-up" : "text-down"}`}>
+              <span className="text-right shrink-0">
+                <div className="font-mono text-xs sm:text-sm text-foreground">{it.price}</div>
+                <div className={`font-mono text-[10px] sm:text-xs ${it.changePct >= 0 ? "text-up" : "text-down"}`}>
                   {it.changePct >= 0 ? "+" : ""}
                   {it.changePct.toFixed(2)}%
                 </div>

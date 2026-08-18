@@ -32,7 +32,7 @@ export function useScrollReveal(threshold = 0.12) {
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
-          (entry.target as HTMLElement).dataset.revealed = entry.isIntersecting ? "true" : "false";
+          (entry.target as HTMLElement).dataset["revealed"] = entry.isIntersecting ? "true" : "false";
         });
       },
       { threshold, rootMargin: "0px 0px -40px 0px" },

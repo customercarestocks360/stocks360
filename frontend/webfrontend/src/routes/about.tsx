@@ -127,7 +127,7 @@ function AboutPage() {
                 { value: "118", suffix: "B", label: "Assets in Custody", icon: "fa-vault" },
               ].map((stat) => (
                 <div key={stat.label} className="text-center group">
-                  <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-2xl bg-secondary text-muted-foreground mb-4 transition-all duration-300 group-hover:scale-110 group-hover:shadow-md">
+                  <div className="mx-auto flex h-11 w-11 items-center justify-center rounded sm:rounded-2xl bg-secondary text-muted-foreground mb-4 transition-all duration-300 group-hover:scale-110 group-hover:shadow-md">
 
                     <i className={`fa-solid ${stat.icon} text-base`} />
                   </div>
@@ -160,7 +160,7 @@ function AboutPage() {
                 between markets. That single idea is the reason Stocks360 exists.
               </p>
             </div>
-            <div className="relative rounded-2xl border border-border bg-card p-8 shadow-sm transition-all duration-300 hover:shadow-lg hover:border-primary/30 overflow-hidden">
+            <div className="relative rounded sm:rounded-2xl border border-border bg-card p-8 shadow-sm transition-all duration-300 hover:shadow-lg hover:border-primary/30 overflow-hidden">
               <div
                 className="absolute top-0 left-0 h-1 w-full"
                 style={{ background: "linear-gradient(90deg, var(--up), var(--chart-2))" }}
@@ -188,9 +188,9 @@ function AboutPage() {
               {values.map((v) => (
                 <div
                   key={v.t}
-                  className="group rounded-2xl border border-border bg-card p-8 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-lg hover:border-primary/30"
+                  className="group rounded sm:rounded-2xl border border-border bg-card p-8 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-lg hover:border-primary/30"
                 >
-                  <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-secondary text-muted-foreground mb-5 transition-transform duration-300 group-hover:scale-110">
+                  <div className="flex h-11 w-11 items-center justify-center rounded sm:rounded-xl bg-secondary text-muted-foreground mb-5 transition-transform duration-300 group-hover:scale-110">
 
                     <i className={`fa-solid ${v.icon} text-lg`} />
                   </div>
@@ -246,7 +246,7 @@ function AboutPage() {
             >
               <div className="overflow-hidden">
                 {activeTab && (
-                  <div className="rounded-2xl border border-border bg-card p-6 text-left shadow-sm">
+                  <div className="rounded sm:rounded-2xl border border-border bg-card p-6 text-left shadow-sm">
                     <h3 className="text-sm font-bold text-foreground mb-2">
                       <i className={`fa-solid ${activeTab.icon} mr-2 text-muted-foreground`} />
                       {activeTab.label}
@@ -275,13 +275,13 @@ function AboutPage() {
             <div className="mt-8 flex flex-wrap justify-center gap-4">
               <Link
                 to="/signup"
-                className="cursor-pointer rounded-2xl bg-primary px-10 py-4 font-mono text-sm font-bold uppercase tracking-wider text-primary-foreground shadow-lg transition-all duration-300 hover:scale-[1.03] hover:shadow-xl hover:shadow-primary/20 active:scale-[0.98]"
+                className="cursor-pointer rounded sm:rounded-2xl bg-primary px-10 py-4 font-mono text-sm font-bold uppercase tracking-wider text-primary-foreground shadow-lg transition-all duration-300 hover:scale-[1.03] hover:shadow-xl hover:shadow-primary/20 active:scale-[0.98]"
               >
                 Open free account
               </Link>
               <Link
                 to="/markets"
-                className="cursor-pointer rounded-2xl border border-border bg-card px-10 py-4 font-mono text-sm uppercase tracking-wider text-foreground transition-all duration-300 hover:bg-secondary hover:border-primary/30 hover:scale-[1.03]"
+                className="cursor-pointer rounded sm:rounded-2xl border border-border bg-card px-10 py-4 font-mono text-sm uppercase tracking-wider text-foreground transition-all duration-300 hover:bg-secondary hover:border-primary/30 hover:scale-[1.03]"
               >
                 Explore markets
               </Link>

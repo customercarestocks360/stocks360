@@ -74,7 +74,7 @@ function AdminLogin({ onLogin }: { onLogin: () => void }) {
 
   return (
     <div className="flex min-h-screen items-center justify-center px-6 py-12">
-      <div className="w-full max-w-md rounded-3xl border border-border bg-card/80 p-8 shadow-2xl backdrop-blur-xl">
+      <div className="w-full max-w-md rounded sm:rounded-3xl border border-border bg-card/80 p-8 shadow-2xl backdrop-blur-xl">
         <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
           <i className="fa-solid fa-shield-halved text-lg" />
         </div>
@@ -92,7 +92,7 @@ function AdminLogin({ onLogin }: { onLogin: () => void }) {
               onChange={(e) => setEmail(e.target.value)}
               autoComplete="username"
               placeholder="admin@stocks360.com"
-              className="mt-2 w-full rounded-xl border border-border bg-background/60 px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
+              className="mt-2 w-full rounded sm:rounded-xl border border-border bg-background/60 px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
             />
           </label>
 
@@ -105,7 +105,7 @@ function AdminLogin({ onLogin }: { onLogin: () => void }) {
                 onChange={(e) => setPassword(e.target.value)}
                 autoComplete="current-password"
                 placeholder="••••••••••"
-                className="w-full rounded-xl border border-border bg-background/60 px-3 py-2.5 pr-10 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
+                className="w-full rounded sm:rounded-xl border border-border bg-background/60 px-3 py-2.5 pr-10 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
               />
               <button
                 type="button"
@@ -124,7 +124,7 @@ function AdminLogin({ onLogin }: { onLogin: () => void }) {
 
           <button
             type="submit"
-            className="w-full rounded-xl bg-primary px-4 py-3 text-sm font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90"
+            className="w-full rounded sm:rounded-xl bg-primary px-4 py-3 text-sm font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90"
           >
             Sign in
           </button>
@@ -154,7 +154,7 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
   const pendingDeposits = deposits.filter((t) => txStatus(t) === "pending").length;
   const pendingWithdrawals = withdrawals.filter((t) => txStatus(t) === "pending").length;
 
-  const totalInr = balances.INR + balances.USDT * USDT_TO_INR;
+  const totalUsdt = balances.USDT;
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-10">
@@ -175,23 +175,23 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
 
       {/* ── Totals ── */}
       <div className="mt-6 grid gap-4 sm:grid-cols-3">
-        <div className="rounded-2xl border border-border bg-card p-6">
+        <div className="rounded sm:rounded-2xl border border-border bg-card p-6">
           <div className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
             Total money on the site
           </div>
-          <div className="mt-2 font-mono text-2xl font-bold tracking-tight text-foreground">₹{fmt(totalInr)}</div>
+          <div className="mt-2 font-mono text-2xl font-bold tracking-tight text-foreground">{fmt(totalUsdt)} USDT</div>
           <div className="mt-1 text-xs text-muted-foreground">
-            ₹{fmt(balances.INR)} + {fmt(balances.USDT)} USDT
+            {fmt(balances.USDT)} USDT (BEP20)
           </div>
         </div>
-        <div className="rounded-2xl border border-border bg-card p-6">
+        <div className="rounded sm:rounded-2xl border border-border bg-card p-6">
           <div className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
             Pending deposits
           </div>
           <div className="mt-2 font-mono text-2xl font-bold tracking-tight text-foreground">{pendingDeposits}</div>
           <div className="mt-1 text-xs text-muted-foreground">Awaiting your confirmation</div>
         </div>
-        <div className="rounded-2xl border border-border bg-card p-6">
+        <div className="rounded sm:rounded-2xl border border-border bg-card p-6">
           <div className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
             Pending withdrawals
           </div>
@@ -275,14 +275,14 @@ function RequestTable({
       <table className="w-full min-w-[820px] border-collapse text-sm">
         <thead>
           <tr className="border-b border-border text-left text-xs text-muted-foreground">
-            <th className="px-2 pb-3 font-medium">Date</th>
-            <th className="px-2 pb-3 font-medium">User</th>
-            <th className="px-2 pb-3 font-medium">Asset</th>
-            <th className="px-2 pb-3 font-medium">Network</th>
-            {showDestination && <th className="px-2 pb-3 font-medium">Destination</th>}
-            <th className="px-2 pb-3 text-right font-medium">Amount</th>
-            <th className="px-2 pb-3 text-right font-medium">Status</th>
-            <th className="px-2 pb-3 text-right font-medium">Action</th>
+            <th className="px-1 sm:px-2 pb-2 sm:pb-3 font-medium">Date</th>
+            <th className="px-1 sm:px-2 pb-2 sm:pb-3 font-medium">User</th>
+            <th className="px-1 sm:px-2 pb-2 sm:pb-3 font-medium">Asset</th>
+            <th className="px-1 sm:px-2 pb-2 sm:pb-3 font-medium">Network</th>
+            {showDestination && <th className="px-1 sm:px-2 pb-2 sm:pb-3 font-medium">Destination</th>}
+            <th className="px-1 sm:px-2 pb-2 sm:pb-3 text-right font-medium">Amount</th>
+            <th className="px-1 sm:px-2 pb-2 sm:pb-3 text-right font-medium">Status</th>
+            <th className="px-1 sm:px-2 pb-2 sm:pb-3 text-right font-medium">Action</th>
           </tr>
         </thead>
         <tbody>
@@ -290,15 +290,15 @@ function RequestTable({
             const status = txStatus(t);
             return (
               <tr key={t.id} className="border-b border-border last:border-b-0">
-                <td className="px-2 py-4 font-mono text-xs text-muted-foreground">{stamp(t.date)}</td>
-                <td className="px-2 py-4 text-foreground">{contact}</td>
-                <td className="px-2 py-4 font-medium text-foreground">{t.method}</td>
-                <td className="px-2 py-4 text-muted-foreground">{txNetwork(t)}</td>
+                <td className="px-1 sm:px-2 py-2.5 sm:py-4 font-mono text-xs text-muted-foreground">{stamp(t.date)}</td>
+                <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-foreground">{contact}</td>
+                <td className="px-1 sm:px-2 py-2.5 sm:py-4 font-medium text-foreground">{t.method}</td>
+                <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-muted-foreground">{txNetwork(t)}</td>
                 {showDestination && (
-                  <td className="px-2 py-4 font-mono text-xs text-muted-foreground">{t.destination ?? "—"}</td>
+                  <td className="px-1 sm:px-2 py-2.5 sm:py-4 font-mono text-xs text-muted-foreground">{t.destination ?? "—"}</td>
                 )}
-                <td className="px-2 py-4 text-right font-mono font-semibold text-foreground">{fmt(t.amount)}</td>
-                <td className="px-2 py-4 text-right">
+                <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-right font-mono font-semibold text-foreground">{fmt(t.amount)}</td>
+                <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-right">
                   <span
                     className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ${
                       status === "cancelled"
@@ -312,7 +312,7 @@ function RequestTable({
                     {status === "pending" ? "Pending" : status === "cancelled" ? "Cancelled" : "Completed"}
                   </span>
                 </td>
-                <td className="px-2 py-4 text-right">
+                <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-right">
                   {status === "pending" && (
                     <button
                       type="button"

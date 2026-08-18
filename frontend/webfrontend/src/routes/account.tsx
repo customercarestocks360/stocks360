@@ -292,12 +292,12 @@ function AccountPage() {
     return String(100000000 + (hash % 900000000));
   }, [email]);
 
-  const totalValueInr = balances.INR + balances.USDT * USDT_TO_INR;
+  const totalValueUsdt = balances.USDT;
 
   const trendPoints = useMemo(() => {
-    const base = Math.max(totalValueInr, 1);
+    const base = Math.max(totalValueUsdt, 1);
     return Array.from({ length: 14 }, (_, i) => Math.round(base * (0.85 + 0.15 * Math.sin(i * 0.8 + 1.2) + i * 0.01)));
-  }, [totalValueInr]);
+  }, [totalValueUsdt]);
 
   const favoriteAssets = useMemo(() => ASSETS.filter((a) => isFavorite(favKey(a))), [isFavorite]);
 
@@ -348,7 +348,7 @@ function AccountPage() {
           <p className="mt-2 text-sm text-muted-foreground">Sign in to view your Stocks360 account dashboard.</p>
           <Link
             to="/login"
-            className="mt-6 inline-block rounded-xl bg-primary px-5 py-2.5 text-sm font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90"
+            className="mt-6 inline-block rounded sm:rounded-xl bg-primary px-5 py-2.5 text-sm font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90"
           >
             Go to sign in
           </Link>
@@ -371,7 +371,7 @@ function AccountPage() {
                   key={item.key}
                   type="button"
                   onClick={() => setSidebar(item.key)}
-                  className={`flex shrink-0 items-center gap-3 rounded-xl px-4 py-2.5 text-sm font-medium transition-colors ${
+                  className={`flex shrink-0 items-center gap-3 rounded sm:rounded-xl px-4 py-2.5 text-sm font-medium transition-colors ${
                     sidebar === item.key
                       ? "bg-secondary text-foreground"
                       : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
@@ -386,7 +386,7 @@ function AccountPage() {
             {/* ── Main content ── */}
             <div className="min-w-0">
               {/* Profile header row — shown on every tab */}
-              <div className="flex flex-wrap items-center gap-6 rounded-2xl border border-border bg-card p-5">
+              <div className="flex flex-wrap items-center gap-6 rounded sm:rounded-2xl border border-border bg-card p-5">
                 <div className="flex items-center gap-4">
                   <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-primary text-xl font-bold text-primary-foreground">
                     {initial}
@@ -424,14 +424,16 @@ function AccountPage() {
                     ) : (
                       <div className="flex items-center gap-2">
                         <div className="text-lg font-bold text-foreground">{username}</div>
-                        <button
-                          type="button"
-                          onClick={startEditingName}
-                          className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                        >
-                          <i className="fa-solid fa-pen text-[10px]" />
-                          Change name
-                        </button>
+                        {sidebar === "account" && (
+                          <button
+                            type="button"
+                            onClick={startEditingName}
+                            className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                          >
+                            <i className="fa-solid fa-pen text-[10px]" />
+                            Change name
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>
@@ -442,15 +444,15 @@ function AccountPage() {
               {sidebar === "dashboard" && (
                 <div className="mt-6 space-y-6">
                   {/* Est. Total Value */}
-                  <div className="rounded-2xl border border-border bg-card p-6">
+                  <div className="rounded sm:rounded-2xl border border-border bg-card p-6">
                     <div className="flex flex-wrap items-start justify-between gap-4">
                       <div>
                         <div className="text-sm text-muted-foreground">Est. Total Value</div>
                         <div className="mt-2 font-mono text-3xl font-bold text-foreground">
-                          ₹{totalValueInr.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                          {totalValueUsdt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT
                         </div>
                         <div className="mt-2 text-xs text-muted-foreground">
-                          ₹{balances.INR.toLocaleString()} + {balances.USDT.toLocaleString()} USDT
+                          {balances.USDT.toLocaleString()} USDT Available
                         </div>
                       </div>
                       <div className="flex flex-wrap gap-2">
@@ -484,7 +486,7 @@ function AccountPage() {
                   </div>
 
                   {/* Markets */}
-                  <div className="rounded-2xl border border-border bg-card p-6">
+                  <div className="rounded sm:rounded-2xl border border-border bg-card p-6">
                     <div className="mb-4 flex items-center justify-between">
                       <h2 className="text-lg font-bold text-foreground">Markets</h2>
                       <Link to="/markets" className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
@@ -510,15 +512,6 @@ function AccountPage() {
 
                     {marketTab === "Holding" ? (
                       <div>
-                        <div className="flex items-center gap-3 border-b border-border px-1 py-3">
-                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">
-                            ₹
-                          </span>
-                          <div className="font-semibold text-foreground">INR</div>
-                          <div className="ml-auto font-mono text-sm text-foreground">
-                            ₹{balances.INR.toLocaleString()}
-                          </div>
-                        </div>
                         <div className="flex items-center gap-3 px-1 py-3">
                           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#26a17b]/15 text-[10px] font-bold text-[#26a17b]">
                             <i className="fa-solid fa-dollar-sign" />
@@ -547,7 +540,7 @@ function AccountPage() {
               )}
 
               {sidebar === "orders" && (
-                <div className="mt-6 rounded-2xl border border-border bg-card p-6">
+                <div className="mt-6 rounded sm:rounded-2xl border border-border bg-card p-6">
                   <div className="mb-4 flex items-center justify-between">
                     <div className="flex gap-1 rounded-lg border border-border bg-background/40 p-1">
                       <button
@@ -594,29 +587,27 @@ function AccountPage() {
                         <table className="w-full min-w-[560px] border-collapse text-sm">
                           <thead>
                             <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
-                              <th className="px-2 py-2 font-medium">Time</th>
-                              <th className="px-2 py-2 font-medium">Currency</th>
-                              <th className="px-2 py-2 text-right font-medium">Amount</th>
-                              <th className="px-2 py-2 font-medium">Status</th>
-                              <th className="px-2 py-2 text-right font-medium">Action</th>
+                              <th className="px-1 sm:px-2 py-1.5 sm:py-2 font-medium">Time</th>
+                              <th className="px-1 sm:px-2 py-1.5 sm:py-2 font-medium">Currency</th>
+                              <th className="px-1 sm:px-2 py-1.5 sm:py-2 text-right font-medium">Amount</th>
+                              <th className="px-1 sm:px-2 py-1.5 sm:py-2 font-medium">Status</th>
+                              <th className="px-1 sm:px-2 py-1.5 sm:py-2 text-right font-medium">Action</th>
                             </tr>
                           </thead>
                           <tbody>
                             {filteredPayments.map((t) => (
                               <tr key={t.id} className="border-b border-border last:border-b-0">
-                                <td className="px-2 py-3 text-muted-foreground">{new Date(t.date).toLocaleString()}</td>
-                                <td className="px-2 py-3 text-foreground">{t.method}</td>
-                                <td className="px-2 py-3 text-right font-mono font-semibold text-up">
-                                  +{t.method === "INR" ? "₹" : ""}
-                                  {t.amount.toLocaleString()}
-                                  {t.method === "USDT" ? " USDT" : ""}
+                                <td className="px-1 sm:px-2 py-2 sm:py-3 text-muted-foreground">{new Date(t.date).toLocaleString()}</td>
+                                <td className="px-1 sm:px-2 py-2 sm:py-3 text-foreground">{t.method}</td>
+                                <td className="px-1 sm:px-2 py-2 sm:py-3 text-right font-mono font-semibold text-up">
+                                  +{t.amount.toLocaleString()} USDT
                                 </td>
-                                <td className="px-2 py-3">
+                                <td className="px-1 sm:px-2 py-2 sm:py-3">
                                   <span className="rounded-full bg-up/10 px-2.5 py-0.5 text-xs font-semibold text-up">
                                     Successful
                                   </span>
                                 </td>
-                                <td className="px-2 py-3 text-right">
+                                <td className="px-1 sm:px-2 py-2 sm:py-3 text-right">
                                   <Link
                                     to="/history"
                                     className="text-xs font-semibold text-primary hover:opacity-80"
@@ -639,23 +630,23 @@ function AccountPage() {
                       <table className="w-full min-w-[640px] border-collapse text-sm">
                         <thead>
                           <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
-                            <th className="px-2 py-2 font-medium">Time</th>
-                            <th className="px-2 py-2 font-medium">Type</th>
-                            <th className="px-2 py-2 font-medium">Asset</th>
-                            <th className="px-2 py-2 text-right font-medium">Quantity</th>
-                            <th className="px-2 py-2 text-right font-medium">Price</th>
-                            <th className="px-2 py-2 text-right font-medium">Remark</th>
+                            <th className="px-1 sm:px-2 py-1.5 sm:py-2 font-medium">Time</th>
+                            <th className="px-1 sm:px-2 py-1.5 sm:py-2 font-medium">Type</th>
+                            <th className="px-1 sm:px-2 py-1.5 sm:py-2 font-medium">Asset</th>
+                            <th className="px-1 sm:px-2 py-1.5 sm:py-2 text-right font-medium">Quantity</th>
+                            <th className="px-1 sm:px-2 py-1.5 sm:py-2 text-right font-medium">Price</th>
+                            <th className="px-1 sm:px-2 py-1.5 sm:py-2 text-right font-medium">Remark</th>
                           </tr>
                         </thead>
                         <tbody>
                           {filteredTradeOrders.map((o) => (
                             <tr key={o.id} className="border-b border-border last:border-b-0">
-                              <td className="px-2 py-3 text-muted-foreground">{new Date(o.date).toLocaleString()}</td>
-                              <td className="px-2 py-3 capitalize text-foreground">{o.action}</td>
-                              <td className="px-2 py-3 font-semibold text-foreground">{o.symbol}</td>
-                              <td className="px-2 py-3 text-right font-mono text-foreground">{o.qty}</td>
-                              <td className="px-2 py-3 text-right font-mono text-foreground">{o.price}</td>
-                              <td className="px-2 py-3 text-right text-muted-foreground">Completed</td>
+                              <td className="px-1 sm:px-2 py-2 sm:py-3 text-muted-foreground">{new Date(o.date).toLocaleString()}</td>
+                              <td className="px-1 sm:px-2 py-2 sm:py-3 capitalize text-foreground">{o.action}</td>
+                              <td className="px-1 sm:px-2 py-2 sm:py-3 font-semibold text-foreground">{o.symbol}</td>
+                              <td className="px-1 sm:px-2 py-2 sm:py-3 text-right font-mono text-foreground">{o.qty}</td>
+                              <td className="px-1 sm:px-2 py-2 sm:py-3 text-right font-mono text-foreground">{o.price}</td>
+                              <td className="px-1 sm:px-2 py-2 sm:py-3 text-right text-muted-foreground">Completed</td>
                             </tr>
                           ))}
                         </tbody>
@@ -667,7 +658,7 @@ function AccountPage() {
 
               {sidebar === "account" && (
                 <div className="mt-6 space-y-4">
-                  <div className="rounded-2xl border border-border bg-card p-6">
+                  <div className="rounded sm:rounded-2xl border border-border bg-card p-6">
                     <div className="flex items-center justify-between gap-3">
                       <h2 className="text-lg font-bold text-foreground">Account details</h2>
                       {kycCompleted && (
@@ -688,7 +679,7 @@ function AccountPage() {
                       !kycCompleted && (
                         <Link
                           to="/kyc"
-                          className="mt-4 inline-block rounded-xl bg-primary px-5 py-2.5 text-sm font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90"
+                          className="mt-4 inline-block rounded sm:rounded-xl bg-primary px-5 py-2.5 text-sm font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90"
                         >
                           Complete account details
                         </Link>
@@ -696,7 +687,7 @@ function AccountPage() {
                     )}
                   </div>
 
-                  <div className="rounded-2xl border border-border bg-card p-6">
+                  <div className="rounded sm:rounded-2xl border border-border bg-card p-6">
                     <h2 className="text-lg font-bold text-foreground">Security</h2>
                     <div className="mt-4 flex flex-col gap-2">
                       <Link
@@ -720,7 +711,7 @@ function AccountPage() {
               )}
 
               {sidebar === "assets" && (
-                <div className="mt-6 rounded-2xl border border-border bg-card p-6">
+                <div className="mt-6 rounded sm:rounded-2xl border border-border bg-card p-6">
                   <div className="mb-4 flex items-center justify-between border-b border-border">
                     <div className="flex gap-5">
                       {(["overview", "deposit", "withdraw"] as const).map((t) => (
@@ -741,14 +732,8 @@ function AccountPage() {
                   </div>
 
                   {assetsSubTab === "overview" && (
-                    <div className="mb-5 grid gap-4 sm:grid-cols-2">
-                      <div className="rounded-xl border border-border bg-background/40 p-4">
-                        <div className="text-xs text-muted-foreground">INR Balance</div>
-                        <div className="mt-1 font-mono text-xl font-bold text-foreground">
-                          ₹{balances.INR.toLocaleString()}
-                        </div>
-                      </div>
-                      <div className="rounded-xl border border-border bg-background/40 p-4">
+                    <div className="mb-5 grid gap-4 sm:grid-cols-1">
+                      <div className="rounded sm:rounded-xl border border-border bg-background/40 p-4">
                         <div className="text-xs text-muted-foreground">USDT Balance</div>
                         <div className="mt-1 font-mono text-xl font-bold text-foreground">
                           {balances.USDT.toLocaleString()} USDT
@@ -776,23 +761,23 @@ function AccountPage() {
                       <table className="w-full min-w-[560px] border-collapse text-sm">
                         <thead>
                           <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
-                            <th className="px-2 py-2 font-medium">Time</th>
-                            <th className="px-2 py-2 font-medium">Type</th>
-                            <th className="px-2 py-2 font-medium">Asset</th>
-                            <th className="px-2 py-2 text-right font-medium">Amount</th>
-                            <th className="px-2 py-2 font-medium">Status</th>
+                            <th className="px-1 sm:px-2 py-1.5 sm:py-2 font-medium">Time</th>
+                            <th className="px-1 sm:px-2 py-1.5 sm:py-2 font-medium">Type</th>
+                            <th className="px-1 sm:px-2 py-1.5 sm:py-2 font-medium">Asset</th>
+                            <th className="px-1 sm:px-2 py-1.5 sm:py-2 text-right font-medium">Amount</th>
+                            <th className="px-1 sm:px-2 py-1.5 sm:py-2 font-medium">Status</th>
                           </tr>
                         </thead>
                         <tbody>
                           {filteredAssetsTx.map((t) => (
                             <tr key={t.id} className="border-b border-border last:border-b-0">
-                              <td className="px-2 py-3 text-muted-foreground">{new Date(t.date).toLocaleString()}</td>
-                              <td className="px-2 py-3 text-foreground">Deposit</td>
-                              <td className="px-2 py-3 text-foreground">{t.method}</td>
-                              <td className="px-2 py-3 text-right font-mono font-semibold text-up">
+                              <td className="px-1 sm:px-2 py-2 sm:py-3 text-muted-foreground">{new Date(t.date).toLocaleString()}</td>
+                              <td className="px-1 sm:px-2 py-2 sm:py-3 text-foreground">Deposit</td>
+                              <td className="px-1 sm:px-2 py-2 sm:py-3 text-foreground">{t.method}</td>
+                              <td className="px-1 sm:px-2 py-2 sm:py-3 text-right font-mono font-semibold text-up">
                                 +{t.amount.toLocaleString()}
                               </td>
-                              <td className="px-2 py-3">
+                              <td className="px-1 sm:px-2 py-2 sm:py-3">
                                 <span className="rounded-full bg-up/10 px-2.5 py-0.5 text-xs font-semibold text-up">
                                   Completed
                                 </span>

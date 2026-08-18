@@ -23,14 +23,6 @@ export const Route = createFileRoute("/wallet")({
   component: WalletPage,
 });
 
-/**
- * Demo conversion rates. Everything in the wallet is totalled in INR so the
- * numbers line up with the account dashboard, which also reports in ₹.
- */
-const USDT_TO_INR = 93;
-const USD_TO_INR = 84;
-
-/** Prices in market-assets are display strings ("$229.87", "1.0892"). */
 function priceOf(sym: string) {
   const asset = ASSETS.find((a) => a.sym === sym);
   if (!asset) return 0;
@@ -38,13 +30,8 @@ function priceOf(sym: string) {
   return Number.isFinite(n) ? n : 0;
 }
 
-/**
- * Always pass an explicit locale — `toLocaleString()` with none uses the host
- * locale, which differs between the SSR process and the browser (en-IN groups
- * 2794281 as "27,94,281", en-US as "2,794,281") and trips a hydration error.
- */
-function inr(n: number) {
-  return `₹${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+function fmtUsdt(n: number) {
+  return `${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT`;
 }
 function qty(n: number) {
   return n.toLocaleString("en-US", { maximumFractionDigits: 4 });
@@ -63,7 +50,7 @@ type WalletRow = {
   icon: string;
   available: number;
   locked: number;
-  valueInr: number;
+  valueUsdt: number;
   /** Cash rows have nothing to trade against. */
   tradeTo: string | null;
 };
@@ -127,14 +114,14 @@ function WalletPage() {
         icon: "fa-dollar-sign",
         available: balances.USDT - locked.USDT,
         locked: locked.USDT,
-        valueInr: balances.USDT * USDT_TO_INR,
+        valueUsdt: balances.USDT,
         tradeTo: null,
       },
     ];
 
     const positions: WalletRow[] = holdings.map(([sym, q]) => {
       const asset = ASSETS.find((a) => a.sym === sym);
-      const unitInr = priceOf(sym) * USD_TO_INR;
+      const unitUsdt = priceOf(sym);
       return {
         key: `pos:${sym}`,
         sym,
@@ -143,7 +130,7 @@ function WalletPage() {
         icon: asset?.icon ?? "fa-chart-line",
         available: q,
         locked: 0,
-        valueInr: q * unitInr,
+        valueUsdt: q * unitUsdt,
         tradeTo: asset ? TYPE_ROUTES[asset.type] : null,
       };
     });
@@ -157,7 +144,7 @@ function WalletPage() {
     return rows.filter((r) => r.sym.toLowerCase().includes(q) || r.name.toLowerCase().includes(q));
   }, [rows, query]);
 
-  const totalInr = useMemo(() => rows.reduce((sum, r) => sum + r.valueInr, 0), [rows]);
+  const totalUsdt = useMemo(() => rows.reduce((sum, r) => sum + r.valueUsdt, 0), [rows]);
 
   const openPanel = (which: "deposit" | "withdraw") => {
     if (!isLoggedIn) {
@@ -182,7 +169,7 @@ function WalletPage() {
           <p className="mt-2 text-sm text-muted-foreground">Sign in to view your wallet balances.</p>
           <Link
             to="/login"
-            className="mt-6 inline-block rounded-xl bg-primary px-5 py-2.5 text-sm font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90"
+            className="mt-6 inline-block rounded sm:rounded-xl bg-primary px-5 py-2.5 text-sm font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90"
           >
             Go to sign in
           </Link>
@@ -221,22 +208,22 @@ function WalletPage() {
         </div>
 
         {/* ── Total balance ── */}
-        <div className="mt-6 rounded-2xl border border-border bg-card p-6">
+        <div className="mt-6 rounded sm:rounded-2xl border border-border bg-card p-6">
           <div className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
             Total balance
           </div>
           <div className="mt-2 font-mono text-4xl font-bold tracking-tight text-foreground">
-            {inr(totalInr)}
+            {fmtUsdt(totalUsdt)}
           </div>
           {locked.USDT > 0 && (
             <div className="mt-2 text-xs text-muted-foreground">
-              {inr(locked.USDT * USDT_TO_INR)} locked in pending withdrawals
+              {fmtUsdt(locked.USDT)} locked in pending withdrawals
             </div>
           )}
         </div>
 
         {/* ── Assets ── */}
-        <div className="mt-6 rounded-2xl border border-border bg-card p-6">
+        <div className="mt-6 rounded sm:rounded-2xl border border-border bg-card p-6">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <h2 className="text-lg font-bold text-foreground">Assets</h2>
             <div className="relative w-full max-w-xs">
@@ -255,11 +242,11 @@ function WalletPage() {
             <table className="w-full min-w-[680px] border-collapse text-sm">
               <thead>
                 <tr className="border-b border-border text-left text-xs text-muted-foreground">
-                  <th className="px-2 pb-3 font-medium">Asset</th>
-                  <th className="px-2 pb-3 text-right font-medium">Available</th>
-                  <th className="px-2 pb-3 text-right font-medium">Locked</th>
-                  <th className="px-2 pb-3 text-right font-medium">Value</th>
-                  <th className="px-2 pb-3 text-right font-medium">Action</th>
+                  <th className="px-1 sm:px-2 pb-2 sm:pb-3 font-medium">Asset</th>
+                  <th className="px-1 sm:px-2 pb-2 sm:pb-3 text-right font-medium">Available</th>
+                  <th className="px-1 sm:px-2 pb-2 sm:pb-3 text-right font-medium">Locked</th>
+                  <th className="px-1 sm:px-2 pb-2 sm:pb-3 text-right font-medium">Value</th>
+                  <th className="px-1 sm:px-2 pb-2 sm:pb-3 text-right font-medium">Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -272,7 +259,7 @@ function WalletPage() {
                 ) : (
                   visibleRows.map((r) => (
                     <tr key={r.key} className="border-b border-border last:border-b-0">
-                      <td className="px-2 py-4">
+                      <td className="px-1 sm:px-2 py-2.5 sm:py-4">
                         <div className="flex items-center gap-3">
                           <AssetBadge color={r.color} sym={r.sym} />
                           <div className="min-w-0">
@@ -281,10 +268,10 @@ function WalletPage() {
                           </div>
                         </div>
                       </td>
-                      <td className="px-2 py-4 text-right font-mono text-foreground">{qty(r.available)}</td>
-                      <td className="px-2 py-4 text-right font-mono text-muted-foreground">{qty(r.locked)}</td>
-                      <td className="px-2 py-4 text-right font-mono text-foreground">{inr(r.valueInr)}</td>
-                      <td className="px-2 py-4 text-right">
+                      <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-right font-mono text-foreground">{qty(r.available)}</td>
+                      <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-right font-mono text-muted-foreground">{qty(r.locked)}</td>
+                      <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-right font-mono text-foreground">{fmtUsdt(r.valueUsdt)}</td>
+                      <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-right">
                         {r.tradeTo ? (
                           <Link
                             to={r.tradeTo}
@@ -310,7 +297,7 @@ function WalletPage() {
         </div>
 
         {/* ── Orders ── */}
-        <div className="mt-6 rounded-2xl border border-border bg-card p-6">
+        <div className="mt-6 rounded sm:rounded-2xl border border-border bg-card p-6">
           <h2 className="text-lg font-bold text-foreground">Orders</h2>
           <div className="mt-5">
             <OrdersPanel />
@@ -318,18 +305,18 @@ function WalletPage() {
         </div>
 
         {/* ── Transaction history ── */}
-        <div className="mt-6 rounded-2xl border border-border bg-card p-6">
+        <div className="mt-6 rounded sm:rounded-2xl border border-border bg-card p-6">
           <h2 className="text-lg font-bold text-foreground">Transaction history</h2>
           <div className="mt-5 overflow-x-auto">
             <table className="w-full min-w-[720px] border-collapse text-sm">
               <thead>
                 <tr className="border-b border-border text-left text-xs text-muted-foreground">
-                  <th className="px-2 pb-3 font-medium">Date</th>
-                  <th className="px-2 pb-3 font-medium">Type</th>
-                  <th className="px-2 pb-3 font-medium">Asset</th>
-                  <th className="px-2 pb-3 font-medium">Network</th>
-                  <th className="px-2 pb-3 text-right font-medium">Amount</th>
-                  <th className="px-2 pb-3 text-right font-medium">Status</th>
+                  <th className="px-1 sm:px-2 pb-2 sm:pb-3 font-medium">Date</th>
+                  <th className="px-1 sm:px-2 pb-2 sm:pb-3 font-medium">Type</th>
+                  <th className="px-1 sm:px-2 pb-2 sm:pb-3 font-medium">Asset</th>
+                  <th className="px-1 sm:px-2 pb-2 sm:pb-3 font-medium">Network</th>
+                  <th className="px-1 sm:px-2 pb-2 sm:pb-3 text-right font-medium">Amount</th>
+                  <th className="px-1 sm:px-2 pb-2 sm:pb-3 text-right font-medium">Status</th>
                 </tr>
               </thead>
               <tbody>
@@ -351,7 +338,7 @@ function WalletPage() {
       {gate && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setGate(null)} />
-          <div className="relative max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border border-border bg-card p-6 shadow-2xl">
+          <div className="relative max-h-[90vh] w-full max-w-md overflow-y-auto rounded sm:rounded-2xl border border-border bg-card p-6 shadow-2xl">
             <GateNotice
               reason={gate}
               onClose={() => setGate(null)}
@@ -378,15 +365,15 @@ function HistoryRow({ tx }: { tx: Transaction }) {
 
   return (
     <tr className="border-b border-border last:border-b-0">
-      <td className="px-2 py-4 font-mono text-xs text-muted-foreground">{stamp(tx.date)}</td>
-      <td className="px-2 py-4 capitalize text-foreground">{kind}</td>
-      <td className="px-2 py-4 font-medium text-foreground">{tx.method}</td>
-      <td className="px-2 py-4 text-muted-foreground">{NETWORK_OF[tx.method]}</td>
-      <td className={`px-2 py-4 text-right font-mono font-semibold ${tone}`}>
+      <td className="px-1 sm:px-2 py-2.5 sm:py-4 font-mono text-xs text-muted-foreground">{stamp(tx.date)}</td>
+      <td className="px-1 sm:px-2 py-2.5 sm:py-4 capitalize text-foreground">{kind}</td>
+      <td className="px-1 sm:px-2 py-2.5 sm:py-4 font-medium text-foreground">{tx.method}</td>
+      <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-muted-foreground">{NETWORK_OF[tx.method]}</td>
+      <td className={`px-1 sm:px-2 py-2.5 sm:py-4 text-right font-mono font-semibold ${tone}`}>
         {sign}
         {qty(tx.amount)}
       </td>
-      <td className="px-2 py-4 text-right">
+      <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-right">
         <div className="flex items-center justify-end gap-2">
           <StatusPill status={status} />
         </div>
@@ -437,7 +424,7 @@ function GateNotice({
       <button
         type="button"
         onClick={onAction}
-        className="mt-6 w-full rounded-xl bg-primary px-4 py-3 text-sm font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90"
+        className="mt-6 w-full rounded sm:rounded-xl bg-primary px-4 py-3 text-sm font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90"
       >
         {copy.action}
       </button>

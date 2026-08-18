@@ -44,17 +44,6 @@ const ASSET_OPTIONS: AssetOption[] = [
     color: "#26a17b",
     networks: [
       {
-        code: "TRC20",
-        name: "Tron (TRC20)",
-        address: "TXYZbe1a2Kd8vQmN4rC7wF3pL6sJ9hG5xD",
-        addressLabel: "Wallet Address (TRC20)",
-        payload: (a) => a,
-        minimum: "More than 1 USDT",
-        arrival: "About 1 minute after network confirmation",
-        fee: "0 USDT",
-        confirmations: "20 network confirmations",
-      },
-      {
         code: "BEP20",
         name: "BNB Smart Chain (BEP20)",
         address: "0x8cfa8b2fff6d4cec11dd6b53b68793fb4f81ffe3",
@@ -64,50 +53,6 @@ const ASSET_OPTIONS: AssetOption[] = [
         arrival: "About 1 minute after network confirmation",
         fee: "0 USDT",
         confirmations: "15 network confirmations",
-      },
-      {
-        code: "ERC20",
-        name: "Ethereum (ERC20)",
-        address: "0x8cfa8b2fff6d4cec11dd6b53b68793fb4f81ffe3",
-        addressLabel: "Wallet Address (ERC20)",
-        payload: (a) => a,
-        minimum: "More than 5 USDT",
-        arrival: "About 15 minutes after network confirmation",
-        fee: "0 USDT",
-        confirmations: "12 network confirmations",
-      },
-      {
-        code: "SOL",
-        name: "Solana",
-        address: "8pM3nRJZfKQbGxT7yLh1WcS4uVe9AoNqDkYgXsRt2vFj",
-        addressLabel: "Wallet Address (Solana)",
-        payload: (a) => a,
-        minimum: "More than 1 USDT",
-        arrival: "About 30 seconds after network confirmation",
-        fee: "0 USDT",
-        confirmations: "32 network confirmations",
-      },
-      {
-        code: "MATIC",
-        name: "Polygon",
-        address: "0x8cfa8b2fff6d4cec11dd6b53b68793fb4f81ffe3",
-        addressLabel: "Wallet Address (Polygon)",
-        payload: (a) => a,
-        minimum: "More than 1 USDT",
-        arrival: "About 5 minutes after network confirmation",
-        fee: "0 USDT",
-        confirmations: "128 network confirmations",
-      },
-      {
-        code: "ARBITRUM",
-        name: "Arbitrum One",
-        address: "0x8cfa8b2fff6d4cec11dd6b53b68793fb4f81ffe3",
-        addressLabel: "Wallet Address (Arbitrum)",
-        payload: (a) => a,
-        minimum: "More than 1 USDT",
-        arrival: "About 5 minutes after network confirmation",
-        fee: "0 USDT",
-        confirmations: "12 network confirmations",
       },
     ],
   },
@@ -195,7 +140,7 @@ function Dropdown<T>({
         aria-label={label}
         aria-expanded={open}
         aria-haspopup="listbox"
-        className="flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3.5 text-left transition-colors hover:border-foreground/25"
+        className="flex w-full items-center justify-between gap-3 rounded sm:rounded-xl border border-border bg-card px-4 py-3.5 text-left transition-colors hover:border-foreground/25"
       >
         {render(selected)}
         <i className={`fa-solid fa-chevron-down text-xs text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`} />
@@ -203,7 +148,7 @@ function Dropdown<T>({
       {open && (
         <ul
           role="listbox"
-          className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-20 overflow-hidden rounded-xl border border-border bg-card p-1 shadow-xl"
+          className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-20 overflow-hidden rounded sm:rounded-xl border border-border bg-card p-1 shadow-xl"
         >
           {items.map((item, i) => (
             <li key={i}>
@@ -231,15 +176,8 @@ function Dropdown<T>({
 
 /** Diamond marker for a completed step, numbered circle for the one in progress. */
 function StepMarker({ done, n }: { done: boolean; n: number }) {
-  if (done) {
-    return (
-      <span className="flex h-5 w-5 rotate-45 items-center justify-center rounded-[3px] border-2 border-foreground/70">
-        <i className="fa-solid fa-check -rotate-45 text-[9px] text-foreground/70" />
-      </span>
-    );
-  }
   return (
-    <span className="flex h-5 w-5 items-center justify-center rounded-full border-2 border-foreground/70 text-[10px] font-bold text-foreground/70">
+    <span className={`flex h-5 w-5 items-center justify-center rounded-full border-2 text-[10px] font-bold ${done ? "border-primary text-primary" : "border-foreground/70 text-foreground/70"}`}>
       {n}
     </span>
   );
@@ -336,7 +274,7 @@ function DepositPage() {
           <Link
             to={locked.to}
             {...(locked.search ? { search: locked.search } : {})}
-            className="mt-6 inline-block rounded-xl bg-primary px-5 py-2.5 text-sm font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90"
+            className="mt-6 inline-block rounded sm:rounded-xl bg-primary px-5 py-2.5 text-sm font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90"
           >
             {locked.cta}
           </Link>
@@ -353,7 +291,7 @@ function DepositPage() {
           <ol className="min-w-0">
             <Step n={1} done title="Asset">
               <div className="max-w-lg">
-                <div className="flex w-full items-center gap-3 rounded-xl border border-border bg-card px-4 py-3.5">
+                <div className="flex w-full items-center gap-3 rounded sm:rounded-xl border border-border bg-card px-4 py-3.5">
                   <span
                     className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full font-mono text-[8px] font-bold"
                     style={{ backgroundColor: `${asset.color}25`, color: asset.color }}
@@ -396,35 +334,37 @@ function DepositPage() {
               title="Deposit Address"
             >
               <div className="max-w-lg">
-                <div className="flex flex-wrap items-center gap-5 rounded-xl border border-border bg-card p-4">
-                  <div className="rounded-lg bg-white p-2">
+                <div className="flex flex-col sm:flex-row items-center sm:items-start gap-5 rounded sm:rounded-xl border border-border bg-card p-4">
+                  <div className="rounded-lg bg-white p-2 shrink-0">
                     <QrCode
                       value={network.payload(network.address)}
                       size={124}
                       title={`${asset.code} deposit address on ${network.code}`}
                     />
                   </div>
-                  <div className="min-w-0 flex-1">
+                  <div className="min-w-0 flex-1 w-full text-center sm:text-left">
                     <div className="text-sm text-muted-foreground">Address</div>
-                    <div className="mt-1 flex items-start gap-2">
+                    <div className="mt-1 flex flex-col sm:flex-row items-center sm:items-start gap-2">
                       <AddressText address={network.address} />
-                      <button
-                        type="button"
-                        onClick={handleCopy}
-                        aria-label="Copy deposit address"
-                        className="shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                      >
-                        <i className={`fa-${copied ? "solid fa-check text-up" : "regular fa-copy"} text-sm`} />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setShowDetails((v) => !v)}
-                        aria-label="Toggle address details"
-                        aria-expanded={showDetails}
-                        className="shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                      >
-                        <i className={`fa-solid fa-chevron-down text-xs transition-transform ${showDetails ? "rotate-180" : ""}`} />
-                      </button>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={handleCopy}
+                          aria-label="Copy deposit address"
+                          className="shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                        >
+                          <i className={`fa-${copied ? "solid fa-check text-up" : "regular fa-copy"} text-sm`} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setShowDetails((v) => !v)}
+                          aria-label="Toggle address details"
+                          aria-expanded={showDetails}
+                          className="shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                        >
+                          <i className={`fa-solid fa-chevron-down text-xs transition-transform ${showDetails ? "rotate-180" : ""}`} />
+                        </button>
+                      </div>
                     </div>
                     <div className="mt-1 text-[11px] text-muted-foreground/70">{network.addressLabel}</div>
                   </div>
@@ -436,7 +376,7 @@ function DepositPage() {
                 </div>
 
                 {showDetails && (
-                  <dl className="mt-4 space-y-2.5 rounded-xl border border-border bg-background/40 p-4 text-sm">
+                  <dl className="mt-4 space-y-2.5 rounded sm:rounded-xl border border-border bg-background/40 p-4 text-sm">
                     <div className="flex justify-between gap-4">
                       <dt className="text-muted-foreground">Expected arrival</dt>
                       <dd className="text-right text-foreground">{network.arrival}</dd>
@@ -468,7 +408,7 @@ function DepositPage() {
                 </button>
 
                 {/* Reporting the amount only records the claim — an admin credits the balance once they've verified it landed. */}
-                <div className="mt-8 rounded-xl border border-border bg-card p-4">
+                <div className="mt-8 rounded sm:rounded-xl border border-border bg-card p-4">
                   {stage === "requested" ? (
                     <div className="text-center">
                       <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-primary/10 text-primary">
@@ -496,14 +436,14 @@ function DepositPage() {
                           onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))}
                           placeholder="e.g. 100"
                           inputMode="decimal"
-                          className="mt-2 w-full rounded-xl border border-border bg-background/60 px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
+                          className="mt-2 w-full rounded sm:rounded-xl border border-border bg-background/60 px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
                         />
                       </label>
                       <button
                         type="button"
                         onClick={handleSubmit}
                         disabled={!canSubmit}
-                        className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
+                        className="mt-4 flex w-full items-center justify-center gap-2 rounded sm:rounded-xl bg-primary px-4 py-3 text-sm font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
                       >
                         I've sent this amount
                       </button>
@@ -563,11 +503,11 @@ function DepositPage() {
               <table className="w-full min-w-[620px] border-collapse text-sm">
                 <thead>
                   <tr className="border-b border-border text-left text-xs text-muted-foreground">
-                    <th className="px-2 pb-3 font-medium">Date</th>
-                    <th className="px-2 pb-3 font-medium">Asset</th>
-                    <th className="px-2 pb-3 font-medium">Network</th>
-                    <th className="px-2 pb-3 text-right font-medium">Amount</th>
-                    <th className="px-2 pb-3 text-right font-medium">Status</th>
+                    <th className="px-1 sm:px-2 pb-2 sm:pb-3 font-medium">Date</th>
+                    <th className="px-1 sm:px-2 pb-2 sm:pb-3 font-medium">Asset</th>
+                    <th className="px-1 sm:px-2 pb-2 sm:pb-3 font-medium">Network</th>
+                    <th className="px-1 sm:px-2 pb-2 sm:pb-3 text-right font-medium">Amount</th>
+                    <th className="px-1 sm:px-2 pb-2 sm:pb-3 text-right font-medium">Status</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -575,17 +515,17 @@ function DepositPage() {
                     const status = txStatus(t);
                     return (
                       <tr key={t.id} className="border-b border-border last:border-b-0">
-                        <td className="px-2 py-4 font-mono text-xs text-muted-foreground">{stamp(t.date)}</td>
-                        <td className="px-2 py-4 font-medium text-foreground">{t.method}</td>
-                        <td className="px-2 py-4 text-muted-foreground">{txNetwork(t)}</td>
+                        <td className="px-1 sm:px-2 py-2.5 sm:py-4 font-mono text-xs text-muted-foreground">{stamp(t.date)}</td>
+                        <td className="px-1 sm:px-2 py-2.5 sm:py-4 font-medium text-foreground">{t.method}</td>
+                        <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-muted-foreground">{txNetwork(t)}</td>
                         <td
-                          className={`px-2 py-4 text-right font-mono font-semibold ${
+                          className={`px-1 sm:px-2 py-2.5 sm:py-4 text-right font-mono font-semibold ${
                             status === "cancelled" ? "text-muted-foreground" : "text-up"
                           }`}
                         >
                           +{fmt(t.amount)}
                         </td>
-                        <td className="px-2 py-4 text-right">
+                        <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-right">
                           <span
                             className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ${
                               status === "cancelled"
