@@ -1,7 +1,8 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import SpecularButton from "@/components/ui/specular-button";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { useTheme } from "@/components/ThemeProvider";
+import { useAuth } from "@/components/AuthProvider";
 import { useState, useEffect } from "react";
 import Dither from "@/components/ui/Dither";
 import { useScrollReveal } from "@/hooks/useScrollReveal";
@@ -42,10 +43,24 @@ const TESTIMONIALS = [
 
 function Index() {
   const { theme } = useTheme();
+  const { isLoggedIn, kycCompleted } = useAuth();
+  const navigate = useNavigate();
   const [mounted, setMounted] = useState(false);
   const [heroHovered, setHeroHovered] = useState(false);
   const [activeWord, setActiveWord] = useState(0);
   const scrollRef = useScrollReveal();
+
+  const handleGetStarted = () => {
+    if (!isLoggedIn) {
+      navigate({ to: "/signup" });
+      return;
+    }
+    if (!kycCompleted) {
+      navigate({ to: "/kyc" });
+      return;
+    }
+    navigate({ to: "/markets" });
+  };
 
   useEffect(() => {
     setMounted(true);
@@ -114,7 +129,7 @@ function Index() {
               proximity={250}
               autoAnimate={false}
               className="uppercase tracking-[0.25em] font-bold"
-              onClick={() => console.log("Get Started clicked")}
+              onClick={handleGetStarted}
             >
               Get Started
             </SpecularButton>
@@ -627,12 +642,13 @@ function Index() {
               Open your desk in under two minutes. No deposit fees, no lock-ins, no compromises.
             </p>
             <div className="mt-10 flex flex-wrap justify-center gap-4">
-              <Link
-                to="/signup"
+              <button
+                type="button"
+                onClick={handleGetStarted}
                 className="cursor-pointer rounded sm:rounded-2xl bg-primary px-10 py-4 font-mono text-sm font-bold uppercase tracking-wider text-primary-foreground shadow-lg transition-all hover:scale-[1.03] hover:shadow-xl active:scale-[0.98]"
               >
-                Open free account
-              </Link>
+                Get started
+              </button>
               <Link
                 to="/markets"
                 className="cursor-pointer rounded sm:rounded-2xl border border-border bg-card px-10 py-4 font-mono text-sm uppercase tracking-wider text-foreground transition-colors hover:bg-secondary"
