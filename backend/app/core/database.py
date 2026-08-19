@@ -37,6 +37,7 @@ def ensure_indexes() -> None:
     """Create the indexes the app relies on. Safe to re-run."""
     # Imported here rather than at module scope: the trading repository imports get_db
     # from this module, so a top-level import would close the loop.
+    from app.funding import repository as funding_repository
     from app.trading import repository as trading_repository
 
     db = get_db()
@@ -77,3 +78,7 @@ def ensure_indexes() -> None:
     # one client order id per user, and the matcher's view of every resting order — and
     # they belong next to the code that depends on them.
     trading_repository.ensure_indexes()
+
+    # The funding review queue, kept with its own module for the same reason: its
+    # load-bearing index is the one query in this API that is not scoped to a uid.
+    funding_repository.ensure_indexes()

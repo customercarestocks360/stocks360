@@ -251,6 +251,38 @@ def list_balances(uid: str) -> list[dict]:
     return [_decimals(doc) for doc in cursor]
 
 
+def venue_totals() -> list[dict]:
+    """Every wallet in the deployment, summed per currency.
+
+    The one balance read that is not scoped to a uid, and the only caller is the funding
+    review dashboard. It lives here rather than in `app/funding` because the wallets
+    collection belongs to this module — a second file reaching into it is how two
+    different ideas of what a balance is get started.
+    """
+    cursor = get_db()[WALLETS].aggregate(
+        [
+            {
+                "$group": {
+                    "_id": "$currency",
+                    "available": {"$sum": "$available"},
+                    "reserved": {"$sum": "$reserved"},
+                    "wallets": {"$sum": 1},
+                }
+            },
+            {"$sort": {"_id": ASCENDING}},
+        ]
+    )
+    return [
+        {
+            "currency": row["_id"],
+            "available": _decimals(row["available"]),
+            "reserved": _decimals(row["reserved"]),
+            "wallets": row["wallets"],
+        }
+        for row in cursor
+    ]
+
+
 def list_ledger(
     uid: str, limit: int, currency: str | None = None, kind: str | None = None
 ) -> list[dict]:

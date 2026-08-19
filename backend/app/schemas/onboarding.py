@@ -173,17 +173,6 @@ class Product(str, Enum):
     crypto_staking = "crypto_staking"
 
 
-# Leveraged products need a suitability check before they can be requested.
-LEVERAGED_PRODUCTS: frozenset[Product] = frozenset(
-    {
-        Product.domestic_derivatives,
-        Product.domestic_equity_intraday,
-        Product.commodities,
-        Product.forex,
-        Product.crypto_derivatives,
-    }
-)
-
 # Products that only go live after a human review of the income proof.
 REVIEW_GATED_PRODUCTS: frozenset[Product] = frozenset(
     {Product.domestic_derivatives, Product.commodities, Product.forex, Product.crypto_derivatives}
@@ -240,10 +229,14 @@ class CryptoNetwork(str, Enum):
 
 
 class TwoFactorMethod(str, Enum):
-    totp = "totp"
-    sms = "sms"
+    """Deliberately just two values. There is no SMS provider (see the `contact` step)
+    and no TOTP/passkey enrolment flow anywhere in this codebase, so offering them here
+    would be a checkbox that does nothing at sign-in. `email` piggybacks on a channel
+    that already exists — the address a user has to control to have an account at all —
+    and `none` is an honest name for declining, rather than a method silently no-oping."""
+
     email = "email"
-    passkey = "passkey"
+    none = "none"
 
 
 class AgreementDocument(str, Enum):

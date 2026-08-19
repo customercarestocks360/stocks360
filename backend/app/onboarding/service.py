@@ -1,4 +1,4 @@
-"""Onboarding rules: step ordering, cross-step eligibility, and the submit hand-off.
+"""Onboarding rules: step ordering and the submit hand-off.
 
 The session is the single source of truth while signup is in flight. Nothing here
 trusts the client to say where it is in the funnel — the stored session decides.
@@ -13,27 +13,16 @@ from app.onboarding import repository
 from app.schemas.onboarding import (
     AGREEMENTS_BY_PRODUCT,
     ALWAYS_REQUIRED_AGREEMENTS,
-    LEVERAGED_PRODUCTS,
     REVIEW_GATED_PRODUCTS,
     STEP_ORDER,
     AgreementDocument,
     KycTier,
-    MoneyBand,
     OnboardingSessionResponse,
     OnboardingStatus,
     OnboardingStep,
     OnboardingSubmitResponse,
     Product,
-    RiskTolerance,
 )
-
-# Jurisdictions where a product may not be offered. Wired into the markets step;
-# populate from the compliance matrix rather than guessing.
-RESTRICTED_JURISDICTIONS: dict[Product, frozenset[str]] = {}
-
-# Leverage needs some demonstrated capacity to absorb a loss.
-_MIN_LEVERAGE_EXPERIENCE_YEARS = 1
-_INELIGIBLE_INCOME_FOR_LEVERAGE = frozenset({MoneyBand.lt_25k})
 
 # Field paths that never travel back out in full once stored.
 _MASKED_PATHS: dict[OnboardingStep, tuple[str, ...]] = {
@@ -155,32 +144,6 @@ def _required_agreements(products: list[Product]) -> set[AgreementDocument]:
     return required
 
 
-def _assert_products_permitted(products: list[Product], steps: dict) -> None:
-    """Suitability and jurisdiction checks, run against the already-captured
-    financial profile and country of residence."""
-    financial = _step_data(steps, OnboardingStep.financial)
-    residence = _step_data(steps, OnboardingStep.contact).get("country_of_residence")
-
-    blocked = [
-        p.value for p in products if residence in RESTRICTED_JURISDICTIONS.get(p, frozenset())
-    ]
-    if blocked:
-        raise _conflict(f"Not available in {residence}: {', '.join(blocked)}")
-
-    leveraged = [p.value for p in products if p in LEVERAGED_PRODUCTS]
-    if not leveraged:
-        return
-    listed = ", ".join(leveraged)
-    if financial.get("investment_experience_years", 0) < _MIN_LEVERAGE_EXPERIENCE_YEARS:
-        raise _conflict(
-            f"{listed} need at least {_MIN_LEVERAGE_EXPERIENCE_YEARS} year of trading experience"
-        )
-    if financial.get("risk_tolerance") == RiskTolerance.low.value:
-        raise _conflict(f"{listed} are not offered on a low risk tolerance")
-    if financial.get("annual_income_band") in {b.value for b in _INELIGIBLE_INCOME_FOR_LEVERAGE}:
-        raise _conflict(f"{listed} require a higher declared annual income")
-
-
 def _assert_agreements_cover_products(accepted: list[dict], steps: dict) -> None:
     signed = {AgreementDocument(a["document"]) for a in accepted}
     missing = sorted(d.value for d in _required_agreements(_requested_products(steps)) - signed)
@@ -206,9 +169,7 @@ def submit_step(
     # mode="json" keeps dates and enums as strings, which is what Mongo can store.
     data = payload.model_dump(mode="json", exclude={"step"})
 
-    if step is OnboardingStep.markets:
-        _assert_products_permitted([Product(p) for p in data["products"]], steps)
-    elif step is OnboardingStep.agreements:
+    if step is OnboardingStep.agreements:
         _assert_agreements_cover_products(data["accepted"], steps)
         # Consent is only defensible with the context it was given in.
         data["accepted_from"] = {"ip": ip, "user_agent": user_agent}
@@ -231,10 +192,7 @@ def finalize(uid: str) -> OnboardingSubmitResponse:
     if missing:
         raise _conflict(f"Onboarding is incomplete — still missing: {', '.join(missing)}")
 
-    # Re-check the gates: the financial profile may have been edited after the
-    # markets step was accepted.
     products = _requested_products(steps)
-    _assert_products_permitted(products, steps)
     _assert_agreements_cover_products(_step_data(steps, OnboardingStep.agreements)["accepted"], steps)
 
     pending = [p for p in products if p in REVIEW_GATED_PRODUCTS]

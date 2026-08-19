@@ -166,6 +166,11 @@ export function AssetChart({
   watchlist = [],
   onSelectSymbol,
   marketStatusLabel = "Market Open",
+  series,
+  timeframe: controlledTimeframe,
+  onTimeframeChange,
+  loadingSeries = false,
+  seriesError = "",
 }: {
   seed: string;
   color: string;
@@ -176,8 +181,24 @@ export function AssetChart({
   watchlist?: WatchlistItem[];
   onSelectSymbol?: (item: WatchlistItem) => void;
   marketStatusLabel?: string;
+  /**
+   * Real candles for the current timeframe. When supplied, the chart renders these and does
+   * not synthesise anything; when omitted it falls back to the seeded demo series, which is
+   * what the pages that are not wired to a feed still rely on.
+   */
+  series?: ChartPoint[];
+  /** Lifts the timeframe out so the parent can fetch the matching range. Uncontrolled if omitted. */
+  timeframe?: Timeframe;
+  onTimeframeChange?: (timeframe: Timeframe) => void;
+  loadingSeries?: boolean;
+  seriesError?: string;
 }) {
-  const [timeframe, setTimeframe] = useState<Timeframe>("1D");
+  const [uncontrolledTimeframe, setUncontrolledTimeframe] = useState<Timeframe>("1D");
+  const timeframe = controlledTimeframe ?? uncontrolledTimeframe;
+  const setTimeframe = (next: Timeframe) => {
+    if (onTimeframeChange) onTimeframeChange(next);
+    if (controlledTimeframe === undefined) setUncontrolledTimeframe(next);
+  };
   const [chartType, setChartType] = useState<ChartType>("candles");
   const [showMA, setShowMA] = useState(true);
   const [showVolume, setShowVolume] = useState(true);
@@ -226,14 +247,14 @@ export function AssetChart({
   >(null);
 
   const data = useMemo(() => {
-    const series = generateSeries(seed, timeframe, basePrice);
+    const base = series ?? generateSeries(seed, timeframe, basePrice);
     let sum = 0;
-    return series.map((p, i) => {
+    return base.map((p, i) => {
       sum += p.close;
-      if (i >= MA_WINDOW) sum -= series[i - MA_WINDOW]!.close;
+      if (i >= MA_WINDOW) sum -= base[i - MA_WINDOW]!.close;
       return { ...p, ma: i >= MA_WINDOW - 1 ? sum / MA_WINDOW : undefined } as ChartPoint;
     });
-  }, [seed, timeframe, basePrice]);
+  }, [series, seed, timeframe, basePrice]);
 
   const timeIndex = useMemo(() => {
     const m = new Map<number, number>();
@@ -250,15 +271,22 @@ export function AssetChart({
   const decimals = lastPrice < 1 ? 4 : lastPrice < 100 ? 3 : 2;
   const readout = hoverIndex !== null ? (data[hoverIndex] ?? lastPoint) : lastPoint;
 
+  /**
+   * Multi-window performance tiles. Each window needs its own series, and on a real feed
+   * that would mean three more requests per symbol — so they are shown only for the demo
+   * series. Inventing them next to real candles would be the worst of both.
+   */
   const perf = useMemo(
     () =>
-      (["1W", "1M", "ALL"] as Timeframe[]).map((tf) => {
-        const s = generateSeries(seed, tf, basePrice);
-        const f = s[0]?.open ?? basePrice;
-        const l = s[s.length - 1]?.close ?? basePrice;
-        return { tf: tf === "ALL" ? "2Y" : tf, pct: f ? ((l - f) / f) * 100 : 0 };
-      }),
-    [seed, basePrice],
+      series
+        ? []
+        : (["1W", "1M", "ALL"] as Timeframe[]).map((tf) => {
+            const s = generateSeries(seed, tf, basePrice);
+            const f = s[0]?.open ?? basePrice;
+            const l = s[s.length - 1]?.close ?? basePrice;
+            return { tf: tf === "ALL" ? "2Y" : tf, pct: f ? ((l - f) / f) * 100 : 0 };
+          }),
+    [series, seed, basePrice],
   );
 
   /* Everything the imperative listeners need, kept in a ref so the handlers
@@ -1072,6 +1100,37 @@ export function AssetChart({
     <div className="relative min-h-0 flex-1">
       <div ref={hostRef} className="absolute inset-0 touch-none" />
       <canvas ref={overlayRef} className="pointer-events-none absolute inset-0" />
+      {/*
+        The demo series is a seeded random walk, not a price history. When it is what is on
+        screen that has to be stated plainly — a synthetic candlestick chart is indistinguishable
+        from a real one, and the surrounding UI says "Live".
+      */}
+      {series === undefined && (
+        <div className="pointer-events-none absolute left-1/2 top-3 z-30 -translate-x-1/2 rounded-full border border-amber-500/40 bg-amber-500/10 px-3 py-1 font-mono text-[10px] uppercase tracking-wider text-amber-600 shadow-sm backdrop-blur dark:text-amber-400">
+          <i className="fa-solid fa-flask mr-1.5" />
+          Sample data — sign in for real candles
+        </div>
+      )}
+      {/* Feed status for a chart driven by real candles — never shown for the demo series. */}
+      {loadingSeries && (
+        <div className="pointer-events-none absolute left-1/2 top-3 z-30 -translate-x-1/2 rounded-full border border-border bg-card/90 px-3 py-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground shadow-sm backdrop-blur">
+          <i className="fa-solid fa-circle-notch fa-spin mr-1.5" />
+          Loading candles
+        </div>
+      )}
+      {!loadingSeries && seriesError && (
+        <div className="pointer-events-none absolute left-1/2 top-3 z-30 max-w-[90%] -translate-x-1/2 truncate rounded-full border border-border bg-card/90 px-3 py-1 font-mono text-[10px] text-muted-foreground shadow-sm backdrop-blur">
+          <i className="fa-solid fa-triangle-exclamation mr-1.5" />
+          {seriesError}
+        </div>
+      )}
+      {!loadingSeries && !seriesError && series !== undefined && series.length === 0 && (
+        <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center">
+          <span className="rounded-lg border border-border bg-card/90 px-3 py-2 text-xs text-muted-foreground shadow-sm backdrop-blur">
+            No candles for this interval.
+          </span>
+        </div>
+      )}
       {selected && isFullscreen && (
         <div
           className="absolute left-2 top-2 z-40 flex items-center gap-1.5 rounded-lg border border-border bg-card/95 px-2 py-1.5 shadow-xl backdrop-blur"
@@ -1272,11 +1331,13 @@ export function AssetChart({
             {changePct.toFixed(2)}%
           </span>
         </div>
-        <div className="mt-3 grid grid-cols-3 gap-2">
-          {perf.map((p) => (
-            <PerfTile key={p.tf} label={p.tf} pct={p.pct} />
-          ))}
-        </div>
+        {perf.length > 0 && (
+          <div className="mt-3 grid grid-cols-3 gap-2">
+            {perf.map((p) => (
+              <PerfTile key={p.tf} label={p.tf} pct={p.pct} />
+            ))}
+          </div>
+        )}
       </div>
     </>
   );

@@ -51,7 +51,13 @@ function AdminPage() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <div className="grid-bg fixed inset-0 opacity-30" />
-      <div className="relative">{session ? <AdminDashboard onLogout={handleLogout} /> : <AdminLogin onLogin={handleLogin} />}</div>
+      <div className="relative">
+        {session ? (
+          <AdminDashboard onLogout={handleLogout} />
+        ) : (
+          <AdminLogin onLogin={handleLogin} />
+        )}
+      </div>
     </div>
   );
 }
@@ -78,7 +84,9 @@ function AdminLogin({ onLogin }: { onLogin: () => void }) {
         <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
           <i className="fa-solid fa-shield-halved text-lg" />
         </div>
-        <h1 className="mt-4 text-center text-2xl font-bold tracking-tight text-foreground">Admin portal</h1>
+        <h1 className="mt-4 text-center text-2xl font-bold tracking-tight text-foreground">
+          Admin portal
+        </h1>
         <p className="mt-1 text-center text-sm text-muted-foreground">
           Restricted access — Stocks360 staff only.
         </p>
@@ -119,7 +127,9 @@ function AdminLogin({ onLogin }: { onLogin: () => void }) {
           </label>
 
           {error && (
-            <p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs font-medium text-destructive">{error}</p>
+            <p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs font-medium text-destructive">
+              {error}
+            </p>
           )}
 
           <button
@@ -135,12 +145,10 @@ function AdminLogin({ onLogin }: { onLogin: () => void }) {
 }
 
 function AdminDashboard({ onLogout }: { onLogout: () => void }) {
-  const { email, kycProfile, balances, transactions, settleDeposit, settleWithdrawal } = useAuth();
+  const { email, balances, transactions, settleDeposit, settleWithdrawal } = useAuth();
   const [tab, setTab] = useState<"deposits" | "withdrawals">("deposits");
 
-  const contact =
-    email ??
-    (kycProfile ? `${kycProfile.contact.mobile_country_code} ${kycProfile.contact.mobile_number}` : "—");
+  const contact = email ?? "—";
 
   const deposits = useMemo(
     () => transactions.filter((t) => txKind(t) === "deposit"),
@@ -161,7 +169,9 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground">Admin dashboard</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Review deposit and withdrawal requests.</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Review deposit and withdrawal requests.
+          </p>
         </div>
         <button
           type="button"
@@ -179,7 +189,9 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
           <div className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
             Total money on the site
           </div>
-          <div className="mt-2 font-mono text-2xl font-bold tracking-tight text-foreground">{fmt(totalUsdt)} USDT</div>
+          <div className="mt-2 font-mono text-2xl font-bold tracking-tight text-foreground">
+            {fmt(totalUsdt)} USDT
+          </div>
           <div className="mt-1 text-xs text-muted-foreground">
             {fmt(balances.USDT)} USDT (BEP20)
           </div>
@@ -188,14 +200,18 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
           <div className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
             Pending deposits
           </div>
-          <div className="mt-2 font-mono text-2xl font-bold tracking-tight text-foreground">{pendingDeposits}</div>
+          <div className="mt-2 font-mono text-2xl font-bold tracking-tight text-foreground">
+            {pendingDeposits}
+          </div>
           <div className="mt-1 text-xs text-muted-foreground">Awaiting your confirmation</div>
         </div>
         <div className="rounded sm:rounded-2xl border border-border bg-card p-6">
           <div className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
             Pending withdrawals
           </div>
-          <div className="mt-2 font-mono text-2xl font-bold tracking-tight text-foreground">{pendingWithdrawals}</div>
+          <div className="mt-2 font-mono text-2xl font-bold tracking-tight text-foreground">
+            {pendingWithdrawals}
+          </div>
           <div className="mt-1 text-xs text-muted-foreground">Awaiting your confirmation</div>
         </div>
       </div>
@@ -279,7 +295,9 @@ function RequestTable({
             <th className="px-1 sm:px-2 pb-2 sm:pb-3 font-medium">User</th>
             <th className="px-1 sm:px-2 pb-2 sm:pb-3 font-medium">Asset</th>
             <th className="px-1 sm:px-2 pb-2 sm:pb-3 font-medium">Network</th>
-            {showDestination && <th className="px-1 sm:px-2 pb-2 sm:pb-3 font-medium">Destination</th>}
+            {showDestination && (
+              <th className="px-1 sm:px-2 pb-2 sm:pb-3 font-medium">Destination</th>
+            )}
             <th className="px-1 sm:px-2 pb-2 sm:pb-3 text-right font-medium">Amount</th>
             <th className="px-1 sm:px-2 pb-2 sm:pb-3 text-right font-medium">Status</th>
             <th className="px-1 sm:px-2 pb-2 sm:pb-3 text-right font-medium">Action</th>
@@ -290,14 +308,24 @@ function RequestTable({
             const status = txStatus(t);
             return (
               <tr key={t.id} className="border-b border-border last:border-b-0">
-                <td className="px-1 sm:px-2 py-2.5 sm:py-4 font-mono text-xs text-muted-foreground">{stamp(t.date)}</td>
+                <td className="px-1 sm:px-2 py-2.5 sm:py-4 font-mono text-xs text-muted-foreground">
+                  {stamp(t.date)}
+                </td>
                 <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-foreground">{contact}</td>
-                <td className="px-1 sm:px-2 py-2.5 sm:py-4 font-medium text-foreground">{t.method}</td>
-                <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-muted-foreground">{txNetwork(t)}</td>
+                <td className="px-1 sm:px-2 py-2.5 sm:py-4 font-medium text-foreground">
+                  {t.method}
+                </td>
+                <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-muted-foreground">
+                  {txNetwork(t)}
+                </td>
                 {showDestination && (
-                  <td className="px-1 sm:px-2 py-2.5 sm:py-4 font-mono text-xs text-muted-foreground">{t.destination ?? "—"}</td>
+                  <td className="px-1 sm:px-2 py-2.5 sm:py-4 font-mono text-xs text-muted-foreground">
+                    {t.destination ?? "—"}
+                  </td>
                 )}
-                <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-right font-mono font-semibold text-foreground">{fmt(t.amount)}</td>
+                <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-right font-mono font-semibold text-foreground">
+                  {fmt(t.amount)}
+                </td>
                 <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-right">
                   <span
                     className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ${
@@ -309,7 +337,11 @@ function RequestTable({
                     }`}
                   >
                     <span className="h-1.5 w-1.5 rounded-full bg-current" />
-                    {status === "pending" ? "Pending" : status === "cancelled" ? "Cancelled" : "Completed"}
+                    {status === "pending"
+                      ? "Pending"
+                      : status === "cancelled"
+                        ? "Cancelled"
+                        : "Completed"}
                   </span>
                 </td>
                 <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-right">

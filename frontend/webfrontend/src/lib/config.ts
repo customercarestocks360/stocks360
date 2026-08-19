@@ -42,3 +42,6 @@ function resolveApiBaseUrl(): string {
 
 /** Origin of the Stocks360 FastAPI backend, without a trailing slash. */
 export const API_BASE_URL = resolveApiBaseUrl();
+
+/** The same backend, as a WebSocket origin — http(s) and ws(s) share a host and a port. */
+export const WS_BASE_URL = API_BASE_URL.replace(/^http/, "ws");

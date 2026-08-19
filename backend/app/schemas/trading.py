@@ -373,7 +373,10 @@ class PositionValuation(Position):
 class Balance(BaseModel):
     currency: str
     available: Amount = Field(description="Free to spend or withdraw")
-    reserved: Amount = Field(description="Locked by open buy orders")
+    reserved: Amount = Field(
+        description="Locked by open buy orders and by pending withdrawal requests. Still "
+        "yours, and not spendable until whatever holds it closes."
+    )
     total: Amount
 
 

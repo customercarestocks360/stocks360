@@ -27,16 +27,20 @@ import {
   signOutFirebase,
   watchIdToken,
 } from "@/lib/firebase";
+import { fetchUserProfile, type UserProfile } from "@/lib/users-api";
+import type { KycTier, OnboardingStatus, Product } from "@/lib/onboarding-api";
 
 /**
- * Identity is real: Firebase issues the ID token, the FastAPI backend verifies it and owns
- * the stored profile.
+ * Identity and KYC status are both real: Firebase issues the ID token, the FastAPI backend
+ * verifies it, and `GET /users/me` is the one place that knows whether onboarding has
+ * actually been submitted — `onboarding_status`, `kyc_tier` and the product lists are
+ * denormalised there by `POST /onboarding/submit` and nowhere else.
  *
- * Everything below identity — balances, deposits, withdrawals, KYC, orders — is still the
- * client-side simulation this app started with, because `/trading/*` and `/onboarding/*`
- * have not been wired up yet. It is kept deliberately separate from identity, and
- * persisted under a **uid-scoped** localStorage key so one account's simulated money can
- * never show up in another's session.
+ * Everything below that — balances, deposits, withdrawals, orders — is still the
+ * client-side simulation this app started with, because `/trading/*` has not been wired up
+ * yet. It is kept deliberately separate from identity, and persisted under a
+ * **uid-scoped** localStorage key so one account's simulated money can never show up in
+ * another's session.
  */
 export type DepositMethod = "INR" | "USDT";
 
@@ -111,79 +115,6 @@ export const orderType = (o: Order): OrderType => o.orderType ?? "Market";
  */
 export const orderStatus = (o: Order): OrderStatus => o.status ?? "filled";
 
-export type KycProfile = {
-  contact: {
-    mobile_country_code: string;
-    mobile_number: string;
-    country_of_residence: string;
-    nationality: string;
-  };
-  personal: {
-    first_name: string;
-    last_name: string;
-    date_of_birth: string;
-    gender: string;
-    place_of_birth_country: string;
-  };
-  address: {
-    residential: {
-      line1: string;
-      city: string;
-      state: string;
-      postal_code: string;
-      country: string;
-    };
-    permanent_same_as_residential: boolean;
-  };
-  identity: {
-    document_type: string;
-    document_number: string;
-    issuing_country: string;
-  };
-  tax: {
-    tax_residency_country: string;
-    tax_identification_number: string;
-    is_us_person: boolean;
-    pep_status: string;
-    source_of_funds: string;
-  };
-  financial: {
-    occupation: string;
-    employer_designation: string;
-    income_currency: string;
-    annual_income_band: string;
-    net_worth_band: string;
-    investment_experience_years: number;
-    risk_tolerance: string;
-    investment_objectives: string[];
-  };
-  markets: {
-    products: string[];
-    base_currency: string;
-  };
-  funding: {
-    primary_method: string;
-    bank_account: {
-      account_holder_name: string;
-      account_number: string;
-      account_type: string;
-      bank_name: string;
-      routing_type: string;
-      routing_code: string;
-      currency: string;
-    };
-  };
-  security: {
-    two_factor_method: string;
-    anti_phishing_code: string;
-    withdrawal_whitelist_only: boolean;
-    notify_on_new_device: boolean;
-  };
-  agreements: {
-    accepted: { document: string; version: string }[];
-  };
-};
-
 /** Who the caller is, as asserted by Firebase and confirmed by the backend. */
 export type Identity = {
   uid: string;
@@ -205,8 +136,6 @@ export type AuthStatus = "loading" | "authenticated" | "unauthenticated";
 type LocalState = {
   /** Overrides the Firebase display name when the user renames themselves in /account. */
   displayName: string | null;
-  kycCompleted: boolean;
-  kycProfile: KycProfile | null;
   balances: Record<DepositMethod, number>;
   transactions: Transaction[];
   orders: Order[];
@@ -214,8 +143,6 @@ type LocalState = {
 
 const DEFAULT_LOCAL: LocalState = {
   displayName: null,
-  kycCompleted: false,
-  kycProfile: null,
   balances: { INR: 0, USDT: 0 },
   transactions: [],
   orders: [],
@@ -313,13 +240,30 @@ type AuthContextValue = Identity & {
   /** POST /auth/logout to revoke refresh tokens, then clears the local session. */
   logout: () => Promise<void>;
 
+  /** True once `POST /onboarding/submit` has run — derived from `GET /users/me`, never local. */
   kycCompleted: boolean;
-  kycProfile: KycProfile | null;
+  /**
+   * The human-review state once submitted: `under_review` right after `POST
+   * /onboarding/submit`, then `approved` or `rejected`. `kycTier` alone can't tell these
+   * apart — it becomes `verified` immediately at submit and stays there through review.
+   */
+  onboardingStatus: OnboardingStatus;
+  /** `unverified` until identity is captured, `verified` once the application is submitted. */
+  kycTier: KycTier;
+  /** Live immediately once submitted. */
+  enabledProducts: Product[];
+  /** Submitted but held on a leveraged product until the income proof is reviewed. */
+  pendingProducts: Product[];
+  /**
+   * Re-fetches `GET /users/me`. The onboarding funnel calls this right after
+   * `POST /onboarding/submit`, so the rest of the app sees the new status without a reload.
+   */
+  refreshProfile: () => Promise<void>;
+
   balances: Record<DepositMethod, number>;
   transactions: Transaction[];
   orders: Order[];
 
-  submitKyc: (profile: KycProfile) => void;
   requestDeposit: (method: DepositMethod, amount: number, network?: string) => void;
   requestWithdrawal: (
     method: DepositMethod,
@@ -347,6 +291,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>("loading");
   const [identity, setIdentity] = useState<Identity | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
+  /**
+   * The stored MongoDB profile from `GET /users/me` — `null` before it has loaded, and
+   * also `null` on a `404` (no `POST /auth/login` has run for this uid yet), which reads
+   * as "no onboarding status to report" rather than a failure.
+   */
+  const [serverProfile, setServerProfile] = useState<UserProfile | null>(null);
 
   /**
    * Key and value held together, so the persist effect below can tell "this state belongs
@@ -407,9 +357,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   /**
+   * `GET /users/me`, tolerant of the one expected failure mode: swallows a `404` as "no
+   * profile yet" rather than surfacing it, since that can legitimately happen for a
+   * session the SDK restored before `POST /auth/login` finished mirroring the user into
+   * Mongo. Any other failure is logged and leaves whatever profile is already held —
+   * onboarding status going briefly stale beats it flickering to "not started" on a
+   * transient network error.
+   */
+  const loadServerProfile = useCallback(async (token: string) => {
+    try {
+      setServerProfile(await fetchUserProfile(token));
+    } catch (error: unknown) {
+      if (error instanceof ApiError && error.status === 404) {
+        setServerProfile(null);
+        return;
+      }
+      console.error("Could not load the stored profile", error);
+    }
+  }, []);
+
+  /**
+   * Re-fetches the stored profile on demand. The onboarding funnel calls this right after
+   * `POST /onboarding/submit`, so `kycCompleted` flips without waiting for a reload.
+   */
+  const refreshProfile = useCallback(async () => {
+    const token = await currentIdToken().catch(() => null);
+    if (token) await loadServerProfile(token);
+  }, [loadServerProfile]);
+
+  /**
    * A session the SDK restored from its own storage has not been near the backend yet, so
-   * confirm it with `GET /auth/me` — which also picks up the stored profile. Deliberately
+   * confirm it with `GET /auth/me` — which also picks up the stored identity. Deliberately
    * not `POST /auth/login`: that appends a login event, and reloading a tab is not a login.
+   * `GET /users/me` rides along to pick up the onboarding status that `/auth/me` does not
+   * carry.
    */
   useEffect(() => {
     if (status !== "authenticated" || uid === null) return;
@@ -419,8 +400,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
     void (async () => {
       try {
-        const profile = await fetchCurrentUser(await currentIdToken());
-        if (!cancelled) setIdentity(identityFromApi(profile));
+        const token = await currentIdToken();
+        const profile = await fetchCurrentUser(token);
+        if (cancelled) return;
+        setIdentity(identityFromApi(profile));
+        await loadServerProfile(token);
       } catch (error: unknown) {
         if (cancelled) return;
         if (error instanceof ApiError && error.status === 401) {
@@ -440,7 +424,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [status, uid]);
+  }, [status, uid, loadServerProfile]);
 
   // --- Simulated state, scoped to the signed-in uid ------------------------------------
 
@@ -495,26 +479,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    * thing as a half-signed-in client — a UI that thinks it is authenticated while the API
    * disagrees is the state every downstream bug comes from.
    */
-  const completeSignIn = useCallback(async (produceSession: () => Promise<void>): Promise<void> => {
-    signingInRef.current = true;
-    setAuthError(null);
-    try {
-      await produceSession();
-      const profile = await loginWithIdToken(await currentIdToken());
-      confirmedUidRef.current = profile.uid;
-      setIdentity(identityFromApi(profile));
-      setStatus("authenticated");
-    } catch (error: unknown) {
-      await signOutFirebase().catch(() => {});
-      confirmedUidRef.current = null;
-      setIdentity(null);
-      setStatus("unauthenticated");
-      console.error("Sign-in failed", error);
-      throw error;
-    } finally {
-      signingInRef.current = false;
-    }
-  }, []);
+  const completeSignIn = useCallback(
+    async (produceSession: () => Promise<void>): Promise<void> => {
+      signingInRef.current = true;
+      setAuthError(null);
+      try {
+        await produceSession();
+        const token = await currentIdToken();
+        const profile = await loginWithIdToken(token);
+        confirmedUidRef.current = profile.uid;
+        setIdentity(identityFromApi(profile));
+        setStatus("authenticated");
+        // POST /auth/login just upserted the Mongo mirror, so the profile is there to read.
+        await loadServerProfile(token);
+      } catch (error: unknown) {
+        await signOutFirebase().catch(() => {});
+        confirmedUidRef.current = null;
+        setIdentity(null);
+        setServerProfile(null);
+        setStatus("unauthenticated");
+        console.error("Sign-in failed", error);
+        throw error;
+      } finally {
+        signingInRef.current = false;
+      }
+    },
+    [loadServerProfile],
+  );
 
   const signInWithEmail = useCallback(
     async (email: string, password: string) => {
@@ -578,19 +569,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await signOutFirebase().catch(() => {});
       confirmedUidRef.current = null;
       setIdentity(null);
+      setServerProfile(null);
       setStatus("unauthenticated");
       setAuthError(null);
       setStore({ key: storageKeyFor(null), state: DEFAULT_LOCAL });
     }
   }, []);
 
-  // --- Simulated money and KYC (unchanged behaviour) -----------------------------------
-
-  const submitKyc = useCallback(
-    (profile: KycProfile) =>
-      updateLocal((s) => ({ ...s, kycCompleted: true, kycProfile: profile })),
-    [updateLocal],
-  );
+  // --- Simulated money (unchanged behaviour) --------------------------------------------
 
   /**
    * Both deposits and withdrawals settle in two steps: requesting one only
@@ -759,13 +745,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signInWithGoogle,
       logout,
 
-      kycCompleted: local.kycCompleted,
-      kycProfile: local.kycProfile,
+      // "not_started" is exactly what /users/me reports before POST /onboarding/submit has
+      // ever run, so a profile that hasn't loaded yet and a profile that genuinely has not
+      // onboarded read the same way here — both correctly gate on "not complete".
+      kycCompleted: serverProfile !== null && serverProfile.onboarding_status !== "not_started",
+      onboardingStatus: serverProfile?.onboarding_status ?? "not_started",
+      kycTier: serverProfile?.kyc_tier ?? "unverified",
+      enabledProducts: serverProfile?.enabled_products ?? [],
+      pendingProducts: serverProfile?.pending_products ?? [],
+      refreshProfile,
+
       balances: local.balances,
       transactions: local.transactions,
       orders: local.orders,
 
-      submitKyc,
       requestDeposit,
       requestWithdrawal,
       settleDeposit,
@@ -779,12 +772,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       identity,
       status,
       authError,
+      serverProfile,
+      refreshProfile,
       local,
       signUpWithEmail,
       signInWithEmail,
       signInWithGoogle,
       logout,
-      submitKyc,
       requestDeposit,
       requestWithdrawal,
       settleDeposit,

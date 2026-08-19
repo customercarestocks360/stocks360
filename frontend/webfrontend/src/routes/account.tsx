@@ -1,10 +1,11 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
-import { useAuth, type KycProfile, type Order, type Transaction } from "@/components/AuthProvider";
+import { useAuth, type Order, type Transaction } from "@/components/AuthProvider";
 import { useFavorites } from "@/components/FavoritesProvider";
 import { FavoriteStar } from "@/components/ui/favorite-star";
 import { MiniSparkline } from "@/components/ui/marketing";
+import { currentIdToken } from "@/lib/firebase";
 import {
   ASSETS,
   CATEGORY_PICKS,
@@ -14,6 +15,12 @@ import {
   favKey,
   type Asset,
 } from "@/lib/market-assets";
+import {
+  ONBOARDING_STEPS,
+  ONBOARDING_STEP_LABELS,
+  fetchOnboardingSession,
+  type OnboardingSession,
+} from "@/lib/onboarding-api";
 
 const SIDEBAR_ITEMS = [
   { key: "dashboard", label: "Dashboard", icon: "fa-house" },
@@ -28,7 +35,9 @@ type AccountSearch = { tab?: SidebarKey };
 
 export const Route = createFileRoute("/account")({
   validateSearch: (search: Record<string, unknown>): AccountSearch => {
-    const tab = SIDEBAR_ITEMS.some((i) => i.key === search["tab"]) ? (search["tab"] as SidebarKey) : undefined;
+    const tab = SIDEBAR_ITEMS.some((i) => i.key === search["tab"])
+      ? (search["tab"] as SidebarKey)
+      : undefined;
     return tab ? { tab } : {};
   },
   head: () => ({
@@ -42,7 +51,14 @@ export const Route = createFileRoute("/account")({
 
 const USDT_TO_INR = 93;
 
-const MARKET_TABS = ["Holding", "Hot", "New Listing", "Favorite", "Top Gainers", "24h Volume"] as const;
+const MARKET_TABS = [
+  "Holding",
+  "Hot",
+  "New Listing",
+  "Favorite",
+  "Top Gainers",
+  "24h Volume",
+] as const;
 type MarketTab = (typeof MARKET_TABS)[number];
 
 const TIME_FILTERS = [
@@ -52,13 +68,6 @@ const TIME_FILTERS = [
   { value: "90d", label: "Last 90 days" },
 ] as const;
 type TimeFilterValue = (typeof TIME_FILTERS)[number]["value"];
-
-/** Keeps the first/last few characters and blanks out the rest, for values too sensitive to show in full. */
-function mask(value: string, keepStart = 2, keepEnd = 2) {
-  if (!value) return "—";
-  if (value.length <= keepStart + keepEnd) return "•".repeat(value.length);
-  return `${value.slice(0, keepStart)}${"•".repeat(Math.min(value.length - keepStart - keepEnd, 8))}${value.slice(-keepEnd)}`;
-}
 
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
@@ -72,55 +81,117 @@ function DetailRow({ label, value }: { label: string; value: string }) {
 function DetailGroup({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div>
-      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</h3>
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        {title}
+      </h3>
       <div className="mt-1 divide-y divide-border/60">{children}</div>
     </div>
   );
 }
 
-/** Read-only view of the KYC profile the user submitted — fields can't be edited here, and anything sensitive is partially masked. */
-function KycDetails({ profile }: { profile: KycProfile }) {
+/**
+ * Words that read wrong under plain Title Case, for both field names (`pep_status`) and
+ * enum-like values (`ifsc`, `upi`). One list serves both, since a key and a value go
+ * through the same word-by-word titling below.
+ */
+const ACRONYMS = new Set([
+  "pan",
+  "pep",
+  "us",
+  "tin",
+  "id",
+  "ip",
+  "ifsc",
+  "swift",
+  "iban",
+  "aba",
+  "upi",
+  "bsc",
+]);
+
+const LABEL_OVERRIDES: Record<string, string> = {
+  is_us_person: "US person",
+  no_tin_reason: "Reason for no tax ID",
+  accepted_from: "Consent recorded from",
+  user_agent: "Browser",
+};
+
+function titleWord(word: string): string {
+  return ACRONYMS.has(word) ? word.toUpperCase() : word.charAt(0).toUpperCase() + word.slice(1);
+}
+
+/** `document_number` -> "Document Number", with a few overrides for anything that reads oddly. */
+function humanizeKey(key: string): string {
+  return LABEL_OVERRIDES[key] ?? key.split("_").map(titleWord).join(" ");
+}
+
+/** A masked value (`"******3210"`) contains characters outside this shape, so it always passes through untouched. */
+const ENUM_LIKE = /^[a-z0-9]+(_[a-z0-9]+)*$/;
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function summarizeObject(obj: Record<string, unknown>): string {
+  return Object.entries(obj)
+    .map(([key, value]) => `${humanizeKey(key)}: ${formatValue(value)}`)
+    .join(", ");
+}
+
+/** Renders any one captured value as a display string — the same rule for a top-level field and a nested one. */
+function formatValue(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "—";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (Array.isArray(value)) {
+    if (value.length === 0) return "—";
+    return value.map((v) => (isPlainObject(v) ? summarizeObject(v) : formatValue(v))).join(", ");
+  }
+  if (isPlainObject(value)) return summarizeObject(value);
+  if (typeof value === "string") return ENUM_LIKE.test(value) ? humanizeKey(value) : value;
+  return String(value);
+}
+
+/** One step's captured fields, recursing into nested objects (address, bank account) as sub-groups. */
+function StepFields({ data }: { data: Record<string, unknown> }) {
+  return (
+    <div className="mt-1 divide-y divide-border/60">
+      {Object.entries(data).map(([key, value]) =>
+        isPlainObject(value) ? (
+          <div key={key} className="py-2.5">
+            <div className="text-sm text-muted-foreground">{humanizeKey(key)}</div>
+            <div className="mt-1.5 rounded-lg bg-background/40 px-3">
+              <StepFields data={value} />
+            </div>
+          </div>
+        ) : (
+          <DetailRow key={key} label={humanizeKey(key)} value={formatValue(value)} />
+        ),
+      )}
+    </div>
+  );
+}
+
+/**
+ * Read-only recap of the submitted KYC application, straight from `GET /onboarding/session`.
+ * The backend has already masked the sensitive leaf fields (mobile number, document number,
+ * tax ID, bank account number) before this ever sees them, so nothing here re-masks anything
+ * — it only turns the raw captured data into readable groups, one per onboarding step.
+ */
+function KycDetails({ session }: { session: OnboardingSession }) {
   return (
     <div className="mt-5 space-y-5">
-      <DetailGroup title="Personal">
-        <DetailRow label="Full name" value={`${profile.personal.first_name} ${profile.personal.last_name}`} />
-        <DetailRow label="Date of birth" value={mask(profile.personal.date_of_birth, 0, 4)} />
-        <DetailRow label="Gender" value={profile.personal.gender} />
-        <DetailRow label="Place of birth" value={profile.personal.place_of_birth_country} />
-      </DetailGroup>
-
-      <DetailGroup title="Contact">
-        <DetailRow
-          label="Mobile number"
-          value={`${profile.contact.mobile_country_code} ${mask(profile.contact.mobile_number, 2, 2)}`}
-        />
-        <DetailRow label="Nationality" value={profile.contact.nationality} />
-        <DetailRow label="Country of residence" value={profile.contact.country_of_residence} />
-      </DetailGroup>
-
-      <DetailGroup title="Address">
-        <DetailRow label="Residential address" value={mask(profile.address.residential.line1, 3, 0)} />
-        <DetailRow label="City" value={profile.address.residential.city} />
-        <DetailRow label="State" value={profile.address.residential.state} />
-        <DetailRow label="Postal code" value={mask(profile.address.residential.postal_code, 0, 2)} />
-        <DetailRow label="Country" value={profile.address.residential.country} />
-      </DetailGroup>
-
-      <DetailGroup title="Identity document">
-        <DetailRow label="Document type" value={profile.identity.document_type} />
-        <DetailRow label="Document number" value={mask(profile.identity.document_number, 0, 4)} />
-        <DetailRow label="Issuing country" value={profile.identity.issuing_country} />
-      </DetailGroup>
-
-      <DetailGroup title="Tax">
-        <DetailRow label="Tax residency" value={profile.tax.tax_residency_country} />
-        <DetailRow label="Tax ID" value={mask(profile.tax.tax_identification_number, 0, 4)} />
-        <DetailRow label="US person" value={profile.tax.is_us_person ? "Yes" : "No"} />
-        <DetailRow label="Source of funds" value={profile.tax.source_of_funds} />
-      </DetailGroup>
-
+      {ONBOARDING_STEPS.map((step) => {
+        const captured = session.steps[step];
+        if (!captured) return null;
+        return (
+          <DetailGroup key={step} title={ONBOARDING_STEP_LABELS[step]}>
+            <StepFields data={captured.data} />
+          </DetailGroup>
+        );
+      })}
       <p className="text-xs text-muted-foreground/70">
-        These details were verified at signup and can't be edited. Contact support if anything needs correcting.
+        These details were submitted with your application and can't be edited here. Contact support
+        if anything needs correcting.
       </p>
     </div>
   );
@@ -248,8 +319,18 @@ function AssetRow({ asset }: { asset: Asset }) {
 function AccountPage() {
   const navigate = useNavigate();
   const { tab } = Route.useSearch();
-  const { isLoggedIn, email, name, kycCompleted, kycProfile, balances, transactions, orders, logout, setName } =
-    useAuth();
+  const {
+    isLoggedIn,
+    email,
+    name,
+    kycCompleted,
+    onboardingStatus,
+    balances,
+    transactions,
+    orders,
+    logout,
+    setName,
+  } = useAuth();
   const { isFavorite } = useFavorites();
   const [sidebar, setSidebar] = useState<SidebarKey>(tab ?? "dashboard");
   const [marketTab, setMarketTab] = useState<MarketTab>("Holding");
@@ -285,18 +366,41 @@ function AccountPage() {
     setEditingName(false);
   };
 
-  const uid = useMemo(() => {
-    if (!email) return "000000000";
-    let hash = 0;
-    for (const ch of email) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
-    return String(100000000 + (hash % 900000000));
-  }, [email]);
+  /**
+   * Backs the "Account details" recap below — fetched once per sign-in rather than gated
+   * to the account tab, so switching tabs doesn't re-fetch it. Staying `null` on failure is
+   * enough: the render below already treats "no session yet" and "not submitted" the same
+   * way, falling back to the plain "Complete account details" link either way.
+   */
+  const [onboardingSession, setOnboardingSession] = useState<OnboardingSession | null>(null);
+
+  useEffect(() => {
+    if (!isLoggedIn) {
+      setOnboardingSession(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const token = await currentIdToken();
+        const session = await fetchOnboardingSession(token);
+        if (!cancelled) setOnboardingSession(session);
+      } catch (err) {
+        if (!cancelled) console.error("Could not load the onboarding session", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isLoggedIn]);
 
   const totalValueUsdt = balances.USDT;
 
   const trendPoints = useMemo(() => {
     const base = Math.max(totalValueUsdt, 1);
-    return Array.from({ length: 14 }, (_, i) => Math.round(base * (0.85 + 0.15 * Math.sin(i * 0.8 + 1.2) + i * 0.01)));
+    return Array.from({ length: 14 }, (_, i) =>
+      Math.round(base * (0.85 + 0.15 * Math.sin(i * 0.8 + 1.2) + i * 0.01)),
+    );
   }, [totalValueUsdt]);
 
   const favoriteAssets = useMemo(() => ASSETS.filter((a) => isFavorite(favKey(a))), [isFavorite]);
@@ -345,7 +449,9 @@ function AccountPage() {
             <i className="fa-solid fa-lock text-lg" />
           </div>
           <h1 className="mt-4 text-xl font-bold text-foreground">Sign in required</h1>
-          <p className="mt-2 text-sm text-muted-foreground">Sign in to view your Stocks360 account dashboard.</p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Sign in to view your Stocks360 account dashboard.
+          </p>
           <Link
             to="/login"
             className="mt-6 inline-block rounded sm:rounded-xl bg-primary px-5 py-2.5 text-sm font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90"
@@ -438,7 +544,6 @@ function AccountPage() {
                     )}
                   </div>
                 </div>
-                
               </div>
 
               {sidebar === "dashboard" && (
@@ -449,7 +554,11 @@ function AccountPage() {
                       <div>
                         <div className="text-sm text-muted-foreground">Est. Total Value</div>
                         <div className="mt-2 font-mono text-3xl font-bold text-foreground">
-                          {totalValueUsdt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT
+                          {totalValueUsdt.toLocaleString(undefined, {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })}{" "}
+                          USDT
                         </div>
                         <div className="mt-2 text-xs text-muted-foreground">
                           {balances.USDT.toLocaleString()} USDT Available
@@ -481,7 +590,11 @@ function AccountPage() {
                       </div>
                     </div>
                     <div className="mt-4">
-                      <MiniSparkline color="var(--up)" points={trendPoints} className="h-24 w-full" />
+                      <MiniSparkline
+                        color="var(--up)"
+                        points={trendPoints}
+                        className="h-24 w-full"
+                      />
                     </div>
                   </div>
 
@@ -489,7 +602,10 @@ function AccountPage() {
                   <div className="rounded sm:rounded-2xl border border-border bg-card p-6">
                     <div className="mb-4 flex items-center justify-between">
                       <h2 className="text-lg font-bold text-foreground">Markets</h2>
-                      <Link to="/markets" className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+                      <Link
+                        to="/markets"
+                        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                      >
                         More <i className="fa-solid fa-chevron-right text-[10px]" />
                       </Link>
                     </div>
@@ -566,7 +682,10 @@ function AccountPage() {
                         Assets History
                       </button>
                     </div>
-                    <Link to="/history" className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+                    <Link
+                      to="/history"
+                      className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                    >
                       View full history <i className="fa-solid fa-chevron-right text-[10px]" />
                     </Link>
                   </div>
@@ -581,7 +700,9 @@ function AccountPage() {
 
                   {ordersSubTab === "payments" ? (
                     filteredPayments.length === 0 ? (
-                      <p className="py-8 text-center text-sm text-muted-foreground">No payments found.</p>
+                      <p className="py-8 text-center text-sm text-muted-foreground">
+                        No payments found.
+                      </p>
                     ) : (
                       <div className="overflow-x-auto">
                         <table className="w-full min-w-[560px] border-collapse text-sm">
@@ -589,16 +710,24 @@ function AccountPage() {
                             <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
                               <th className="px-1 sm:px-2 py-1.5 sm:py-2 font-medium">Time</th>
                               <th className="px-1 sm:px-2 py-1.5 sm:py-2 font-medium">Currency</th>
-                              <th className="px-1 sm:px-2 py-1.5 sm:py-2 text-right font-medium">Amount</th>
+                              <th className="px-1 sm:px-2 py-1.5 sm:py-2 text-right font-medium">
+                                Amount
+                              </th>
                               <th className="px-1 sm:px-2 py-1.5 sm:py-2 font-medium">Status</th>
-                              <th className="px-1 sm:px-2 py-1.5 sm:py-2 text-right font-medium">Action</th>
+                              <th className="px-1 sm:px-2 py-1.5 sm:py-2 text-right font-medium">
+                                Action
+                              </th>
                             </tr>
                           </thead>
                           <tbody>
                             {filteredPayments.map((t) => (
                               <tr key={t.id} className="border-b border-border last:border-b-0">
-                                <td className="px-1 sm:px-2 py-2 sm:py-3 text-muted-foreground">{new Date(t.date).toLocaleString()}</td>
-                                <td className="px-1 sm:px-2 py-2 sm:py-3 text-foreground">{t.method}</td>
+                                <td className="px-1 sm:px-2 py-2 sm:py-3 text-muted-foreground">
+                                  {new Date(t.date).toLocaleString()}
+                                </td>
+                                <td className="px-1 sm:px-2 py-2 sm:py-3 text-foreground">
+                                  {t.method}
+                                </td>
                                 <td className="px-1 sm:px-2 py-2 sm:py-3 text-right font-mono font-semibold text-up">
                                   +{t.amount.toLocaleString()} USDT
                                 </td>
@@ -633,20 +762,38 @@ function AccountPage() {
                             <th className="px-1 sm:px-2 py-1.5 sm:py-2 font-medium">Time</th>
                             <th className="px-1 sm:px-2 py-1.5 sm:py-2 font-medium">Type</th>
                             <th className="px-1 sm:px-2 py-1.5 sm:py-2 font-medium">Asset</th>
-                            <th className="px-1 sm:px-2 py-1.5 sm:py-2 text-right font-medium">Quantity</th>
-                            <th className="px-1 sm:px-2 py-1.5 sm:py-2 text-right font-medium">Price</th>
-                            <th className="px-1 sm:px-2 py-1.5 sm:py-2 text-right font-medium">Remark</th>
+                            <th className="px-1 sm:px-2 py-1.5 sm:py-2 text-right font-medium">
+                              Quantity
+                            </th>
+                            <th className="px-1 sm:px-2 py-1.5 sm:py-2 text-right font-medium">
+                              Price
+                            </th>
+                            <th className="px-1 sm:px-2 py-1.5 sm:py-2 text-right font-medium">
+                              Remark
+                            </th>
                           </tr>
                         </thead>
                         <tbody>
                           {filteredTradeOrders.map((o) => (
                             <tr key={o.id} className="border-b border-border last:border-b-0">
-                              <td className="px-1 sm:px-2 py-2 sm:py-3 text-muted-foreground">{new Date(o.date).toLocaleString()}</td>
-                              <td className="px-1 sm:px-2 py-2 sm:py-3 capitalize text-foreground">{o.action}</td>
-                              <td className="px-1 sm:px-2 py-2 sm:py-3 font-semibold text-foreground">{o.symbol}</td>
-                              <td className="px-1 sm:px-2 py-2 sm:py-3 text-right font-mono text-foreground">{o.qty}</td>
-                              <td className="px-1 sm:px-2 py-2 sm:py-3 text-right font-mono text-foreground">{o.price}</td>
-                              <td className="px-1 sm:px-2 py-2 sm:py-3 text-right text-muted-foreground">Completed</td>
+                              <td className="px-1 sm:px-2 py-2 sm:py-3 text-muted-foreground">
+                                {new Date(o.date).toLocaleString()}
+                              </td>
+                              <td className="px-1 sm:px-2 py-2 sm:py-3 capitalize text-foreground">
+                                {o.action}
+                              </td>
+                              <td className="px-1 sm:px-2 py-2 sm:py-3 font-semibold text-foreground">
+                                {o.symbol}
+                              </td>
+                              <td className="px-1 sm:px-2 py-2 sm:py-3 text-right font-mono text-foreground">
+                                {o.qty}
+                              </td>
+                              <td className="px-1 sm:px-2 py-2 sm:py-3 text-right font-mono text-foreground">
+                                {o.price}
+                              </td>
+                              <td className="px-1 sm:px-2 py-2 sm:py-3 text-right text-muted-foreground">
+                                Completed
+                              </td>
                             </tr>
                           ))}
                         </tbody>
@@ -662,34 +809,60 @@ function AccountPage() {
                     <div className="flex items-center justify-between gap-3">
                       <h2 className="text-lg font-bold text-foreground">Account details</h2>
                       {kycCompleted && (
-                        <span className="inline-flex items-center gap-1.5 rounded-full bg-up/10 px-2.5 py-0.5 text-xs font-semibold text-up">
-                          <i className="fa-solid fa-check text-[10px]" />
-                          Verified
+                        <span
+                          className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                            onboardingStatus === "rejected"
+                              ? "bg-destructive/10 text-destructive"
+                              : "bg-up/10 text-up"
+                          }`}
+                        >
+                          <i
+                            className={`fa-solid ${onboardingStatus === "rejected" ? "fa-xmark" : "fa-check"} text-[10px]`}
+                          />
+                          {onboardingStatus === "approved"
+                            ? "Approved"
+                            : onboardingStatus === "rejected"
+                              ? "Rejected"
+                              : "Under review"}
                         </span>
                       )}
                     </div>
                     <p className="mt-1 text-sm text-muted-foreground">
                       {kycCompleted
-                        ? "Submitted at signup and verified. These can only be viewed here, not changed."
-                        : "Complete your account details"}
+                        ? "Submitted for verification. These can only be viewed here, not changed."
+                        : onboardingSession && onboardingSession.completed_steps.length > 0
+                          ? `${onboardingSession.progress_percent}% complete — pick up where you left off.`
+                          : "Complete your account details to unlock deposits and trading."}
                     </p>
-                    {kycCompleted && kycProfile ? (
-                      <KycDetails profile={kycProfile} />
+                    {kycCompleted && onboardingSession ? (
+                      <KycDetails session={onboardingSession} />
                     ) : (
-                      !kycCompleted && (
-                        <Link
-                          to="/kyc"
-                          className="mt-4 inline-block rounded sm:rounded-xl bg-primary px-5 py-2.5 text-sm font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90"
-                        >
-                          Complete account details
-                        </Link>
-                      )
+                      <Link
+                        to="/kyc"
+                        className="mt-4 inline-block rounded sm:rounded-xl bg-primary px-5 py-2.5 text-sm font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90"
+                      >
+                        {onboardingSession && onboardingSession.completed_steps.length > 0
+                          ? "Continue account details"
+                          : "Complete account details"}
+                      </Link>
                     )}
                   </div>
 
+                  {/*
+                    Deliberately just email + the two actions that are actually real:
+                    Firebase's password reset and this session's sign-out. There is no SMS
+                    provider and no TOTP/passkey enrolment anywhere in this app, so nothing
+                    else belongs on this card — the onboarding funnel's own security step
+                    (POST /onboarding/step) restricts its two-factor choice to the same two
+                    options for the same reason.
+                  */}
                   <div className="rounded sm:rounded-2xl border border-border bg-card p-6">
                     <h2 className="text-lg font-bold text-foreground">Security</h2>
-                    <div className="mt-4 flex flex-col gap-2">
+                    <div className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
+                      <i className="fa-solid fa-envelope w-4" />
+                      <span className="truncate text-foreground">{email}</span>
+                    </div>
+                    <div className="mt-3 flex flex-col gap-2">
                       <Link
                         to="/forgot-password"
                         className="flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
@@ -755,7 +928,9 @@ function AccountPage() {
                       No withdrawals yet — withdrawals aren't available in this demo.
                     </p>
                   ) : filteredAssetsTx.length === 0 ? (
-                    <p className="py-8 text-center text-sm text-muted-foreground">No transactions found.</p>
+                    <p className="py-8 text-center text-sm text-muted-foreground">
+                      No transactions found.
+                    </p>
                   ) : (
                     <div className="overflow-x-auto">
                       <table className="w-full min-w-[560px] border-collapse text-sm">
@@ -764,16 +939,22 @@ function AccountPage() {
                             <th className="px-1 sm:px-2 py-1.5 sm:py-2 font-medium">Time</th>
                             <th className="px-1 sm:px-2 py-1.5 sm:py-2 font-medium">Type</th>
                             <th className="px-1 sm:px-2 py-1.5 sm:py-2 font-medium">Asset</th>
-                            <th className="px-1 sm:px-2 py-1.5 sm:py-2 text-right font-medium">Amount</th>
+                            <th className="px-1 sm:px-2 py-1.5 sm:py-2 text-right font-medium">
+                              Amount
+                            </th>
                             <th className="px-1 sm:px-2 py-1.5 sm:py-2 font-medium">Status</th>
                           </tr>
                         </thead>
                         <tbody>
                           {filteredAssetsTx.map((t) => (
                             <tr key={t.id} className="border-b border-border last:border-b-0">
-                              <td className="px-1 sm:px-2 py-2 sm:py-3 text-muted-foreground">{new Date(t.date).toLocaleString()}</td>
+                              <td className="px-1 sm:px-2 py-2 sm:py-3 text-muted-foreground">
+                                {new Date(t.date).toLocaleString()}
+                              </td>
                               <td className="px-1 sm:px-2 py-2 sm:py-3 text-foreground">Deposit</td>
-                              <td className="px-1 sm:px-2 py-2 sm:py-3 text-foreground">{t.method}</td>
+                              <td className="px-1 sm:px-2 py-2 sm:py-3 text-foreground">
+                                {t.method}
+                              </td>
                               <td className="px-1 sm:px-2 py-2 sm:py-3 text-right font-mono font-semibold text-up">
                                 +{t.amount.toLocaleString()}
                               </td>

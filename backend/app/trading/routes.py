@@ -108,8 +108,8 @@ async def get_eligibility(claims: dict = Depends(get_current_user)):
     response_model=list[Balance],
     responses={**UNAUTHORIZED, **UNAVAILABLE},
     summary="Cash by currency",
-    description="`reserved` is locked by open buy orders and cannot be spent or withdrawn "
-    "until they fill or are cancelled.",
+    description="`reserved` is locked by open buy orders and by pending withdrawal "
+    "requests, and cannot be spent or withdrawn until whatever holds it closes.",
 )
 async def get_balances(claims: dict = Depends(get_current_user)):
     return await asyncio.to_thread(service.balances, claims["uid"])

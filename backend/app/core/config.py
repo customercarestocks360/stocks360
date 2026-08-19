@@ -331,3 +331,24 @@ TRADING_DOMESTIC_SUFFIXES = tuple(s.upper() for s in _csv("TRADING_DOMESTIC_SUFF
     ".NS",
     ".BO",
 )
+
+# --- Funding requests and the review queue ---
+# A deposit or withdrawal here is a *request* first: it is recorded, a human checks that
+# the money actually moved on the rail the user named, and only then does a balance
+# change. So the venue needs to know who is allowed to resolve one.
+#
+# Admin is an email allowlist checked against the verified Firebase token, not a second
+# credential store. There is deliberately no admin password in this file: a password in
+# .env is one more secret to leak and to hardcode into a client, while the identity is
+# already established by the same token every other route trusts, complete with instant
+# revocation on logout.
+#
+# Empty means nobody is an admin and every /admin route answers 403. That is the correct
+# default: a deployment that forgets to set this gets a locked review queue, not an open
+# one.
+ADMIN_EMAILS = frozenset(e.lower() for e in _csv("ADMIN_EMAILS"))
+
+# Open requests per user. A pending withdrawal locks cash, so this bounds how much of a
+# balance one account can tie up in a queue nobody has looked at yet — and it bounds how
+# much noise one account can push into the review queue.
+FUNDING_MAX_PENDING_PER_USER = _bounded_int("FUNDING_MAX_PENDING_PER_USER", 10, 1, 100)

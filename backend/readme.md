@@ -68,6 +68,8 @@ All Firebase config lives in `.env` — nothing is hardcoded in the app or the t
 | `TRADING_MAX_DEPOSIT` / `TRADING_MAX_WITHDRAWAL` | Per-movement bounds, default `1000000` each |
 | `TRADING_SWEEP_SECONDS` | How often the matcher expires day orders and re-checks resting ones, 5–300, default `15` |
 | `TRADING_DOMESTIC_SUFFIXES` | Ticker suffixes treated as domestic equity, default `.NS,.BO` |
+| `ADMIN_EMAILS` | Who may resolve a funding request, comma-separated. Matched against the verified token — there is no admin password. Empty means nobody, and every `/admin` route answers `403` |
+| `FUNDING_MAX_PENDING_PER_USER` | Requests one account may have awaiting review, 1–100, default `10` |
 
 The crypto limits are clamped rather than validated, so a typo degrades to the nearest
 sane value instead of stopping the app from booting. The Firebase and Mongo values still
@@ -101,7 +103,9 @@ app/
 │   ├── crypto.py       # crypto market data + watchlists
 │   ├── forex.py        # forex pairs, quotes, pip sizing, session state
 │   ├── stocks.py       # instruments, equity quotes, candles, market state
-│   └── trading.py      # orders, trades, positions, balances, the ledger
+│   ├── overview.py     # one normalised tick shape across all three feeds
+│   ├── trading.py      # orders, trades, positions, balances, the ledger
+│   └── funding.py      # deposit/withdrawal requests, rails, the review decision
 ├── auth/               # feature module
 │   ├── routes.py       # endpoints
 │   ├── service.py      # token verification, user create/revoke
@@ -131,6 +135,8 @@ app/
 │   ├── upstream.py     # Yahoo REST — the ONLY file that knows the provider
 │   ├── hub.py          # polls per ticker; the rest comes from BaseHub
 │   └── repository.py   # watchlist reads/writes
+├── overview/
+│   └── routes.py       # the public socket: subscribes to all three hubs, one tick shape
 ├── trading/            # the simulated venue, sitting on top of all three feeds
 │   ├── routes.py       # funding, orders, trades, positions, portfolio
 │   ├── service.py      # the rules: who may trade, what an order must satisfy, settlement
@@ -138,6 +144,10 @@ app/
 │   ├── pricing.py      # one `Mark` over three feeds: currency, price, state, staleness
 │   ├── repository.py   # wallets, orders, trades, positions, ledger — all Decimal128
 │   └── money.py        # quantisation and the fee, in one place
+├── funding/            # money in and out, with a human in the loop
+│   ├── routes.py       # the user's queue, and the admin review queue behind it
+│   ├── service.py      # the asymmetry: a deposit locks nothing, a withdrawal locks now
+│   └── repository.py   # the request documents — every balance move goes through trading
 └── health/routes.py
 static/index.html       # browser test page
 secrets/                # optional service account key file (gitignored) — only used when
@@ -160,7 +170,8 @@ the rest of the system can query users without calling Firebase on every request
 | `watchlists` | `_id` = uuid4 hex, unique `(uid, name)` | `uid, name, symbols, version, created_at, updated_at` — one document per streamable crypto instance |
 | `stock_watchlists` | same shape and indexes | the equities equivalent |
 | `forex_watchlists` | same shape and indexes | the forex equivalent. A separate collection on purpose: the two symbol universes come from different providers, so a pair being delisted must not be able to invalidate a crypto watchlist |
-| `wallets` | `_id` = `uid:CURRENCY` | `uid, currency, available, reserved` — cash, one document per currency held. The deterministic key is what makes one wallet per currency a property of the schema rather than a check |
+| `wallets` | `_id` = `uid:CURRENCY` | `uid, currency, available, reserved` — cash, one document per currency held. `reserved` is held by open buy orders *and* by pending withdrawal requests. The deterministic key is what makes one wallet per currency a property of the schema rather than a check |
+| `funding_requests` | `_id` = uuid4 hex, indexed `(uid, created_at desc)` and `(status, created_at desc)` | a deposit or withdrawal awaiting review: `uid, email, kind, status, currency, amount, network, destination, reference, funded, resolved_by, resolution_note, ledger_entry_id`. `email` is denormalised so a queue spanning users costs no per-row lookup |
 | `orders` | `_id` = uuid4 hex, unique `(uid, client_order_id)` where present | the order and its lifecycle: `side, type, time_in_force, status, quantity, limit_price, stop_price, triggered, funded, reserved_amount, reserved_quantity, average_price, fee, expires_at` |
 | `trades` | indexed `(uid, at desc)` and `order_id` | one immutable record per fill: `quantity, price, notional, fee, realized_pnl` |
 | `positions` | `_id` = `uid:asset_class:symbol` | `available_quantity, reserved_quantity, cost_basis, realized_pnl`. The average price is derived from the basis rather than stored, so it cannot drift from it |
@@ -199,6 +210,7 @@ instead; `—` means the request carries nothing but the bearer token.
 | `POST /onboarding/step` | Submit one signup step. `step` in the body selects the shape and the rules. `409` out of order / ineligible / already submitted | `{"step": "contact", "mobile_country_code": "+91", "mobile_number": "9876543210", "country_of_residence": "IN", "nationality": "IN"}` | session |
 | `GET /onboarding/session` | Resume — progress + everything captured, identifiers masked | — | session |
 | `POST /onboarding/submit` | Freeze the session into `kyc_profiles` and open the products. `404` no session, `409` incomplete or duplicate document | — (no body) | outcome |
+| `WS /market/overview/stream` | **Public, no token.** Headline crypto, forex and equity prices with percent change, all on one socket | connect, then `{"action": "ping"}` or `{"action": "resync"}` | overview frames |
 | `GET /crypto/symbols` | Tradable spot symbols. `?quote_asset=`, `?search=`, `?tradable_only=`, `?limit=` 1–2000 | `?quote_asset=USDT&search=btc&tradable_only=true&limit=100` | list of symbols |
 | `GET /crypto/ticker/{symbol}` | 24h ticker, served from the live cache when available | `/crypto/ticker/BTCUSDT` | quote |
 | `GET /crypto/tickers` | Batch tickers. `?symbols=BTCUSDT,ETHUSDT` or repeated `?symbols=`, max 50 | `?symbols=BTCUSDT,ETHUSDT` | list of quotes |
@@ -257,6 +269,15 @@ instead; `—` means the request carries nothing but the bearer token.
 | `GET /trading/positions` | What you hold, in base units. `?include_flat=` to show closed ones | `?include_flat=false` | list of positions |
 | `GET /trading/positions/{asset_class}/{symbol}` | One position | `/trading/positions/crypto/BTCUSDT` | position |
 | `GET /trading/portfolio` | Positions marked to market, cash alongside, totals per currency | — | portfolio |
+| `POST /funding/deposits` | Report a deposit **for review**. Credits nothing — a reviewer does that. `403` before onboarding, `422` if the network cannot carry the currency | `{"currency": "USDT", "amount": "1000.00", "network": "BEP20", "reference": "0xabc123", "idempotency_key": "dep-2026-08-19-001"}` | `201` + request |
+| `POST /funding/withdrawals` | Request a payout. **Locks the amount immediately.** `409` when `available` is short | `{"currency": "USDT", "amount": "400.00", "network": "TRC20", "destination": "TXk9aQ1bV2c3D4e5F6g7H8j9K0l", "idempotency_key": "wd-2026-08-19-001"}` | `201` + request |
+| `GET /funding/requests` | Your requests, newest first. `?kind=`, `?status=`, `?currency=`, `?limit=` 1–200 | `?kind=withdrawal&status=pending` | list of requests |
+| `GET /funding/requests/{id}` | One request | — | request |
+| `DELETE /funding/requests/{id}` | Cancel your own pending request; releases a withdrawal's lock. `409` once resolved | — | request |
+| `GET /admin/funding/requests` | **Admin.** Every user's requests — the review queue. `?kind=`, `?status=`, `?currency=`, `?uid=`, `?limit=` | `?status=pending` | list of requests |
+| `GET /admin/funding/summary` | **Admin.** Pending counts, and what the venue holds per currency | — | summary |
+| `POST /admin/funding/requests/{id}/approve` | **Admin.** Settle it: credit a deposit, pay out a withdrawal from its lock. `409` if not pending | `{"note": "tx confirmed"}` | request |
+| `POST /admin/funding/requests/{id}/decline` | **Admin.** Turn it down and release a withdrawal's lock | `{"note": "address not whitelisted"}` | request |
 | `GET /test` | Browser test page (not in OpenAPI schema) | — | HTML |
 | `GET /test/onboarding` | Onboarding test page (not in OpenAPI schema) | — | HTML |
 
@@ -296,12 +317,11 @@ returns the whole session, so the client never has to track its own position in 
 exists, which is what lets the later rules trust the data they check against. A step may be
 re-submitted to correct it, right up until submit.
 
-**Products are gated on the steps before them.** Leveraged products — domestic
-derivatives, intraday, commodities, forex, crypto derivatives — need at least a year of
-experience, a non-`low` risk tolerance and an income above the lowest band. `markets` is
-re-checked at submit, since the `financial` step it depends on can be edited afterwards.
-`RESTRICTED_JURISDICTIONS` in `onboarding/service.py` gates products by country of
-residence; it ships empty, to be filled from the compliance matrix rather than guessed.
+**`markets` has no eligibility gate.** A client may select any combination of products
+regardless of the declared financial profile — the only checks are the ones on `MarketsStep`
+itself (at least one product, no duplicates). What varies by product is handled after
+submit: `REVIEW_GATED_PRODUCTS` decides which selected products go live immediately versus
+wait on a human review of the income proof.
 
 **Consent is derived, not trusted.** The required agreement set is computed from the chosen
 products — crypto implies the crypto risk disclosure, foreign equity implies the
@@ -502,6 +522,54 @@ rounds its headline figures but ships candle arrays as raw floats (a close of 30
 arrives as 305.92999267578125); and a **browser user agent is mandatory** — without one the
 request fails outright, which does not look like an auth problem when you first hit it.
 
+## Public market overview
+
+`WS /market/overview/stream` — the one route in this API that needs **no token**. It carries
+the headline symbols from all three feeds on a single socket: five crypto, five forex, five
+equities, each with a price and a percent change. It exists for the pre-login landing page,
+where asking a visitor to authenticate to see a public price makes no sense.
+
+**It adds no upstream cost.** This is not a fourth feed; it registers with the same three
+hubs the authenticated watchlist streams use, so the headline symbols are reference-counted
+alongside everyone else's. Verified: one viewer subscribes 5 symbols per market, three
+viewers still subscribe 5, and when the last viewer leaves the count returns to zero unless
+a watchlist still wants them.
+
+**One tick shape, not three.** Each feed mirrors its provider, so a crypto quote has
+`last_price` / `price_change_percent`, forex has `mid` / `change_percent`, equities have
+`price` / `change_percent`. A ticker strip should not care, so all three are normalised into
+`MarketTick`:
+
+```json
+{ "market": "crypto", "symbol": "BTCUSDT", "price": "64345.41000000",
+  "change": "717.20000000", "change_percent": "1.128",
+  "at": "2026-08-18T14:08:56.106000Z", "stale": false }
+```
+
+For forex, `price` is the **mid** — a headline rate should not favour one side of the spread.
+`change_percent` is nullable, because the equity provider does not always supply it. `stale`
+follows each feed's own rule, so on a weekend every forex and equity row reads stale; that is
+the market being closed, not a fault.
+
+**Frames** are the same vocabulary as the authenticated streams — `subscribed`, `snapshot`,
+`quote`, `heartbeat`, `upstream`, `pong`, `error` — but a separate model, because this feed
+spans three upstreams at once and has no watchlist to resync or delete. So `subscribed`
+carries the symbol set *and* the connectivity of all three upstreams, and an `upstream` frame
+names which `market` changed. There is no `resynced`: the symbol set is fixed configuration,
+so `{"action":"resync"}` simply returns a fresh `snapshot`.
+
+**"Top 5" is curated, not ranked.** Binance could rank by 24h volume, but the forex and
+equity providers expose no ranking at all, so a live ranking would mean one definition for
+crypto and a hardcoded list for the other two. A fixed list per market at least means the
+same thing everywhere. Override `OVERVIEW_CRYPTO_SYMBOLS`, `OVERVIEW_FOREX_SYMBOLS` or
+`OVERVIEW_STOCKS_SYMBOLS` to change them; a typo, a duplicate or more than 25 entries fails
+at startup rather than serving a row nothing can ever price.
+
+**Abuse limits, because there is no account to attribute.** `OVERVIEW_MAX_SOCKETS_PER_IP`
+(default 4) and `OVERVIEW_MAX_SOCKETS` (default 500) both close with **4429**. The per-IP cap
+is deliberately looser than the per-user stream caps since many people share one NAT address,
+and the process-wide cap is there because addresses are cheap to come by.
+
 ## Trading
 
 The three feeds so far only let a user *watch* a market. This is the part that lets them
@@ -688,6 +756,69 @@ constrained types:
   otherwise derives it from local time, so a server behind Google's clock would let a
   token survive its own logout.
 
+## Funding and the review queue
+
+`POST /trading/deposits` moves book money the instant it is called. That is the right
+shape for exercising the venue and the wrong shape for a rail with a counterparty: nobody
+has confirmed a USDT transfer actually landed, or that an INR payout was actually sent.
+`/funding/*` is the reviewed path, and both now exist on purpose — the instant one is a
+test fixture, this one is the flow a user goes through.
+
+A request is **recorded** first. A balance moves only when a reviewer resolves it, and the
+two directions are deliberately asymmetric:
+
+| | On request | On approval | On cancel or decline |
+|---|---|---|---|
+| **Deposit** | nothing — the money is not here yet, and recording an unverified claim as a credit would be inventing funds | `available` is credited | nothing to undo |
+| **Withdrawal** | the amount moves `available` → `reserved` at once | debited out of `reserved` | released back to `available` |
+
+Locking a withdrawal immediately is what keeps the spendable balance honest at every
+instant in between: the cash cannot be traded away, or withdrawn a second time, while a
+reviewer is looking at the first request. It shares the `reserved` bucket with open buy
+orders, so **`reserved` no longer means "locked by an order"** — it means locked, by
+whatever is holding it. The two never collide, because an order's release is keyed to its
+own order id and the sweep in `trading/engine.py` reads the *orders* collection.
+
+Every movement goes through the same `apply_to_wallet` an order settlement uses, so
+deposits and payouts land in the one ledger `GET /trading/ledger` already serves. There is
+no second set of books to reconcile.
+
+**Three states, not four.** `pending`, `completed`, `cancelled` — because those are the
+three a user can act on. An admin declining and a user cancelling both land on
+`cancelled`; which happened is in `resolved_by` and `resolution_note`, rather than in a
+fourth status nothing would render any differently.
+
+**Rails are closed and matched to the currency.** `FundingNetwork` enumerates the bank and
+chain rails, and `NETWORKS_FOR` says which can carry which currency, so `INR` on `TRC20`
+is a `422` the client can show next to the field instead of a request that sits in the
+queue until somebody reads it closely. "BEP-20", "bep20" and "BSC" naming one chain is how
+a verification queue turns into guesswork.
+
+**Admin is an email allowlist, not a second password.** `ADMIN_EMAILS` is checked against
+the same verified Firebase token every other route trusts, so there is no new secret to
+leak or hardcode into a client, and `check_revoked=True` means signing an admin out ends
+their staff session with it. A verified email is required as well as membership — the
+allowlist keys on an address, so an unverified one would be trusting a claim the user
+typed. Empty means nobody is an admin and every `/admin` route answers `403`: a deployment
+that forgets to configure it gets a locked queue, not an open one.
+
+### Two orderings that are chosen, not incidental
+
+**A withdrawal request is written before its cash is locked**, then flipped to
+`funded: true`. A crash in between leaves a request that cannot be approved — visible,
+refusable, cancellable by the user — while the money stays spendable. The other order
+would strand locked cash with nothing pointing at it, which only an operator could unpick.
+Approval re-asserts `funded` *inside* the atomic claim, so the check cannot go stale.
+
+**Approval claims the status before it moves the money.** `resolve()` puts
+`status: "pending"` in the query, so two reviewers pressing approve at the same moment
+produce one settlement and one `409`. A crash after the claim leaves a request marked
+settled whose balance did not change — wrong, but visible as a missing `ledger_entry_id`
+and repairable. Crediting first would let a retry credit twice, which is neither.
+
+The same caveat as the rest of trading applies: there is no multi-document transaction
+here either, so the sequence is chosen to strand value rather than duplicate it.
+
 ## Before you publish
 
 | Setting | Dev | Production |
@@ -696,6 +827,7 @@ constrained types:
 | `CORS_ALLOW_ORIGINS` | empty | exact origins, comma-separated. `*` is refused at startup |
 | `TRUSTED_PROXY_HOPS` | `0` | number of proxies in front of the app (`1` behind one nginx/ALB/Cloudflare) |
 | `FIREBASE_REVOCATION_TTL_SECONDS` | `30` | `30`, or `0` to trade ~400x latency for instant multi-instance revocation |
+| `ADMIN_EMAILS` | empty | the staff addresses that may resolve funding requests. Empty locks the review queue, so this is required for `/admin/*` to do anything at all |
 
 Still open before real customers — deliberately not built, since each needs a decision:
 
@@ -712,6 +844,12 @@ Still open before real customers — deliberately not built, since each needs a 
   request. Nothing about it may be presented to a user as a real account. Before it could
   be: a real venue or broker behind the fills, multi-document transactions around
   settlement, and the matcher moved off a single process. See the Trading section.
+- **Funding is reviewed, not settled.** `/funding/*` records what a user says they sent
+  and what they want paid out, and an admin marks it done. Nothing here watches a chain or
+  talks to a bank, so approving a deposit is a human asserting the money arrived. The
+  accounting around that assertion is correct; the assertion itself is the part that needs
+  a payment provider or a node behind it. Until then, `POST /trading/deposits` should be
+  disabled in any deployment real users can reach — it bypasses the review entirely.
 
 ### Auth latency
 
