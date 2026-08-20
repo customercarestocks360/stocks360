@@ -30,16 +30,23 @@ function Panel({
   title,
   badge,
   className = "",
+  flush = false,
   children,
 }: {
   title: string;
   badge?: React.ReactNode;
   className?: string;
+  /** Drops the card chrome for a panel that already sits inside a framed rail. */
+  flush?: boolean;
   children: React.ReactNode;
 }) {
   return (
     <div
-      className={`flex flex-col overflow-hidden rounded border border-overlay-border bg-surface p-2.5 sm:rounded-xl sm:p-4 ${className}`}
+      className={`flex flex-col overflow-hidden ${
+        flush
+          ? "p-2.5"
+          : "rounded border border-overlay-border bg-surface p-2.5 sm:rounded-xl sm:p-4"
+      } ${className}`}
     >
       <div className="mb-2 flex shrink-0 items-center justify-between gap-2">
         <span className="text-xs font-semibold uppercase tracking-wide text-foreground">
@@ -77,9 +84,11 @@ function Stat({ label, value }: { label: string; value: string }) {
 function CryptoDepth({
   instrument,
   className,
+  flush,
 }: {
   instrument: TradeInstrument;
   className: string;
+  flush: boolean;
 }) {
   const { isLoggedIn, authReady } = useAuth();
   const [book, setBook] = useState<CryptoOrderBook | null>(null);
@@ -88,10 +97,11 @@ function CryptoDepth({
   const decimals = decimalsFor(instrument.price);
 
   useEffect(() => {
-    if (!authReady || !isLoggedIn) {
-      setBook(null);
-      return;
-    }
+    // Drop the previous symbol's book immediately — otherwise it stays on screen, looking like
+    // this symbol's depth, until the new symbol's first poll resolves.
+    setBook(null);
+    setError("");
+    if (!authReady || !isLoggedIn) return;
     const controller = new AbortController();
     let cancelled = false;
 
@@ -158,6 +168,7 @@ function CryptoDepth({
       title="Order book"
       badge={book ? <LiveDot label="Binance" /> : undefined}
       className={className}
+      flush={flush}
     >
       {error && !book ? (
         <p className="py-4 text-center text-xs text-muted-foreground">{error}</p>
@@ -201,9 +212,11 @@ function CryptoDepth({
 function QuoteDetail({
   instrument,
   className,
+  flush,
 }: {
   instrument: TradeInstrument;
   className: string;
+  flush: boolean;
 }) {
   const decimals = decimalsFor(instrument.price);
   const isForex = instrument.assetClass === "forex";
@@ -221,6 +234,7 @@ function QuoteDetail({
         )
       }
       className={className}
+      flush={flush}
     >
       <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {/*
@@ -270,14 +284,16 @@ function QuoteDetail({
 export function DepthPanel({
   instrument,
   className = "",
+  flush = false,
 }: {
   instrument: TradeInstrument;
   className?: string;
+  flush?: boolean;
 }) {
   return instrument.assetClass === "crypto" ? (
-    <CryptoDepth instrument={instrument} className={className} />
+    <CryptoDepth instrument={instrument} className={className} flush={flush} />
   ) : (
-    <QuoteDetail instrument={instrument} className={className} />
+    <QuoteDetail instrument={instrument} className={className} flush={flush} />
   );
 }
 
@@ -293,16 +309,18 @@ export function MyFills({
   instrument,
   trading,
   className = "",
+  flush = false,
 }: {
   instrument: TradeInstrument;
   trading: TradingState;
   className?: string;
+  flush?: boolean;
 }) {
   const fills = trading.trades.filter((t) => t.symbol === instrument.symbol).slice(0, 15);
   const decimals = decimalsFor(instrument.price);
 
   return (
-    <Panel title={`Your fills · ${instrument.label}`} className={className}>
+    <Panel title={`Your fills · ${instrument.label}`} className={className} flush={flush}>
       {!trading.ready ? (
         <p className="py-4 text-center text-xs text-muted-foreground">
           Sign in to see your executions.

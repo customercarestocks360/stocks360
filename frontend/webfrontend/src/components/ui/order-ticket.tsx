@@ -53,20 +53,27 @@ function fmt(n: number, decimals = 2) {
   });
 }
 
+/**
+ * `flush` is a prop rather than an override the caller passes in `className`: both variants
+ * set border and radius utilities, and which one won would come down to Tailwind's own output
+ * order rather than the call site's intent.
+ */
 function Shell({
   children,
   className,
   padded = true,
+  flush = false,
 }: {
   children: React.ReactNode;
   className?: string | undefined;
   padded?: boolean;
+  flush?: boolean;
 }) {
   return (
     <div
-      className={`rounded border border-overlay-border bg-surface shadow-sm sm:rounded-2xl ${
-        padded ? "p-3 sm:p-5" : ""
-      } ${className ?? ""}`}
+      className={`${
+        flush ? "" : "rounded border border-overlay-border bg-surface shadow-sm sm:rounded-2xl"
+      } ${padded ? "p-3 sm:p-5" : ""} ${className ?? ""}`}
     >
       {children}
     </div>
@@ -82,6 +89,7 @@ function Gate({
   search,
   horizontal,
   className,
+  flush = false,
 }: {
   icon: string;
   title: string;
@@ -91,6 +99,7 @@ function Gate({
   search?: { tab: "account" } | undefined;
   horizontal: boolean;
   className?: string | undefined;
+  flush?: boolean;
 }) {
   const cta =
     ctaLabel && to ? (
@@ -106,6 +115,7 @@ function Gate({
   if (horizontal) {
     return (
       <Shell
+        flush={flush}
         className={`flex flex-col items-center justify-between gap-4 sm:flex-row ${className ?? ""}`}
       >
         <div className="flex items-center gap-3.5">
@@ -123,7 +133,7 @@ function Gate({
   }
 
   return (
-    <Shell className={`shrink-0 text-center ${className ?? ""}`}>
+    <Shell flush={flush} className={`shrink-0 text-center ${className ?? ""}`}>
       <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-secondary text-primary">
         <i className={`fa-solid ${icon} text-base`} />
       </div>
@@ -141,6 +151,8 @@ export function OrderTicket({
   trading,
   className,
   layout = "vertical",
+  prefill,
+  flush = false,
 }: {
   instrument: TradeInstrument;
   action: "buy" | "sell";
@@ -149,6 +161,10 @@ export function OrderTicket({
   trading: TradingState;
   className?: string | undefined;
   layout?: "vertical" | "horizontal";
+  /** Set by a "Close position" action elsewhere on the page — sizes the ticket to flatten it. */
+  prefill?: { symbol: string; quantity: string } | null;
+  /** Drops the card chrome for a ticket docked inside an already-framed rail. */
+  flush?: boolean;
 }) {
   const horizontal = layout === "horizontal";
 
@@ -172,7 +188,8 @@ export function OrderTicket({
     setServerError("");
     setLimitPrice("");
     setStopPrice("");
-  }, [symbol, action]);
+    if (prefill && prefill.symbol === symbol) setQty(prefill.quantity);
+  }, [symbol, action, prefill]);
 
   const eligibility = trading.eligibility;
   const classEligibility = eligibility?.asset_classes.find((c) => c.asset_class === assetClass);
@@ -264,6 +281,7 @@ export function OrderTicket({
       <Gate
         horizontal={horizontal}
         className={className}
+        flush={flush}
         icon="fa-lock"
         title="Sign in required to trade"
         body={`Log in to buy or sell ${label}.`}
@@ -275,7 +293,7 @@ export function OrderTicket({
 
   if (trading.loading && !eligibility) {
     return (
-      <Shell className={`${horizontal ? "" : "shrink-0"} ${className ?? ""}`}>
+      <Shell flush={flush} className={`${horizontal ? "" : "shrink-0"} ${className ?? ""}`}>
         <div className="flex items-center justify-center gap-2 py-4 text-xs text-muted-foreground">
           <i className="fa-solid fa-circle-notch fa-spin" />
           Loading your trading account…
@@ -292,6 +310,7 @@ export function OrderTicket({
       <Gate
         horizontal={horizontal}
         className={className}
+        flush={flush}
         icon="fa-id-card"
         title={needsOnboarding ? "Complete your account details" : "Account not cleared to trade"}
         body={
@@ -309,6 +328,7 @@ export function OrderTicket({
       <Gate
         horizontal={horizontal}
         className={className}
+        flush={flush}
         icon={classEligibility.pending_review ? "fa-hourglass-half" : "fa-ban"}
         title={
           classEligibility.pending_review
@@ -367,6 +387,7 @@ export function OrderTicket({
 
     return horizontal ? (
       <Shell
+        flush={flush}
         className={`flex flex-col items-center justify-between gap-4 sm:flex-row ${className ?? ""}`}
       >
         <div className="flex items-center gap-3.5">{body}</div>
@@ -379,7 +400,7 @@ export function OrderTicket({
         </button>
       </Shell>
     ) : (
-      <Shell className={`shrink-0 text-center ${className ?? ""}`}>
+      <Shell flush={flush} className={`shrink-0 text-center ${className ?? ""}`}>
         {body}
         <button
           type="button"
@@ -617,7 +638,7 @@ export function OrderTicket({
 
   if (horizontal) {
     return (
-      <Shell className={className}>
+      <Shell flush={flush} className={className}>
         <div className="grid grid-cols-1 items-center gap-4 md:grid-cols-2 lg:grid-cols-12 lg:gap-5">
           <div className="flex items-center gap-2 lg:col-span-3">
             {sideToggle}
@@ -639,7 +660,7 @@ export function OrderTicket({
   }
 
   return (
-    <Shell className={`flex shrink-0 flex-col ${className ?? ""}`} padded={false}>
+    <Shell flush={flush} className={`flex shrink-0 flex-col ${className ?? ""}`} padded={false}>
       <div className="space-y-4 p-2.5 sm:p-5">
         <div className="flex items-center justify-between gap-1.5 sm:gap-3">
           {sideToggle}

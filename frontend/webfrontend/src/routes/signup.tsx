@@ -33,6 +33,8 @@ function Signup() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [pending, setPending] = useState<"email" | "google" | null>(null);
+  /** Set once the account exists and the verification link is on its way. */
+  const [sentTo, setSentTo] = useState("");
 
   useEffect(() => {
     if (authReady && isLoggedIn) void navigate({ to: "/", replace: true });
@@ -60,10 +62,11 @@ function Signup() {
     setError("");
     setPending("email");
     try {
-      // POST /auth/signup creates the account, then the Web SDK signs in and
-      // POST /auth/login records it.
+      // POST /auth/signup creates the account and Firebase mails the verification link.
+      // No navigation: the account cannot be used until that link is clicked, so the next
+      // step is the inbox, then /login.
       await signUpWithEmail(email, password);
-      await navigate({ to: "/" });
+      setSentTo(email.trim());
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Could not create your account. Please try again.",
@@ -91,6 +94,38 @@ function Signup() {
 
   const message = error || authError || "";
   const busy = pending !== null;
+
+  // The account exists but is unusable until the link is clicked, so the form has nothing
+  // left to collect — the only next step is the inbox.
+  if (sentTo) {
+    return (
+      <div className="h-dvh overflow-hidden bg-background text-foreground pt-safe pb-safe">
+        <div className="relative h-full overflow-hidden">
+          <div className="grid-bg absolute inset-0 opacity-40" />
+          <div className="halo absolute inset-0" />
+          <div className="relative mx-auto flex h-full items-center justify-center px-6 py-4">
+            <div className="w-full max-w-lg rounded sm:rounded-3xl border border-border bg-card/80 p-7 shadow-2xl backdrop-blur-xl sm:p-9">
+              <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">Confirm your email</h1>
+              <p className="mt-4 text-sm leading-6 text-muted-foreground">
+                We sent a verification link to <span className="text-foreground">{sentTo}</span>.
+                Click it, then log in — the account stays locked until you do.
+              </p>
+              <p className="mt-3 text-xs leading-5 text-muted-foreground">
+                Nothing in your inbox? Check the spam folder, or try logging in — that sends a
+                fresh link.
+              </p>
+              <Link
+                to="/login"
+                className="mt-6 inline-block font-medium text-primary transition-colors hover:text-primary/80"
+              >
+                Go to log in
+              </Link>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="h-dvh overflow-hidden bg-background text-foreground pt-safe pb-safe">

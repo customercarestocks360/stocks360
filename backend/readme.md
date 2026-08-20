@@ -1,4 +1,4 @@
-# Stocks360 Backend
+. `403` while the email is unverified# Stocks360 Backend
 
 FastAPI + Firebase Auth (Admin SDK). Email/password and Google OAuth.
 
@@ -181,6 +181,17 @@ the rest of the system can query users without calling Firebase on every request
 `POST /auth/login` upserts the user and appends a login event, so repeat logins increment
 `login_count` rather than duplicating the record.
 
+**An unverified email reaches nothing.** Anyone can type an address they do not own, so
+until Firebase has seen the confirmation link the identity behind a token is only a claim.
+`get_current_user` refuses it with `403` — one guard, and every protected route depends on
+that function, so there is no route to forget. `POST /auth/login` verifies its token
+directly rather than through the dependency, so it repeats the same check. `POST
+/auth/signup` still creates the account, because the client needs to sign in for a moment
+to make the Web SDK send the verification mail (the Admin SDK can mint a link but has no
+mailer). Clicking the link refreshes the token, and the next request simply carries
+`email_verified: true`. Google accounts arrive verified and are unaffected.
+`tests/test_email_verification.py` is the self-check: `python tests/test_email_verification.py`.
+
 The two onboarding collections are deliberately split. The session is editable and
 disposable — an abandoned one is swept by the TTL index after 30 days, which keeps
 half-finished KYC data from lingering. The profile is the record of what the user actually
@@ -201,8 +212,8 @@ instead; `—` means the request carries nothing but the bearer token.
 | `GET /` | API identity | — | `{ "message": "Stocks360 API" }` |
 | `GET /health` | Liveness + MongoDB check. `503` when the DB is unreachable | — | `{ status, database }` |
 | `GET /auth/config` | Firebase Web SDK config from `.env`, so clients never hardcode it | — | `{ apiKey, authDomain, projectId, storageBucket, messagingSenderId, appId, measurementId }` |
-| `POST /auth/signup` | Create an email/password user from `{ email, password, display_name? }`. `409` if the email exists, `422` on bad email / password under 6 chars | `{"email": "you@example.com", "password": "hunter2secret", "display_name": "Ada L"}` | `201` + user |
-| `POST /auth/login` | Verify a client-obtained ID token from `{ id_token }` — works for both email/password and Google. Upserts the user and logs the login | `{"id_token": "eyJhbGciOiJSUzI1NiIs…"}` | user |
+| `POST /auth/signup` | Create an email/password user from `{ email, password, display_name? }`. The account can reach nothing until the address is verified; the client sends that email via the Web SDK. `409` if the email exists, `422` on bad email / password under 6 chars | `{"email": "you@example.com", "password": "hunter2secret", "display_name": "Ada L"}` | `201` + user |
+| `POST /auth/login` | Verify a client-obtained ID token from `{ id_token }` — works for both email/password and Google. Upserts the user and logs the login. `403` while the email is unverified | `{"id_token": "eyJhbGciOiJSUzI1NiIs…"}` | user |
 | `GET /auth/me` | Current user, from `Authorization: Bearer <id_token>` | — | user |
 | `POST /auth/logout` | Revoke the user's refresh tokens, ending existing sessions | — (no body) | `{ message }` |
 | `GET /users/me` | Stored MongoDB profile. `404` before the first login | — | profile |
@@ -797,9 +808,9 @@ a verification queue turns into guesswork.
 **Admin is an email allowlist, not a second password.** `ADMIN_EMAILS` is checked against
 the same verified Firebase token every other route trusts, so there is no new secret to
 leak or hardcode into a client, and `check_revoked=True` means signing an admin out ends
-their staff session with it. A verified email is required as well as membership — the
-allowlist keys on an address, so an unverified one would be trusting a claim the user
-typed. Empty means nobody is an admin and every `/admin` route answers `403`: a deployment
+their staff session with it. It needs no email check of its own — `get_current_user`
+already refuses an unverified address, which the allowlist depends on, since it keys on an
+address that would otherwise be an unproven claim. Empty means nobody is an admin and every `/admin` route answers `403`: a deployment
 that forgets to configure it gets a locked queue, not an open one.
 
 ### Two orderings that are chosen, not incidental

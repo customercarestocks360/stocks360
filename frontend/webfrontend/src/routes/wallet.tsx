@@ -1,17 +1,12 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
-import {
-  useAuth,
-  lockedAmount,
-  txKind,
-  txStatus,
-  NETWORK_OF,
-  type DepositMethod,
-  type Transaction,
-} from "@/components/AuthProvider";
-import { ASSETS, TYPE_ROUTES } from "@/lib/market-assets";
+import { useAuth } from "@/components/AuthProvider";
 import { OrdersPanel } from "@/components/ui/orders-panel";
+import { useTrading } from "@/hooks/useTrading";
+import { useFundingRequests } from "@/hooks/useFundingRequests";
+import { amount as parseAmount, type AssetClass } from "@/lib/trading-api";
+import type { FundingRequest } from "@/lib/funding-api";
 
 export const Route = createFileRoute("/wallet")({
   head: () => ({
@@ -23,18 +18,27 @@ export const Route = createFileRoute("/wallet")({
   component: WalletPage,
 });
 
-function priceOf(sym: string) {
-  const asset = ASSETS.find((a) => a.sym === sym);
-  if (!asset) return 0;
-  const n = parseFloat(asset.price.replace(/[^0-9.]/g, ""));
-  return Number.isFinite(n) ? n : 0;
+/** Same colour language as `/markets` and the trading desk — one palette for one asset class everywhere. */
+const CLASS_STYLES: Record<AssetClass, { icon: string; color: string }> = {
+  crypto: { icon: "fa-coins", color: "#f59e0b" },
+  forex: { icon: "fa-money-bill-transfer", color: "#3b82f6" },
+  stocks: { icon: "fa-chart-line", color: "#10b981" },
+};
+
+/** Where a position's "Trade" link goes — mirrors `/markets`' `MARKET_ROUTES`. */
+function tradeLinkFor(assetClass: AssetClass, symbol: string) {
+  return assetClass === "forex"
+    ? { to: "/forex" as const, search: { symbol } }
+    : { to: "/trade" as const, search: { symbol, class: assetClass as "crypto" | "stocks" } };
 }
 
-function fmtUsdt(n: number) {
-  return `${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT`;
+function fmt(n: number | null, decimals = 4) {
+  if (n === null) return "—";
+  return n.toLocaleString("en-US", { maximumFractionDigits: decimals });
 }
-function qty(n: number) {
-  return n.toLocaleString("en-US", { maximumFractionDigits: 4 });
+function fmtMoney(n: number | null, currency: string) {
+  if (n === null) return "—";
+  return `${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
 }
 function stamp(iso: string) {
   const d = new Date(iso);
@@ -44,30 +48,29 @@ function stamp(iso: string) {
 
 type WalletRow = {
   key: string;
-  sym: string;
-  name: string;
+  label: string;
+  sub: string;
   color: string;
   icon: string;
-  available: number;
-  locked: number;
-  valueUsdt: number;
-  /** Cash rows have nothing to trade against. */
-  tradeTo: string | null;
+  available: number | null;
+  locked: number | null;
+  value: string;
+  tradeTo: ReturnType<typeof tradeLinkFor> | null;
 };
 
-function AssetBadge({ color, sym }: { color: string; sym: string }) {
+function AssetBadge({ color, text }: { color: string; text: string }) {
   return (
     <span
       className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full font-mono text-[9px] font-bold uppercase"
       style={{ backgroundColor: `${color}20`, color }}
       aria-hidden
     >
-      {sym.replace("/", "").slice(0, 3)}
+      {text.slice(0, 3)}
     </span>
   );
 }
 
-function StatusPill({ status }: { status: ReturnType<typeof txStatus> }) {
+function StatusPill({ status }: { status: FundingRequest["status"] }) {
   const tone =
     status === "completed"
       ? "bg-up/10 text-up"
@@ -84,67 +87,51 @@ function StatusPill({ status }: { status: ReturnType<typeof txStatus> }) {
 
 function WalletPage() {
   const navigate = useNavigate();
-  const { isLoggedIn, kycCompleted, balances, transactions, orders } = useAuth();
+  const { isLoggedIn, kycCompleted } = useAuth();
+  const trading = useTrading();
+  const funding = useFundingRequests();
 
   const [query, setQuery] = useState("");
   const [gate, setGate] = useState<"login" | "kyc" | null>(null);
 
-  const locked = useMemo(
-    () => ({ USDT: lockedAmount(transactions, "USDT") }),
-    [transactions],
-  );
-
-  /** Net position per symbol, built from the demo order history. */
-  const holdings = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const o of orders) {
-      const delta = o.action === "buy" ? o.qty : -o.qty;
-      map.set(o.symbol, (map.get(o.symbol) ?? 0) + delta);
-    }
-    return [...map.entries()].filter(([, q]) => q > 1e-9);
-  }, [orders]);
-
   const rows: WalletRow[] = useMemo(() => {
-    const cash: WalletRow[] = [
-      {
-        key: "USDT",
-        sym: "USDT",
-        name: "TetherUS",
-        color: "#26a17b",
+    const cash: WalletRow[] = trading.balances
+      .filter((b) => (parseAmount(b.total) ?? 0) > 0)
+      .map((b) => ({
+        key: `cash:${b.currency}`,
+        label: b.currency,
+        sub: "Cash",
+        color: "#6b7280",
         icon: "fa-dollar-sign",
-        available: balances.USDT - locked.USDT,
-        locked: locked.USDT,
-        valueUsdt: balances.USDT,
+        available: parseAmount(b.available),
+        locked: parseAmount(b.reserved),
+        value: fmtMoney(parseAmount(b.total), b.currency),
         tradeTo: null,
-      },
-    ];
+      }));
 
-    const positions: WalletRow[] = holdings.map(([sym, q]) => {
-      const asset = ASSETS.find((a) => a.sym === sym);
-      const unitUsdt = priceOf(sym);
+    const positions: WalletRow[] = trading.positions.map((p) => {
+      const style = CLASS_STYLES[p.asset_class];
       return {
-        key: `pos:${sym}`,
-        sym,
-        name: asset?.name ?? sym,
-        color: asset?.color ?? "#6b7280",
-        icon: asset?.icon ?? "fa-chart-line",
-        available: q,
-        locked: 0,
-        valueUsdt: q * unitUsdt,
-        tradeTo: asset ? TYPE_ROUTES[asset.type] : null,
+        key: `pos:${p.asset_class}:${p.symbol}`,
+        label: p.symbol,
+        sub: p.asset_class,
+        color: style.color,
+        icon: style.icon,
+        available: parseAmount(p.available_quantity),
+        locked: parseAmount(p.reserved_quantity),
+        value: fmtMoney(parseAmount(p.market_value), p.currency),
+        tradeTo: tradeLinkFor(p.asset_class, p.symbol),
       };
     });
 
     return [...cash, ...positions];
-  }, [balances, locked, holdings]);
+  }, [trading.balances, trading.positions]);
 
   const visibleRows = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return rows;
-    return rows.filter((r) => r.sym.toLowerCase().includes(q) || r.name.toLowerCase().includes(q));
+    return rows.filter((r) => r.label.toLowerCase().includes(q) || r.sub.toLowerCase().includes(q));
   }, [rows, query]);
-
-  const totalUsdt = useMemo(() => rows.reduce((sum, r) => sum + r.valueUsdt, 0), [rows]);
 
   const openPanel = (which: "deposit" | "withdraw") => {
     if (!isLoggedIn) {
@@ -185,7 +172,7 @@ function WalletPage() {
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold tracking-tight text-foreground">Wallet</h1>
-            <p className="mt-1 text-sm text-muted-foreground">Spot balances for the demo account.</p>
+            <p className="mt-1 text-sm text-muted-foreground">Spot balances and holdings.</p>
           </div>
           <div className="flex items-center gap-3">
             <button
@@ -207,19 +194,40 @@ function WalletPage() {
           </div>
         </div>
 
-        {/* ── Total balance ── */}
+        {/* ── Cash balances ── */}
         <div className="mt-6 rounded sm:rounded-2xl border border-border bg-card p-6">
           <div className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
-            Total balance
+            Cash balance
           </div>
-          <div className="mt-2 font-mono text-4xl font-bold tracking-tight text-foreground">
-            {fmtUsdt(totalUsdt)}
-          </div>
-          {locked.USDT > 0 && (
-            <div className="mt-2 text-xs text-muted-foreground">
-              {fmtUsdt(locked.USDT)} locked in pending withdrawals
+          {trading.balances.length === 0 ? (
+            <div className="mt-2 font-mono text-2xl font-bold tracking-tight text-foreground">
+              {trading.loading ? "Loading…" : "No cash held yet"}
+            </div>
+          ) : (
+            <div className="mt-3 flex flex-wrap gap-x-8 gap-y-3">
+              {trading.balances.map((b) => {
+                const reserved = parseAmount(b.reserved) ?? 0;
+                return (
+                  <div key={b.currency}>
+                    <div className="font-mono text-2xl font-bold tracking-tight text-foreground">
+                      {fmtMoney(parseAmount(b.total), b.currency)}
+                    </div>
+                    {reserved > 0 && (
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        {fmtMoney(reserved, b.currency)} locked
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
+          {trading.error && (
+            <p className="mt-3 text-xs text-destructive">{trading.error}</p>
+          )}
+          {/* No single grand total: adding currencies together needs an FX rate this app has no
+              licensed source for, so each currency is shown on its own — same rule the backend's
+              own portfolio and admin summary follow. */}
         </div>
 
         {/* ── Assets ── */}
@@ -253,7 +261,11 @@ function WalletPage() {
                 {visibleRows.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="py-10 text-center text-sm text-muted-foreground">
-                      No assets match “{query}”.
+                      {query
+                        ? `No assets match "${query}".`
+                        : trading.loading
+                          ? "Loading…"
+                          : "Nothing held yet — deposit cash or place a trade to see it here."}
                     </td>
                   </tr>
                 ) : (
@@ -261,20 +273,21 @@ function WalletPage() {
                     <tr key={r.key} className="border-b border-border last:border-b-0">
                       <td className="px-1 sm:px-2 py-2.5 sm:py-4">
                         <div className="flex items-center gap-3">
-                          <AssetBadge color={r.color} sym={r.sym} />
+                          <AssetBadge color={r.color} text={r.label} />
                           <div className="min-w-0">
-                            <div className="font-semibold text-foreground">{r.sym}</div>
-                            <div className="truncate text-xs text-muted-foreground">{r.name}</div>
+                            <div className="font-semibold text-foreground">{r.label}</div>
+                            <div className="truncate text-xs capitalize text-muted-foreground">{r.sub}</div>
                           </div>
                         </div>
                       </td>
-                      <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-right font-mono text-foreground">{qty(r.available)}</td>
-                      <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-right font-mono text-muted-foreground">{qty(r.locked)}</td>
-                      <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-right font-mono text-foreground">{fmtUsdt(r.valueUsdt)}</td>
+                      <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-right font-mono text-foreground">{fmt(r.available)}</td>
+                      <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-right font-mono text-muted-foreground">{fmt(r.locked)}</td>
+                      <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-right font-mono text-foreground">{r.value}</td>
                       <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-right">
                         {r.tradeTo ? (
                           <Link
-                            to={r.tradeTo}
+                            to={r.tradeTo.to}
+                            search={r.tradeTo.search}
                             className="text-sm font-semibold text-primary transition-opacity hover:opacity-80"
                           >
                             Trade
@@ -320,18 +333,21 @@ function WalletPage() {
                 </tr>
               </thead>
               <tbody>
-                {transactions.length === 0 ? (
+                {funding.requests.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="py-10 text-center text-sm text-muted-foreground">
-                      No transactions yet — deposits and withdrawals will appear here.
+                      {funding.loading
+                        ? "Loading…"
+                        : "No transactions yet — deposits and withdrawals will appear here."}
                     </td>
                   </tr>
                 ) : (
-                  transactions.map((t) => <HistoryRow key={t.id} tx={t} />)
+                  funding.requests.map((r) => <HistoryRow key={r.id} tx={r} />)
                 )}
               </tbody>
             </table>
           </div>
+          {funding.error && <p className="mt-3 text-xs text-destructive">{funding.error}</p>}
         </div>
       </section>
 
@@ -356,26 +372,24 @@ function WalletPage() {
   );
 }
 
-function HistoryRow({ tx }: { tx: Transaction }) {
-  const kind = txKind(tx);
-  const status = txStatus(tx);
-  const isWithdraw = kind === "withdraw";
+function HistoryRow({ tx }: { tx: FundingRequest }) {
+  const isWithdraw = tx.kind === "withdrawal";
   const sign = isWithdraw ? "−" : "+";
-  const tone = status === "cancelled" ? "text-muted-foreground" : isWithdraw ? "text-down" : "text-up";
+  const tone = tx.status === "cancelled" ? "text-muted-foreground" : isWithdraw ? "text-down" : "text-up";
 
   return (
     <tr className="border-b border-border last:border-b-0">
-      <td className="px-1 sm:px-2 py-2.5 sm:py-4 font-mono text-xs text-muted-foreground">{stamp(tx.date)}</td>
-      <td className="px-1 sm:px-2 py-2.5 sm:py-4 capitalize text-foreground">{kind}</td>
-      <td className="px-1 sm:px-2 py-2.5 sm:py-4 font-medium text-foreground">{tx.method}</td>
-      <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-muted-foreground">{NETWORK_OF[tx.method]}</td>
+      <td className="px-1 sm:px-2 py-2.5 sm:py-4 font-mono text-xs text-muted-foreground">{stamp(tx.created_at)}</td>
+      <td className="px-1 sm:px-2 py-2.5 sm:py-4 capitalize text-foreground">{tx.kind}</td>
+      <td className="px-1 sm:px-2 py-2.5 sm:py-4 font-medium text-foreground">{tx.currency}</td>
+      <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-muted-foreground">{tx.network}</td>
       <td className={`px-1 sm:px-2 py-2.5 sm:py-4 text-right font-mono font-semibold ${tone}`}>
         {sign}
-        {qty(tx.amount)}
+        {fmt(parseAmount(tx.amount))}
       </td>
       <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-right">
-        <div className="flex items-center justify-end gap-2">
-          <StatusPill status={status} />
+        <div className="flex items-center justify-end gap-2" title={tx.resolution_note ?? undefined}>
+          <StatusPill status={tx.status} />
         </div>
       </td>
     </tr>

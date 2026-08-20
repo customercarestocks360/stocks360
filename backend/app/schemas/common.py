@@ -24,6 +24,7 @@ class HealthResponse(BaseModel):
 
 # Reusable OpenAPI response blocks so every endpoint documents its failure modes.
 UNAUTHORIZED = {401: {"model": ErrorResponse, "description": "Missing, invalid, expired or revoked token"}}
+FORBIDDEN = {403: {"model": ErrorResponse, "description": "Email address not verified"}}
 NOT_FOUND = {404: {"model": ErrorResponse, "description": "Resource not found"}}
 CONFLICT = {409: {"model": ErrorResponse, "description": "Already exists"}}
 UNAVAILABLE = {503: {"model": ErrorResponse, "description": "Upstream dependency unavailable"}}

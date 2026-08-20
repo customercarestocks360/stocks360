@@ -120,6 +120,28 @@ export async function signInWithGooglePopup(): Promise<User> {
   return credential.user;
 }
 
+/**
+ * Send (or re-send) the "confirm your address" email.
+ *
+ * Only the Web SDK can do this: the Admin SDK behind the backend can generate a link but
+ * has no mailer, so the browser asks Firebase to send its own. It needs a signed-in user,
+ * which is why signup signs in before calling this and signs back out afterwards.
+ */
+export async function sendVerificationEmail(user: User): Promise<void> {
+  const { sendEmailVerification } = await import("firebase/auth");
+  await sendEmailVerification(user);
+}
+
+/** Re-reads the account from Firebase, so `emailVerified` reflects a link clicked elsewhere. */
+export async function reloadUser(user: User): Promise<User> {
+  const { reload } = await import("firebase/auth");
+  await reload(user);
+  // The verified flag lives in the ID token's claims too; force a refresh so the backend
+  // sees it on the very next call instead of up to an hour later.
+  await user.getIdToken(true);
+  return user;
+}
+
 export async function signOutFirebase(): Promise<void> {
   const auth = await getFirebaseAuth();
   const { signOut } = await import("firebase/auth");

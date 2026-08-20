@@ -63,9 +63,12 @@ function fillPercent(o: Order): string {
 export function OrdersPanelView({
   trading,
   className = "",
+  variant = "card",
 }: {
   trading: TradingState;
   className?: string;
+  /** `embedded` drops the card chrome and its own refresh control — the dock supplies both. */
+  variant?: "card" | "embedded";
 }) {
   const [tab, setTab] = useState<Tab>("Open orders");
   const [cancelling, setCancelling] = useState<string | null>(null);
@@ -98,9 +101,14 @@ export function OrdersPanelView({
         ? "No fills yet."
         : "No orders placed yet.";
 
+  const embedded = variant === "embedded";
+  const shell = embedded
+    ? className
+    : `rounded-2xl border border-overlay-border bg-surface p-5 ${className}`;
+
   if (!trading.ready) {
     return (
-      <div className={`rounded-2xl border border-overlay-border bg-surface p-5 ${className}`}>
+      <div className={shell}>
         <p className="py-6 text-center text-sm text-muted-foreground">
           Sign in to see your orders and fills.
         </p>
@@ -109,15 +117,19 @@ export function OrdersPanelView({
   }
 
   return (
-    <div className={`rounded-2xl border border-overlay-border bg-surface p-5 ${className}`}>
-      <div className="flex flex-wrap items-center gap-3">
+    <div className={shell}>
+      <div
+        className={`flex flex-wrap items-center gap-3 ${embedded ? "px-3 pt-2.5" : ""}`}
+      >
         <div className="flex flex-wrap gap-1 rounded-lg bg-background/40 p-1">
           {TABS.map((t) => (
             <button
               key={t}
               type="button"
               onClick={() => setTab(t)}
-              className={`rounded-md px-3 py-1.5 text-sm font-semibold transition-colors ${
+              className={`rounded-md font-semibold transition-colors ${
+                embedded ? "px-2.5 py-1 text-xs" : "px-3 py-1.5 text-sm"
+              } ${
                 tab === t
                   ? "bg-card text-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground"
@@ -127,18 +139,28 @@ export function OrdersPanelView({
             </button>
           ))}
         </div>
-        <button
-          type="button"
-          onClick={() => void trading.refresh()}
-          className="ml-auto flex items-center gap-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:text-foreground"
-        >
-          <i className="fa-solid fa-rotate" />
-          Refresh
-        </button>
+        {!embedded && (
+          <button
+            type="button"
+            onClick={() => void trading.refresh()}
+            className="ml-auto flex items-center gap-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <i className="fa-solid fa-rotate" />
+            Refresh
+          </button>
+        )}
       </div>
 
-      {actionError && <p className="mt-3 text-xs font-medium text-down">{actionError}</p>}
-      {trading.error && <p className="mt-3 text-xs font-medium text-down">{trading.error}</p>}
+      {actionError && (
+        <p className={`text-xs font-medium text-down ${embedded ? "px-3 pt-2" : "mt-3"}`}>
+          {actionError}
+        </p>
+      )}
+      {trading.error && (
+        <p className={`text-xs font-medium text-down ${embedded ? "px-3 pt-2" : "mt-3"}`}>
+          {trading.error}
+        </p>
+      )}
 
       {trading.loading && trading.orders.length === 0 ? (
         <p className="py-10 text-center text-sm text-muted-foreground">

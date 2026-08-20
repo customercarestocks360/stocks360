@@ -1,8 +1,15 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { QrCode } from "@/components/ui/qr-code";
-import { useAuth, txKind, txStatus, txNetwork, type DepositMethod } from "@/components/AuthProvider";
+import { useAuth } from "@/components/AuthProvider";
+import { useFundingRequests } from "@/hooks/useFundingRequests";
+import { ApiError } from "@/lib/api";
+import { currentIdToken } from "@/lib/firebase";
+import { reportDeposit, newIdempotencyKey, type FundingNetwork } from "@/lib/funding-api";
+import { amount as parseAmount, type SettlementCurrency } from "@/lib/trading-api";
+
+type DepositMethod = SettlementCurrency;
 
 export const Route = createFileRoute("/deposit")({
   head: () => ({
@@ -15,7 +22,7 @@ export const Route = createFileRoute("/deposit")({
 });
 
 type Network = {
-  code: string;
+  code: FundingNetwork;
   name: string;
   address: string;
   addressLabel: string;
@@ -214,7 +221,8 @@ function Step({
 }
 
 function DepositPage() {
-  const { isLoggedIn, kycCompleted, transactions, requestDeposit } = useAuth();
+  const { isLoggedIn, kycCompleted } = useAuth();
+  const deposits = useFundingRequests("deposit");
 
   const asset = ASSET_OPTIONS[0]!;
   const [network, setNetwork] = useState<Network>(asset.networks[0]!);
@@ -222,12 +230,10 @@ function DepositPage() {
   const [showDetails, setShowDetails] = useState(false);
   const [openFaq, setOpenFaq] = useState<number | null>(null);
   const [amount, setAmount] = useState("");
-  const [stage, setStage] = useState<"idle" | "requested">("idle");
+  const [stage, setStage] = useState<"idle" | "submitting" | "requested">("idle");
+  const [error, setError] = useState("");
 
-  const recentDeposits = useMemo(
-    () => transactions.filter((t) => txKind(t) === "deposit").slice(0, 5),
-    [transactions],
-  );
+  const recentDeposits = deposits.requests.slice(0, 5);
 
   const handleCopy = () => {
     navigator.clipboard?.writeText(network.address).catch(() => {});
@@ -238,11 +244,30 @@ function DepositPage() {
   const value = parseFloat(amount);
   const canSubmit = Number.isFinite(value) && value > 0 && stage === "idle";
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!canSubmit) return;
-    requestDeposit(asset.code, value, network.code);
-    setAmount("");
-    setStage("requested");
+    setStage("submitting");
+    setError("");
+    try {
+      const token = await currentIdToken();
+      await reportDeposit(
+        {
+          currency: asset.code,
+          amount: String(value),
+          network: network.code,
+          idempotency_key: newIdempotencyKey(),
+        },
+        token,
+      );
+      setAmount("");
+      setStage("requested");
+      void deposits.refresh();
+    } catch (err) {
+      setStage("idle");
+      setError(
+        err instanceof ApiError ? err.message : "Could not report this deposit. Please try again.",
+      );
+    }
   };
 
   if (!isLoggedIn || !kycCompleted) {
@@ -439,13 +464,18 @@ function DepositPage() {
                           className="mt-2 w-full rounded sm:rounded-xl border border-border bg-background/60 px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
                         />
                       </label>
+                      {error && (
+                        <p className="mt-3 text-xs text-destructive" role="alert">
+                          {error}
+                        </p>
+                      )}
                       <button
                         type="button"
-                        onClick={handleSubmit}
+                        onClick={() => void handleSubmit()}
                         disabled={!canSubmit}
                         className="mt-4 flex w-full items-center justify-center gap-2 rounded sm:rounded-xl bg-primary px-4 py-3 text-sm font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
                       >
-                        I've sent this amount
+                        {stage === "submitting" ? "Reporting…" : "I've sent this amount"}
                       </button>
                       <p className="mt-3 text-center text-[11px] text-muted-foreground/70">
                         An admin verifies the transfer and credits your balance — it won't apply instantly.
@@ -512,21 +542,22 @@ function DepositPage() {
                 </thead>
                 <tbody>
                   {recentDeposits.map((t) => {
-                    const status = txStatus(t);
+                    const status = t.status;
                     return (
                       <tr key={t.id} className="border-b border-border last:border-b-0">
-                        <td className="px-1 sm:px-2 py-2.5 sm:py-4 font-mono text-xs text-muted-foreground">{stamp(t.date)}</td>
-                        <td className="px-1 sm:px-2 py-2.5 sm:py-4 font-medium text-foreground">{t.method}</td>
-                        <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-muted-foreground">{txNetwork(t)}</td>
+                        <td className="px-1 sm:px-2 py-2.5 sm:py-4 font-mono text-xs text-muted-foreground">{stamp(t.created_at)}</td>
+                        <td className="px-1 sm:px-2 py-2.5 sm:py-4 font-medium text-foreground">{t.currency}</td>
+                        <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-muted-foreground">{t.network}</td>
                         <td
                           className={`px-1 sm:px-2 py-2.5 sm:py-4 text-right font-mono font-semibold ${
                             status === "cancelled" ? "text-muted-foreground" : "text-up"
                           }`}
                         >
-                          +{fmt(t.amount)}
+                          +{fmt(parseAmount(t.amount) ?? 0)}
                         </td>
                         <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-right">
                           <span
+                            title={t.resolution_note ?? undefined}
                             className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ${
                               status === "cancelled"
                                 ? "bg-muted text-muted-foreground"

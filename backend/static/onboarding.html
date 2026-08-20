@@ -173,6 +173,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.4.0/firebas
 import {
   getAuth, onAuthStateChanged, createUserWithEmailAndPassword,
   signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, signOut,
+  sendEmailVerification,
 } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-auth.js";
 
 const $ = (id) => document.getElementById(id);
@@ -391,6 +392,9 @@ on("btn-signup", async () => {
   const cred = await createUserWithEmailAndPassword(
     auth, $("email").value.trim(), $("password").value);
   log("firebase createUser → ok", { uid: cred.user.uid, email: cred.user.email }, "ok");
+  // Every protected route 403s until this link is clicked, so send it here too.
+  await sendEmailVerification(cred.user);
+  log("firebase sendEmailVerification → ok", "click the link, then sign in again", "ok");
   pan = randomPan();  // a new account needs an unused identity document
   loadSample();
 });

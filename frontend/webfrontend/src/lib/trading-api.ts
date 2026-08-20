@@ -279,6 +279,22 @@ export function fetchBalances(token: string, signal?: AbortSignal): Promise<Bala
   return apiFetch<Balance[]>("/trading/balances", { token, ...(signal ? { signal } : {}) });
 }
 
+/**
+ * `GET /trading/ledger` — every balance movement, newest first: deposits, withdrawals,
+ * order reservations and releases, and each side of a fill. `amount` is signed from the
+ * point of view of `available`.
+ */
+export function fetchLedger(
+  token: string,
+  options: { currency?: string; kind?: LedgerKind; limit?: number } = {},
+  signal?: AbortSignal,
+): Promise<LedgerEntry[]> {
+  return apiFetch<LedgerEntry[]>(
+    `/trading/ledger${query({ currency: options.currency, kind: options.kind, limit: options.limit ?? 50 })}`,
+    { token, ...(signal ? { signal } : {}) },
+  );
+}
+
 export function fetchAccount(token: string, signal?: AbortSignal): Promise<Account> {
   return apiFetch<Account>("/trading/account", { token, ...(signal ? { signal } : {}) });
 }

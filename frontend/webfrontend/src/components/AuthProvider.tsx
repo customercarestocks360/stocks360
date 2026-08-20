@@ -22,6 +22,8 @@ import {
   currentIdToken,
   firebaseAuthMessage,
   isCancelledSignIn,
+  reloadUser,
+  sendVerificationEmail,
   signInWithGooglePopup,
   signInWithPassword,
   signOutFirebase,
@@ -36,10 +38,14 @@ import type { KycTier, OnboardingStatus, Product } from "@/lib/onboarding-api";
  * actually been submitted — `onboarding_status`, `kyc_tier` and the product lists are
  * denormalised there by `POST /onboarding/submit` and nowhere else.
  *
- * Everything below that — balances, deposits, withdrawals, orders — is still the
- * client-side simulation this app started with, because `/trading/*` has not been wired up
- * yet. It is kept deliberately separate from identity, and persisted under a
- * **uid-scoped** localStorage key so one account's simulated money can never show up in
+ * Everything below that is what is left of the client-side simulation this app started
+ * with, now that `/trading/*` and `/funding/*` are wired up: real orders, balances,
+ * deposits and withdrawals live in `useTrading()` and `lib/funding-api.ts` instead, read
+ * straight from the backend rather than from here. `orders` and `placeOrder`/`cancelOrder`
+ * remain for `trade-modal.tsx`'s older simulated flow, and `balances`/`convertBalance`
+ * remain because there is no backend route for converting between wallet currencies. Kept
+ * deliberately separate from identity, and persisted under a **uid-scoped** localStorage
+ * key so one account's simulated state can never show up in
  * another's session.
  */
 export type DepositMethod = "INR" | "USDT";
@@ -209,6 +215,13 @@ function identityFromFirebase(user: FirebaseUser): Identity {
 }
 
 /**
+ * Thrown when the credentials were right but the address has never been confirmed. Its own
+ * type so {@link authErrorMessage} passes the message through instead of flattening it to
+ * the generic "could not sign you in" fallback.
+ */
+export class EmailNotVerifiedError extends Error {}
+
+/**
  * One user-facing line for anything a sign-in can throw: a Firebase code, an `ApiError`
  * from the backend, or an unrecognised failure. Nothing internal is surfaced — the console
  * keeps the original for debugging.
@@ -217,6 +230,7 @@ function authErrorMessage(
   error: unknown,
   fallback = "Something went wrong. Please try again.",
 ): string {
+  if (error instanceof EmailNotVerifiedError) return error.message;
   const firebase = firebaseAuthMessage(error);
   if (firebase) return firebase;
   if (error instanceof ApiError) return error.message;
@@ -231,9 +245,15 @@ type AuthContextValue = Identity & {
   /** Set when the auth service itself could not be reached, not when a credential was wrong. */
   authError: string | null;
 
-  /** Creates the account (POST /auth/signup), then signs in. Throws a displayable message. */
+  /**
+   * Creates the account (POST /auth/signup) and sends the verification email. Deliberately
+   * does **not** sign in: the user has to click the link first. Throws a displayable message.
+   */
   signUpWithEmail: (email: string, password: string, displayName?: string) => Promise<void>;
-  /** Firebase verifies the password, then POST /auth/login records the login. */
+  /**
+   * Firebase verifies the password, then POST /auth/login records the login. Refuses an
+   * unverified address, re-sending the link before it throws.
+   */
   signInWithEmail: (email: string, password: string) => Promise<void>;
   /** Google popup, then POST /auth/login. Resolves to false if the user closed the popup. */
   signInWithGoogle: () => Promise<boolean>;
@@ -264,15 +284,6 @@ type AuthContextValue = Identity & {
   transactions: Transaction[];
   orders: Order[];
 
-  requestDeposit: (method: DepositMethod, amount: number, network?: string) => void;
-  requestWithdrawal: (
-    method: DepositMethod,
-    amount: number,
-    destination?: string,
-    network?: string,
-  ) => void;
-  settleDeposit: (id: string, outcome: "complete" | "cancel") => void;
-  settleWithdrawal: (id: string, outcome: "complete" | "cancel") => void;
   convertBalance: (from: DepositMethod, to: DepositMethod, amount: number) => void;
   setName: (name: string) => void;
   placeOrder: (order: Omit<Order, "id" | "date">) => void;
@@ -325,7 +336,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     watchIdToken((user) => {
       if (cancelled) return;
-      if (!user) {
+      // An unverified address counts as signed out, whatever the SDK is holding: signup
+      // signs in for a moment to send the confirmation email, and a session restored from
+      // SDK storage could predate the verification requirement. Both must stay locked out,
+      // and the backend refuses their token anyway.
+      if (!user || !user.emailVerified) {
         confirmedUidRef.current = null;
         setIdentity(null);
         setStatus("unauthenticated");
@@ -407,10 +422,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await loadServerProfile(token);
       } catch (error: unknown) {
         if (cancelled) return;
-        if (error instanceof ApiError && error.status === 401) {
+        if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
           // The backend rejected a token the SDK still holds — revoked by a logout
-          // elsewhere, or the account was disabled. Drop the local session rather than
-          // render a signed-in shell that cannot make a single authenticated call.
+          // elsewhere, the account was disabled, or (403) the email is not verified. Drop
+          // the local session rather than render a signed-in shell that cannot make a
+          // single authenticated call.
           confirmedUidRef.current = null;
           await signOutFirebase().catch(() => {});
           return;
@@ -480,11 +496,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    * disagrees is the state every downstream bug comes from.
    */
   const completeSignIn = useCallback(
-    async (produceSession: () => Promise<void>): Promise<void> => {
+    async (produceSession: () => Promise<FirebaseUser>): Promise<void> => {
       signingInRef.current = true;
       setAuthError(null);
       try {
-        await produceSession();
+        const user = await produceSession();
+        // The one gate on access. `reload` because the user may have clicked the link in
+        // another tab since this session's token was minted; it also refreshes the token,
+        // so the backend sees the same answer this check just got.
+        await reloadUser(user);
+        if (!user.emailVerified) {
+          // Re-send rather than make them hunt for the original mail, which by now may be
+          // expired or in a spam folder. Best effort: rate-limited by Firebase.
+          await sendVerificationEmail(user).catch((error: unknown) => {
+            console.error("Could not re-send the verification email", error);
+          });
+          throw new EmailNotVerifiedError(
+            "Please verify your email address first — we've sent a fresh link to your inbox.",
+          );
+        }
         const token = await currentIdToken();
         const profile = await loginWithIdToken(token);
         confirmedUidRef.current = profile.uid;
@@ -511,9 +541,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     async (email: string, password: string) => {
       try {
         // Firebase verifies the password — the Admin SDK behind the backend cannot.
-        await completeSignIn(async () => {
-          await signInWithPassword(email.trim(), password);
-        });
+        await completeSignIn(() => signInWithPassword(email.trim(), password));
       } catch (error: unknown) {
         throw new Error(authErrorMessage(error, "Could not sign you in. Please try again."));
       }
@@ -521,33 +549,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [completeSignIn],
   );
 
+  /**
+   * Signing up no longer signs the user in: a brand-new account is unverified, so the only
+   * thing left to do is post them the confirmation link and send them back to the login
+   * page. Anyone can type an address they do not own — this is what stops them using it.
+   */
   const signUpWithEmail = useCallback(
     async (email: string, password: string, displayName?: string) => {
+      setAuthError(null);
       try {
-        await completeSignIn(async () => {
-          // The backend owns user creation, so the Mongo mirror is written by the same
-          // request that creates the Firebase user.
-          await signupWithPassword({
-            email: email.trim(),
-            password,
-            ...(displayName?.trim() ? { displayName: displayName.trim() } : {}),
-          });
-          await signInWithPassword(email.trim(), password);
+        // The backend owns user creation, so the Mongo mirror is written by the same
+        // request that creates the Firebase user.
+        await signupWithPassword({
+          email: email.trim(),
+          password,
+          ...(displayName?.trim() ? { displayName: displayName.trim() } : {}),
         });
+        // Only the Web SDK can send the mail, and only for a signed-in user, so this signs
+        // in for exactly as long as that takes. The token watcher above treats an
+        // unverified user as signed out, so no protected screen sees this session.
+        const user = await signInWithPassword(email.trim(), password);
+        await sendVerificationEmail(user);
       } catch (error: unknown) {
         throw new Error(
           authErrorMessage(error, "Could not create your account. Please try again."),
         );
+      } finally {
+        // The account exists either way; leaving a half-session behind after a failed send
+        // is worse than making them sign in once the link is clicked.
+        await signOutFirebase().catch(() => {});
       }
     },
-    [completeSignIn],
+    [],
   );
 
   const signInWithGoogle = useCallback(async () => {
     try {
-      await completeSignIn(async () => {
-        await signInWithGooglePopup();
-      });
+      await completeSignIn(() => signInWithGooglePopup());
       return true;
     } catch (error: unknown) {
       // Closing the Google window is a decision, not a failure worth an error banner.
@@ -577,106 +615,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // --- Simulated money (unchanged behaviour) --------------------------------------------
-
-  /**
-   * Both deposits and withdrawals settle in two steps: requesting one only
-   * records what the user says they sent (or want out) — it never touches
-   * the balance on its own. An admin then settles it, which is the one
-   * action that actually moves money: crediting the balance for a deposit,
-   * debiting it for a withdrawal. Cancelling just drops the request.
-   *
-   * Withdrawals additionally lock their amount the moment they're
-   * requested, so it stops counting as spendable even before an admin acts —
-   * see `lockedAmount`. Deposits carry no such lock since nothing has left
-   * the user's balance yet.
-   */
-  const requestDeposit = useCallback(
-    (method: DepositMethod, amount: number, network?: string) =>
-      updateLocal((s) => {
-        if (amount <= 0) return s;
-        return {
-          ...s,
-          transactions: [
-            {
-              id: newId(),
-              method,
-              amount,
-              date: new Date().toISOString(),
-              kind: "deposit" as TransactionKind,
-              status: "pending" as TransactionStatus,
-              network: network ?? NETWORK_OF[method],
-            },
-            ...s.transactions,
-          ],
-        };
-      }),
-    [updateLocal],
-  );
-
-  const requestWithdrawal = useCallback(
-    (method: DepositMethod, amount: number, destination?: string, network?: string) =>
-      updateLocal((s) => {
-        const available = s.balances[method] - lockedAmount(s.transactions, method);
-        if (amount <= 0 || amount > available) return s;
-        return {
-          ...s,
-          transactions: [
-            {
-              id: newId(),
-              method,
-              amount,
-              date: new Date().toISOString(),
-              kind: "withdraw" as TransactionKind,
-              status: "pending" as TransactionStatus,
-              // The rail the user actually picked on /withdraw, rather than leaving
-              // txNetwork() to fall back to the currency's default.
-              network: network ?? NETWORK_OF[method],
-              ...(destination ? { destination } : {}),
-            },
-            ...s.transactions,
-          ],
-        };
-      }),
-    [updateLocal],
-  );
-
-  const settleDeposit = useCallback(
-    (id: string, outcome: "complete" | "cancel") =>
-      updateLocal((s) => {
-        const tx = s.transactions.find((t) => t.id === id);
-        if (!tx || txKind(tx) !== "deposit" || txStatus(tx) !== "pending") return s;
-        return {
-          ...s,
-          balances:
-            outcome === "complete"
-              ? { ...s.balances, [tx.method]: s.balances[tx.method] + tx.amount }
-              : s.balances,
-          transactions: s.transactions.map((t) =>
-            t.id === id ? { ...t, status: outcome === "complete" ? "completed" : "cancelled" } : t,
-          ),
-        };
-      }),
-    [updateLocal],
-  );
-
-  const settleWithdrawal = useCallback(
-    (id: string, outcome: "complete" | "cancel") =>
-      updateLocal((s) => {
-        const tx = s.transactions.find((t) => t.id === id);
-        if (!tx || txKind(tx) !== "withdraw" || txStatus(tx) !== "pending") return s;
-        return {
-          ...s,
-          balances:
-            outcome === "complete"
-              ? { ...s.balances, [tx.method]: Math.max(s.balances[tx.method] - tx.amount, 0) }
-              : s.balances,
-          transactions: s.transactions.map((t) =>
-            t.id === id ? { ...t, status: outcome === "complete" ? "completed" : "cancelled" } : t,
-          ),
-        };
-      }),
-    [updateLocal],
-  );
+  //
+  // Deposits and withdrawals themselves are no longer simulated here — `/deposit`,
+  // `/withdraw`, `/wallet` and `/admin` call the real `POST /funding/deposits` /
+  // `/funding/withdrawals` and the `/admin/funding/*` review queue instead (see
+  // `lib/funding-api.ts`). What is left below is `convertBalance`: there is no backend
+  // route for converting between wallet currencies, so `ConvertWidget` still reads and
+  // writes this local balance directly.
 
   /** Moves money straight between the two wallet balances — no transaction record, since nothing left the account. */
   const convertBalance = useCallback(
@@ -759,10 +704,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       transactions: local.transactions,
       orders: local.orders,
 
-      requestDeposit,
-      requestWithdrawal,
-      settleDeposit,
-      settleWithdrawal,
       convertBalance,
       setName,
       placeOrder,
@@ -779,10 +720,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signInWithEmail,
       signInWithGoogle,
       logout,
-      requestDeposit,
-      requestWithdrawal,
-      settleDeposit,
-      settleWithdrawal,
       convertBalance,
       setName,
       placeOrder,

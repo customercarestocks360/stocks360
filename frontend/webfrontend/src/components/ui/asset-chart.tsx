@@ -10,7 +10,7 @@ import {
   type ISeriesApi,
   type UTCTimestamp,
 } from "lightweight-charts";
-import { TIMEFRAMES, generateSeries, isIntraday, type ChartPoint, type Timeframe } from "@/lib/dummy-chart-data";
+import { TIMEFRAMES, generateSeries, isIntraday, mergeLiveTick, type ChartPoint, type Timeframe } from "@/lib/dummy-chart-data";
 
 const MA_WINDOW = 20;
 const UP = "#26a69a";
@@ -171,6 +171,8 @@ export function AssetChart({
   onTimeframeChange,
   loadingSeries = false,
   seriesError = "",
+  livePrice,
+  feedConnected = true,
 }: {
   seed: string;
   color: string;
@@ -192,6 +194,10 @@ export function AssetChart({
   onTimeframeChange?: (timeframe: Timeframe) => void;
   loadingSeries?: boolean;
   seriesError?: string;
+  /** Latest streamed price for the current symbol; folded into the last bar without a redraw. */
+  livePrice?: number | undefined;
+  /** False while the price feed is disconnected/reconnecting — shown as a header chip. */
+  feedConnected?: boolean;
 }) {
   const [uncontrolledTimeframe, setUncontrolledTimeframe] = useState<Timeframe>("1D");
   const timeframe = controlledTimeframe ?? uncontrolledTimeframe;
@@ -246,15 +252,27 @@ export function AssetChart({
     | null
   >(null);
 
+  /**
+   * `basePrice` ticks on every price update; reading it directly here would recompute the
+   * demo series (and, downstream, force a full chart rebuild that resets zoom/pan) on every
+   * tick. A ref captures it without becoming a render/memo dependency.
+   */
+  const basePriceRef = useRef(basePrice);
+  basePriceRef.current = basePrice;
+  const demoSeries = useMemo(
+    () => generateSeries(seed, timeframe, basePriceRef.current),
+    [seed, timeframe],
+  );
+
   const data = useMemo(() => {
-    const base = series ?? generateSeries(seed, timeframe, basePrice);
+    const base = series ?? demoSeries;
     let sum = 0;
     return base.map((p, i) => {
       sum += p.close;
       if (i >= MA_WINDOW) sum -= base[i - MA_WINDOW]!.close;
       return { ...p, ma: i >= MA_WINDOW - 1 ? sum / MA_WINDOW : undefined } as ChartPoint;
     });
-  }, [series, seed, timeframe, basePrice]);
+  }, [series, demoSeries]);
 
   const timeIndex = useMemo(() => {
     const m = new Map<number, number>();
@@ -262,7 +280,12 @@ export function AssetChart({
     return m;
   }, [data]);
 
-  const lastPoint = data[data.length - 1];
+  const rawLastPoint = data[data.length - 1];
+  /** Folds the live tick into the last bar for header/readout display, without mutating `data`. */
+  const lastPoint = useMemo(
+    () => (livePrice != null && rawLastPoint ? mergeLiveTick(rawLastPoint, livePrice) : rawLastPoint),
+    [rawLastPoint, livePrice],
+  );
   const firstPoint = data[0];
   const lastPrice = lastPoint?.close ?? basePrice;
   const firstPrice = firstPoint?.open ?? basePrice;
@@ -281,12 +304,12 @@ export function AssetChart({
       series
         ? []
         : (["1W", "1M", "ALL"] as Timeframe[]).map((tf) => {
-            const s = generateSeries(seed, tf, basePrice);
-            const f = s[0]?.open ?? basePrice;
-            const l = s[s.length - 1]?.close ?? basePrice;
+            const s = generateSeries(seed, tf, basePriceRef.current);
+            const f = s[0]?.open ?? basePriceRef.current;
+            const l = s[s.length - 1]?.close ?? basePriceRef.current;
             return { tf: tf === "ALL" ? "2Y" : tf, pct: f ? ((l - f) / f) * 100 : 0 };
           }),
-    [series, seed, basePrice],
+    [series, seed],
   );
 
   /* Everything the imperative listeners need, kept in a ref so the handlers
@@ -659,6 +682,29 @@ export function AssetChart({
     renderOverlay();
   }, [data, chartType, showMA, showVolume, color, timeframe, isFullscreen, renderOverlay]);
 
+  /**
+   * Live ticks update the in-progress bar via `series.update()` — the lightweight-charts call
+   * built for exactly this, which patches the last point in place instead of the `setData` +
+   * `fitContent()` path above, so zoom/pan/crosshair are never touched by a price tick.
+   */
+  useEffect(() => {
+    const main = mainRef.current;
+    const bar = rawLastPoint;
+    if (!main || !bar || livePrice == null) return;
+    const merged = mergeLiveTick(bar, livePrice);
+    if (chartType === "candles") {
+      (main as ISeriesApi<"Candlestick">).update({
+        time: merged.time as UTCTimestamp,
+        open: merged.open,
+        high: merged.high,
+        low: merged.low,
+        close: merged.close,
+      });
+    } else {
+      (main as ISeriesApi<"Area" | "Line">).update({ time: merged.time as UTCTimestamp, value: merged.close });
+    }
+  }, [livePrice, rawLastPoint, chartType]);
+
   /* Repaint the vector layer whenever anything visual about it changes. */
   useEffect(() => {
     renderOverlay();
@@ -994,15 +1040,15 @@ export function AssetChart({
   const selected = drawings.find((d) => d.id === selectedId) ?? null;
 
   /* ---------------- render pieces ---------------- */
+  /**
+   * The bar readout — the OHLCV of whatever bar the crosshair is over, falling back to the
+   * last bar. Deliberately *not* the quote: the page's instrument ribbon owns the price, and
+   * printing it again here (which this header used to do, one line below the ribbon's copy)
+   * showed the same number twice at two different sizes. The period change stays, because it
+   * is scoped to the selected timeframe and so says something the ribbon's day change does not.
+   */
   const header = (
-    <div className="mb-2 flex flex-wrap items-start justify-between gap-3">
-      <div className="flex flex-wrap items-baseline gap-2">
-        <span className="font-mono text-2xl font-bold text-foreground">{fmt(lastPrice, decimals)}</span>
-        <span className={`font-mono text-xs font-bold ${up ? "text-up" : "text-down"}`}>
-          {up ? "+" : ""}
-          {changePct.toFixed(2)}% ({timeframe})
-        </span>
-      </div>
+    <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
       {readout && (
         <div className="flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-[11px] text-muted-foreground">
           <span>O <span className="text-foreground">{fmt(readout.open, decimals)}</span></span>
@@ -1012,6 +1058,11 @@ export function AssetChart({
           <span>Vol <span className="text-foreground">{fmtInt(readout.volume)}</span></span>
         </div>
       )}
+      <span className={`font-mono text-[11px] font-bold ${up ? "text-up" : "text-down"}`}>
+        {up ? "+" : ""}
+        {changePct.toFixed(2)}%
+        <span className="ml-1 font-normal text-muted-foreground">{timeframe}</span>
+      </span>
     </div>
   );
 
@@ -1112,6 +1163,12 @@ export function AssetChart({
         </div>
       )}
       {/* Feed status for a chart driven by real candles — never shown for the demo series. */}
+      {!loadingSeries && !feedConnected && series !== undefined && (
+        <div className="pointer-events-none absolute left-1/2 top-3 z-30 -translate-x-1/2 rounded-full border border-amber-500/40 bg-amber-500/10 px-3 py-1 font-mono text-[10px] uppercase tracking-wider text-amber-600 shadow-sm backdrop-blur dark:text-amber-400">
+          <i className="fa-solid fa-plug-circle-xmark mr-1.5" />
+          Reconnecting to live feed…
+        </div>
+      )}
       {loadingSeries && (
         <div className="pointer-events-none absolute left-1/2 top-3 z-30 -translate-x-1/2 rounded-full border border-border bg-card/90 px-3 py-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground shadow-sm backdrop-blur">
           <i className="fa-solid fa-circle-notch fa-spin mr-1.5" />

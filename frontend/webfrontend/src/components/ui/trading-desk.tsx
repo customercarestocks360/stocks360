@@ -8,19 +8,27 @@
  * Live prices come from the public overview stream, so the watchlist and table tick for any
  * visitor. Everything that needs a token — quote detail, candles, depth, orders, balances —
  * degrades to a stated reason rather than a fabricated number.
+ *
+ * **Layout.** This is a terminal, not an article: on `lg` and up the desk is a fixed-height
+ * shell that fills the viewport — toolbar, instrument ribbon, a three-pane workspace, and a
+ * tabbed dock — and nothing scrolls but the panes themselves. The previous version was a
+ * `max-w-7xl` column that stacked the ticket, the instruments table, positions and orders as
+ * four separate full-width blocks down the page, which is what made it read as mostly empty.
+ * Below `lg` the same panes fall back to ordinary vertical flow, since three columns of
+ * real-time data do not fit a phone.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { currentIdToken } from "@/lib/firebase";
 import { SearchInput } from "@/components/ui/marketing";
-import { FavoriteStar } from "@/components/ui/favorite-star";
 import { AssetChart, type WatchlistItem } from "@/components/ui/asset-chart";
 import { DepthPanel, MyFills } from "@/components/ui/order-book";
 import { OrderTicket } from "@/components/ui/order-ticket";
-import { OrdersPanelView } from "@/components/ui/orders-panel";
-import { decimalsFor, formatCompact, formatPrice, type TradeInstrument } from "@/lib/instrument";
+import { InstrumentRibbon } from "@/components/ui/instrument-ribbon";
+import { DeskDock } from "@/components/ui/desk-dock";
+import { formatPrice, type TradeInstrument } from "@/lib/instrument";
 import { searchUniverse, type SearchHit } from "@/lib/instrument-search";
-import { amount, type AssetClass, type Portfolio, type PositionValuation } from "@/lib/trading-api";
+import { type AssetClass, type PositionValuation } from "@/lib/trading-api";
 import { fetchForexSession, type SessionInfo } from "@/lib/watchlists-api";
 import type { Timeframe } from "@/lib/dummy-chart-data";
 import { WatchlistPanel } from "@/components/ui/watchlist-panel";
@@ -45,207 +53,47 @@ function favKey(instrument: { assetClass: AssetClass; symbol: string }) {
   return `${instrument.assetClass}:${instrument.symbol}`;
 }
 
-function ClassIcon({ assetClass, size = "h-8 w-8" }: { assetClass: AssetClass; size?: string }) {
+function ClassIcon({ assetClass, size = "h-7 w-7" }: { assetClass: AssetClass; size?: string }) {
   const { icon, color } = CLASS_STYLES[assetClass];
   return (
     <span
       className={`flex ${size} shrink-0 items-center justify-center rounded-full`}
       style={{ backgroundColor: `${color}20`, color }}
     >
-      <i className={`fa-solid ${icon} text-xs`} />
+      <i className={`fa-solid ${icon} text-[10px]`} />
     </span>
   );
 }
 
-function ChangeText({ pct }: { pct: number | null }) {
-  if (pct === null) return <span className="font-mono text-xs text-muted-foreground">—</span>;
-  return (
-    <span className={`font-mono text-xs font-semibold ${pct >= 0 ? "text-up" : "text-down"}`}>
-      {pct >= 0 ? "+" : ""}
-      {pct.toFixed(2)}%
-    </span>
-  );
-}
-
-/** Low/high track with the price marked. Renders a dash when the feed publishes no range. */
-function RangeBar({
-  low,
-  high,
-  price,
-}: {
-  low: number | null;
-  high: number | null;
-  price: number | null;
-}) {
-  if (low === null || high === null || price === null || high <= low)
-    return <span className="font-mono text-xs text-muted-foreground">—</span>;
-  const pct = Math.max(0, Math.min(100, ((price - low) / (high - low)) * 100));
-  return (
-    <div className="flex w-24 items-center gap-1.5">
-      <span className="shrink-0 text-[10px] text-muted-foreground">L</span>
-      <div className="relative h-1 flex-1 rounded-full bg-muted">
-        <span
-          className="absolute top-1/2 h-2 w-2 -translate-y-1/2 rounded-full border-2 border-background bg-primary shadow-sm"
-          style={{ left: `calc(${pct}% - 4px)` }}
-        />
-      </div>
-      <span className="shrink-0 text-[10px] text-muted-foreground">H</span>
-    </div>
-  );
-}
-
-/**
- * Holdings, marked to market from `GET /trading/portfolio`.
- *
- * A `null` mark means the feed had no usable price for that symbol — rendered as a dash, since
- * showing 0 would claim the position is worthless rather than unpriced. The per-currency
- * footer is the only total offered: adding INR to USDT would need an FX rate this API has no
- * licensed source for, so the venue reports per currency and so does this.
- */
-function PositionsPanel({
-  positions,
-  portfolio,
-  assetClass,
-  onSelect,
-}: {
-  positions: PositionValuation[];
-  portfolio: Portfolio | null;
-  assetClass: AssetClass;
-  onSelect: (symbol: string) => void;
-}) {
-  const mine = positions.filter((p) => p.asset_class === assetClass);
-  if (mine.length === 0) return null;
-
-  const currencies = [...new Set(mine.map((p) => p.currency))];
-
-  return (
-    <div className="rounded-2xl border border-overlay-border bg-surface p-5">
-      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-        <h3 className="font-mono text-sm uppercase tracking-wider text-muted-foreground">
-          Your positions
-        </h3>
-        {portfolio && portfolio.unpriced > 0 && (
-          <span className="text-[11px] text-muted-foreground">
-            {portfolio.unpriced} of {portfolio.priced + portfolio.unpriced} could not be priced
-          </span>
-        )}
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[880px] border-collapse text-sm">
-          <thead>
-            <tr className="border-b border-border text-left text-xs text-muted-foreground">
-              <th className="px-2 pb-3 font-medium">Symbol</th>
-              <th className="px-2 pb-3 text-right font-medium">Quantity</th>
-              <th className="px-2 pb-3 text-right font-medium">Free</th>
-              <th className="px-2 pb-3 text-right font-medium">Avg cost</th>
-              <th className="px-2 pb-3 text-right font-medium">Last</th>
-              <th className="px-2 pb-3 text-right font-medium">Market value</th>
-              <th className="px-2 pb-3 text-right font-medium">Unrealised</th>
-              <th className="px-2 pb-3 text-right font-medium">Realised</th>
-            </tr>
-          </thead>
-          <tbody>
-            {mine.map((p) => {
-              const unrealised = amount(p.unrealized_pnl);
-              const unrealisedPct = amount(p.unrealized_pnl_percent);
-              const realised = amount(p.realized_pnl);
-              return (
-                <tr
-                  key={`${p.asset_class}:${p.symbol}`}
-                  onClick={() => onSelect(p.symbol)}
-                  className="cursor-pointer border-b border-border last:border-b-0 hover:bg-secondary/30"
-                >
-                  <td className="px-2 py-3 font-medium text-foreground">
-                    {p.symbol}
-                    <span className="ml-1.5 text-xs text-muted-foreground">{p.currency}</span>
-                    {p.stale && (
-                      <i
-                        className="fa-solid fa-clock ml-1.5 text-[10px] text-muted-foreground"
-                        title="Mark is from a closed or stale market"
-                      />
-                    )}
-                  </td>
-                  <td className="px-2 py-3 text-right font-mono text-foreground">{p.quantity}</td>
-                  <td className="px-2 py-3 text-right font-mono text-muted-foreground">
-                    {p.available_quantity}
-                  </td>
-                  <td className="px-2 py-3 text-right font-mono text-muted-foreground">
-                    {p.average_price ?? "—"}
-                  </td>
-                  <td className="px-2 py-3 text-right font-mono text-foreground">
-                    {p.last_price ?? "—"}
-                  </td>
-                  <td className="px-2 py-3 text-right font-mono text-foreground">
-                    {p.market_value ?? "—"}
-                  </td>
-                  <td className="px-2 py-3 text-right font-mono">
-                    {unrealised === null ? (
-                      <span className="text-muted-foreground">—</span>
-                    ) : (
-                      <span className={unrealised >= 0 ? "text-up" : "text-down"}>
-                        {unrealised >= 0 ? "+" : ""}
-                        {p.unrealized_pnl}
-                        {unrealisedPct !== null && (
-                          <span className="ml-1 text-[10px] opacity-80">
-                            ({unrealisedPct >= 0 ? "+" : ""}
-                            {unrealisedPct.toFixed(2)}%)
-                          </span>
-                        )}
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-2 py-3 text-right font-mono">
-                    {realised === null ? (
-                      <span className="text-muted-foreground">—</span>
-                    ) : (
-                      <span className={realised >= 0 ? "text-up" : "text-down"}>
-                        {realised >= 0 ? "+" : ""}
-                        {p.realized_pnl}
-                      </span>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-          {portfolio && (
-            <tfoot>
-              {currencies.map((ccy) => (
-                <tr key={ccy} className="border-t border-border">
-                  <td colSpan={5} className="px-2 pt-3 text-xs text-muted-foreground">
-                    Total in {ccy}
-                  </td>
-                  <td className="px-2 pt-3 text-right font-mono text-xs text-foreground">
-                    {portfolio.market_value_by_currency[ccy] ?? "—"}
-                  </td>
-                  <td className="px-2 pt-3 text-right font-mono text-xs text-muted-foreground">
-                    {portfolio.unrealized_pnl_by_currency[ccy] ?? "—"}
-                  </td>
-                  <td className="px-2 pt-3 text-right font-mono text-xs text-muted-foreground">
-                    {portfolio.realized_pnl_by_currency[ccy] ?? "—"}
-                  </td>
-                </tr>
-              ))}
-            </tfoot>
-          )}
-        </table>
-      </div>
-    </div>
-  );
-}
+/** The right rail shows one of these at a time — the book and your fills want the same space. */
+const RAIL_VIEWS = ["Book", "Fills"] as const;
+type RailView = (typeof RAIL_VIEWS)[number];
 
 export function TradingDesk({
   assetClasses,
   tableTitle,
+  initialAssetClass,
+  initialSymbol,
 }: {
   /** One or more classes this desk can trade. A picker appears when there is more than one. */
   assetClasses: readonly AssetClass[];
   tableTitle: string;
+  /** Deep-link target from `/markets`' "Trade" button — which class the desk should open on. */
+  initialAssetClass?: AssetClass | undefined;
+  /** Deep-link target from `/markets`' "Trade" button — which instrument to preselect. */
+  initialSymbol?: string | undefined;
 }) {
-  const [assetClass, setAssetClass] = useState<AssetClass>(assetClasses[0]!);
+  const [assetClass, setAssetClass] = useState<AssetClass>(
+    initialAssetClass && assetClasses.includes(initialAssetClass)
+      ? initialAssetClass
+      : assetClasses[0]!,
+  );
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
   const [action, setAction] = useState<"buy" | "sell">("buy");
   const [timeframe, setTimeframe] = useState<Timeframe>("1D");
+  /** Set by "Close" on a position row: pre-fills the ticket to sell the whole free quantity. */
+  const [closeIntent, setCloseIntent] = useState<{ symbol: string; quantity: string } | null>(null);
+  const [railView, setRailView] = useState<RailView>("Book");
 
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<SearchHit[]>([]);
@@ -267,6 +115,22 @@ export function TradingDesk({
   useEffect(() => {
     setSelectedSymbol(null);
   }, [assetClass]);
+
+  // Consumed once: a symbol arriving via the URL wins the very first selection, same as a
+  // manual search pick, then behaves exactly like any other selection from then on.
+  const initialSymbolConsumed = useRef(false);
+  useEffect(() => {
+    if (!initialSymbol || initialSymbolConsumed.current) return;
+    initialSymbolConsumed.current = true;
+    let cancelled = false;
+    void (async () => {
+      const resolved = await board.resolve(initialSymbol);
+      if (!cancelled) setSelectedSymbol(resolved?.symbol ?? initialSymbol);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [initialSymbol, board.resolve]);
 
   const selected = useMemo(() => {
     if (selectedSymbol) {
@@ -356,13 +220,30 @@ export function TradingDesk({
     return () => document.removeEventListener("mousedown", onDown);
   }, [showResults]);
 
+  /**
+   * Selecting an instrument. On a phone the ticket is far down the page, so the selection
+   * scrolls to it; on a desktop it is already on screen in the right rail and scrolling would
+   * be a jarring no-op, which is why this is guarded on the same breakpoint as the layout.
+   */
+  const revealTicket = () => {
+    if (typeof window !== "undefined" && window.matchMedia("(min-width: 1024px)").matches) return;
+    ticketRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
   const pick = async (symbol: string) => {
     setQuery("");
     setShowResults(false);
     // Pull a searched symbol into the board so it has a real quote before the ticket sizes it.
     const resolved = await board.resolve(symbol);
     setSelectedSymbol(resolved?.symbol ?? symbol);
-    ticketRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    revealTicket();
+  };
+
+  const closePosition = (p: PositionValuation) => {
+    setSelectedSymbol(p.symbol);
+    setAction("sell");
+    setCloseIntent({ symbol: p.symbol, quantity: p.available_quantity });
+    revealTicket();
   };
 
   const watchlist: WatchlistItem[] = useMemo(
@@ -380,22 +261,28 @@ export function TradingDesk({
     [instruments],
   );
 
-  const decimals = decimalsFor(selected?.price ?? null);
+  const feedLabel = board.fromWatchlist
+    ? board.streaming
+      ? `Streaming ${board.watchlists.selected?.name}`
+      : "Reconnecting to your watchlist feed…"
+    : board.connected
+      ? "Live prices streaming"
+      : "Connecting to live prices…";
 
   return (
-    <div className="relative mx-auto max-w-7xl px-1 py-4 sm:px-6 sm:py-10">
-      {/* ── Feed + class header ── */}
-      <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2">
+    <div className="flex flex-col bg-background lg:h-[calc(100vh-6rem)] lg:overflow-hidden">
+      {/* ── Toolbar: what market, which instrument, is the feed up ─────────────────────── */}
+      <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-overlay-border bg-surface px-2.5 py-2 sm:px-3">
         {assetClasses.length > 1 && (
-          <div className="flex gap-1 rounded-lg bg-background/40 p-1">
+          <div className="flex shrink-0 gap-px rounded border border-overlay-border p-0.5">
             {assetClasses.map((c) => (
               <button
                 key={c}
                 type="button"
                 onClick={() => setAssetClass(c)}
-                className={`rounded-md px-3 py-1.5 text-sm font-semibold transition-colors ${
+                className={`rounded px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider transition-colors ${
                   assetClass === c
-                    ? "bg-card text-foreground shadow-sm"
+                    ? "bg-primary text-primary-foreground"
                     : "text-muted-foreground hover:text-foreground"
                 }`}
               >
@@ -404,53 +291,117 @@ export function TradingDesk({
             ))}
           </div>
         )}
+
+        <div
+          ref={searchBoxRef}
+          className="relative min-w-0 flex-1 sm:max-w-xs"
+          onFocusCapture={() => setShowResults(true)}
+        >
+          <SearchInput
+            value={query}
+            onChange={(v) => {
+              setQuery(v);
+              setShowResults(true);
+            }}
+            placeholder={
+              assetClass === "stocks"
+                ? "Search any ticker or company…"
+                : assetClass === "forex"
+                  ? "Search any currency pair…"
+                  : "Search any spot pair…"
+            }
+          />
+          {showResults && query.trim().length >= 2 && (
+            <div className="absolute left-0 right-0 top-[calc(100%+0.4rem)] z-40 max-h-80 overflow-y-auto rounded-lg border border-overlay-border bg-surface-elevated shadow-2xl">
+              {searching ? (
+                <p className="px-3 py-3 text-center text-xs text-muted-foreground">
+                  <i className="fa-solid fa-circle-notch fa-spin mr-2" />
+                  Searching…
+                </p>
+              ) : hits.length === 0 ? (
+                <p className="px-3 py-3 text-center text-xs text-muted-foreground">
+                  {searchNote || "No results found."}
+                </p>
+              ) : (
+                hits.map((h) => (
+                  <button
+                    type="button"
+                    key={h.symbol}
+                    onClick={() => void pick(h.symbol)}
+                    className="flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-primary/10"
+                  >
+                    <ClassIcon assetClass={assetClass} />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-xs font-semibold text-foreground">
+                        {h.symbol}
+                      </div>
+                      <div className="truncate text-[11px] text-muted-foreground">{h.name}</div>
+                    </div>
+                    <span className="shrink-0 font-mono text-[9px] uppercase tracking-wider text-muted-foreground">
+                      {h.detail}
+                    </span>
+                  </button>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+
         {/* Which socket is actually feeding this board — the user's own, or the public one. */}
-        <span className="flex items-center gap-2 text-xs text-muted-foreground">
+        <span className="flex shrink-0 items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
           <span
-            className={`h-2 w-2 rounded-full ${
+            className={`h-1.5 w-1.5 rounded-full ${
               live ? "animate-pulse bg-up" : "bg-muted-foreground/50"
             }`}
           />
-          {board.fromWatchlist
-            ? board.streaming
-              ? `Streaming ${board.watchlists.selected?.name}`
-              : "Reconnecting to your watchlist feed…"
-            : board.connected
-              ? "Live prices streaming"
-              : "Connecting to live prices…"}
+          <span className="hidden sm:inline">{feedLabel}</span>
         </span>
 
         {/* FX has one interbank session for the whole feed, unlike equities' per-symbol calendar. */}
         {assetClass === "forex" && session && (
           <span
             title={session.detail}
-            className="flex items-center gap-1.5 text-xs text-muted-foreground"
+            className="flex shrink-0 items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground"
           >
             <i
               className={`fa-solid ${
                 session.market_state === "open" ? "fa-circle-check text-up" : "fa-moon"
               } text-[10px]`}
             />
-            {session.market_state === "open" ? "Interbank market open" : "Interbank market closed"}
+            <span className="hidden md:inline">
+              {session.market_state === "open" ? "Interbank open" : "Interbank closed"}
+            </span>
           </span>
         )}
 
         {!board.enriched && (
-          <span className="text-xs text-muted-foreground">
-            <Link to="/login" className="text-primary hover:underline">
+          <span className="shrink-0 text-[11px] text-muted-foreground">
+            <Link to="/login" className="font-semibold text-primary hover:underline">
               Sign in
-            </Link>{" "}
-            for real candles, depth, watchlists and trading.
+            </Link>
+            <span className="hidden sm:inline"> for candles, depth and trading</span>
           </span>
         )}
       </div>
 
-      <div className="grid gap-3 sm:gap-6 lg:grid-cols-5">
-        {/* ── Left: watchlist + mobile ticket ── */}
-        <div
-          ref={ticketRef}
-          className="order-2 flex min-w-0 flex-col space-y-4 lg:order-1 lg:col-span-1 lg:h-[720px]"
-        >
+      {/* ── The instrument ribbon: the one place this desk prints the quote ────────────── */}
+      {selected && (
+        <InstrumentRibbon
+          instrument={selected}
+          onBuy={() => {
+            setAction("buy");
+            revealTicket();
+          }}
+          onSell={() => {
+            setAction("sell");
+            revealTicket();
+          }}
+        />
+      )}
+
+      {/* ── Workspace: watchlist │ chart │ book + ticket ───────────────────────────────── */}
+      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+        <aside className="flex shrink-0 flex-col border-b border-overlay-border bg-surface lg:w-60 lg:border-b-0 lg:border-r xl:w-64">
           <WatchlistPanel
             assetClass={assetClass}
             watchlists={board.watchlists}
@@ -460,287 +411,108 @@ export function TradingDesk({
             activeSymbol={selected?.symbol ?? null}
             streaming={board.streaming}
             connected={board.connected}
-            className="min-h-0 flex-1"
+            className="h-72 min-h-0 lg:h-auto lg:flex-1"
           />
+        </aside>
 
-          {selected && (
-            <div className="lg:hidden">
-              <OrderTicket
-                instrument={selected}
-                action={action}
-                onActionChange={setAction}
-                trading={trading}
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+          {selected ? (
+            <div className="flex h-[26rem] min-h-0 flex-col p-2 sm:h-[30rem] sm:p-3 lg:h-auto lg:flex-1">
+              <AssetChart
+                seed={selected.symbol}
+                color={CLASS_STYLES[assetClass].color}
+                basePrice={selected.price ?? 0}
+                symbol={selected.label}
+                name={selected.name}
+                exchange={selected.currency ?? CLASS_LABELS[assetClass]}
+                marketStatusLabel={
+                  selected.marketState === "closed" ? "Market closed" : "Market open"
+                }
+                watchlist={watchlist}
+                onSelectSymbol={(item) => setSelectedSymbol(item.sym)}
+                {...(chart.series ? { series: chart.series } : {})}
+                timeframe={timeframe}
+                onTimeframeChange={setTimeframe}
+                loadingSeries={chart.loading}
+                seriesError={chart.error}
+                livePrice={selected.price ?? undefined}
+                feedConnected={board.connected}
               />
             </div>
+          ) : (
+            <div className="flex h-72 items-center justify-center text-xs text-muted-foreground lg:h-auto lg:flex-1">
+              {board.connected ? "Loading market…" : "Connecting to the market feed…"}
+            </div>
           )}
-        </div>
+        </main>
 
-        {/* ── Centre: search + chart ── */}
-        <div className="order-1 min-w-0 space-y-4 lg:order-2 lg:col-span-3">
-          <div ref={searchBoxRef} className="relative" onFocusCapture={() => setShowResults(true)}>
-            <SearchInput
-              value={query}
-              onChange={(v) => {
-                setQuery(v);
-                setShowResults(true);
-              }}
-              placeholder={
-                assetClass === "stocks"
-                  ? "Search any ticker or company…"
-                  : assetClass === "forex"
-                    ? "Search any currency pair…"
-                    : "Search any spot pair…"
-              }
-            />
-            {showResults && query.trim().length >= 2 && (
-              <div className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-20 max-h-80 overflow-y-auto rounded border border-overlay-border bg-surface-elevated shadow-xl backdrop-blur-xl sm:rounded-xl">
-                {searching ? (
-                  <p className="px-3 py-3 text-center text-sm text-muted-foreground">
-                    <i className="fa-solid fa-circle-notch fa-spin mr-2" />
-                    Searching…
-                  </p>
-                ) : hits.length === 0 ? (
-                  <p className="px-3 py-3 text-center text-sm text-muted-foreground">
-                    {searchNote || "No results found."}
-                  </p>
-                ) : (
-                  hits.map((h) => (
-                    <button
-                      type="button"
-                      key={h.symbol}
-                      onClick={() => void pick(h.symbol)}
-                      className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-primary/10"
-                    >
-                      <ClassIcon assetClass={assetClass} size="h-8 w-8" />
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm font-semibold text-foreground">
-                          {h.symbol}
-                        </div>
-                        <div className="truncate text-xs text-muted-foreground">{h.name}</div>
-                      </div>
-                      <span className="shrink-0 font-mono text-[10px] uppercase text-muted-foreground">
-                        {h.detail}
-                      </span>
-                    </button>
-                  ))
-                )}
-              </div>
-            )}
-          </div>
-
-          <div className="relative flex h-[460px] min-w-0 flex-col overflow-hidden rounded border border-overlay-border bg-surface-elevated p-1 shadow-sm backdrop-blur-xl sm:h-[600px] sm:rounded-[2rem] sm:p-6 lg:h-[720px]">
-            {selected ? (
-              <>
-                <div className="mb-3 hidden shrink-0 flex-wrap items-center justify-between gap-3 border-b border-border pb-3 sm:flex">
-                  <div>
-                    <h2 className="flex items-center gap-3 text-xl font-bold">
-                      {selected.label}
-                      <span className="text-sm font-normal text-muted-foreground">
-                        {selected.name !== selected.label ? selected.name : ""}
-                      </span>
-                    </h2>
-                    <div className="mt-1 flex items-end gap-3">
-                      <span className="font-mono text-2xl font-bold">
-                        {formatPrice(selected.price, decimals)}
-                      </span>
-                      {selected.currency && (
-                        <span className="pb-1 text-xs text-muted-foreground">
-                          {selected.currency}
-                        </span>
-                      )}
-                      <span className="pb-1">
-                        <ChangeText pct={selected.changePercent} />
-                      </span>
-                      {selected.stale && (
-                        <span className="pb-1 font-mono text-[10px] uppercase text-muted-foreground">
-                          {selected.marketState === "closed" ? "market closed" : "stale"}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setAction("buy")}
-                      className="rounded-md bg-up/10 px-4 py-2 text-sm font-bold text-up transition-colors hover:bg-up/20"
-                    >
-                      Buy
-                    </button>
-                    <button
-                      onClick={() => setAction("sell")}
-                      className="rounded-md bg-down/10 px-4 py-2 text-sm font-bold text-down transition-colors hover:bg-down/20"
-                    >
-                      Sell
-                    </button>
-                  </div>
-                </div>
-                <div className="mb-2 flex shrink-0 items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-emerald-500 sm:hidden">
-                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
-                  Live · {selected.label}
-                </div>
-                <div className="min-h-0 flex-1">
-                  <AssetChart
-                    seed={selected.symbol}
-                    color={CLASS_STYLES[assetClass].color}
-                    basePrice={selected.price ?? 0}
-                    symbol={selected.label}
-                    name={selected.name}
-                    exchange={selected.currency ?? CLASS_LABELS[assetClass]}
-                    marketStatusLabel={
-                      selected.marketState === "closed" ? "Market closed" : "Market open"
-                    }
-                    watchlist={watchlist}
-                    onSelectSymbol={(item) => setSelectedSymbol(item.sym)}
-                    {...(chart.series ? { series: chart.series } : {})}
-                    timeframe={timeframe}
-                    onTimeframeChange={setTimeframe}
-                    loadingSeries={chart.loading}
-                    seriesError={chart.error}
-                  />
-                </div>
-              </>
-            ) : (
-              <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-                {board.connected ? "Loading market…" : "Connecting to the market feed…"}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* ── Right: real depth (crypto) or the real published quote, plus own fills ── */}
-        <div className="order-3 flex min-w-0 flex-col space-y-4 lg:col-span-1 lg:h-[720px]">
+        <aside
+          ref={ticketRef}
+          className="flex shrink-0 flex-col border-t border-overlay-border bg-surface lg:w-72 lg:border-l lg:border-t-0 xl:w-80"
+        >
           {selected && (
             <>
-              <DepthPanel instrument={selected} className="min-h-0 flex-1" />
-              <MyFills instrument={selected} trading={trading} className="min-h-0 flex-1" />
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* ── Desktop ticket ── */}
-      {selected && (
-        <div className="mt-6 hidden lg:block">
-          <OrderTicket
-            instrument={selected}
-            action={action}
-            onActionChange={setAction}
-            trading={trading}
-            layout="horizontal"
-          />
-        </div>
-      )}
-
-      {/* ── Instruments table ── */}
-      <div className="mt-8">
-        <h2 className="mb-4 font-mono text-sm uppercase tracking-wider text-muted-foreground">
-          {tableTitle}
-        </h2>
-        {instruments.length === 0 ? (
-          <p className="py-6 text-center text-sm text-muted-foreground">
-            {board.connected ? "Loading instruments…" : "Connecting to the market feed…"}
-          </p>
-        ) : (
-          <div className="overflow-x-auto rounded border border-overlay-border bg-surface sm:rounded-2xl">
-            <table className="w-full min-w-[880px] border-collapse text-sm">
-              <thead>
-                <tr className="border-b border-border bg-secondary/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
-                  <th className="px-2 py-2 font-medium sm:px-5 sm:py-3">Instrument</th>
-                  <th className="px-2 py-2 font-medium sm:px-5 sm:py-3">Price</th>
-                  <th className="px-2 py-2 font-medium sm:px-5 sm:py-3">Change</th>
-                  <th className="px-2 py-2 font-medium sm:px-5 sm:py-3">
-                    {assetClass === "forex" ? "Spread" : "Volume"}
-                  </th>
-                  <th className="px-2 py-2 font-medium sm:px-5 sm:py-3">
-                    {assetClass === "forex" ? "Session range" : "Day range"}
-                  </th>
-                  <th className="px-2 py-2 text-right font-medium sm:px-5 sm:py-3">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {instruments.map((i) => (
-                  <tr
-                    key={i.symbol}
-                    onClick={() => setSelectedSymbol(i.symbol)}
-                    className={`cursor-pointer border-b border-border transition-colors last:border-b-0 ${
-                      selected?.symbol === i.symbol ? "bg-primary/5" : "hover:bg-secondary/30"
+              {/* Book and your fills want the same rectangle, so they share it. */}
+              <div className="flex shrink-0 items-center gap-px border-b border-overlay-border px-1.5 pt-1.5">
+                {RAIL_VIEWS.map((v) => (
+                  <button
+                    key={v}
+                    type="button"
+                    onClick={() => setRailView(v)}
+                    className={`rounded-t px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-colors ${
+                      railView === v
+                        ? "bg-surface-hover text-foreground"
+                        : "text-muted-foreground hover:text-foreground"
                     }`}
                   >
-                    <td className="px-2 py-2.5 sm:px-5 sm:py-4">
-                      <div className="flex items-center gap-3">
-                        <ClassIcon assetClass={i.assetClass} />
-                        <div className="min-w-0">
-                          <div className="truncate font-semibold text-foreground">{i.name}</div>
-                          <div className="text-xs text-muted-foreground">
-                            {i.label}
-                            {i.currency && <span className="ml-1.5 opacity-70">{i.currency}</span>}
-                          </div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-2 py-2.5 font-mono text-foreground sm:px-5 sm:py-4">
-                      {formatPrice(i.price)}
-                    </td>
-                    <td className="px-2 py-2.5 sm:px-5 sm:py-4">
-                      <ChangeText pct={i.changePercent} />
-                    </td>
-                    <td className="px-2 py-2.5 font-mono text-muted-foreground sm:px-5 sm:py-4">
-                      {i.assetClass === "forex"
-                        ? i.spreadPips === null
-                          ? "—"
-                          : `${i.spreadPips} pips`
-                        : formatCompact(i.volume)}
-                    </td>
-                    <td className="px-2 py-2.5 sm:px-5 sm:py-4">
-                      <RangeBar low={i.dayLow} high={i.dayHigh} price={i.price} />
-                    </td>
-                    <td className="px-2 py-2.5 sm:px-5 sm:py-4">
-                      <div className="flex items-center justify-end gap-2">
-                        <FavoriteStar
-                          id={favKey(i)}
-                          className="flex h-8 w-8 items-center justify-center rounded-lg border border-border"
-                        />
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedSymbol(i.symbol);
-                            ticketRef.current?.scrollIntoView({
-                              behavior: "smooth",
-                              block: "start",
-                            });
-                          }}
-                          className="rounded-lg bg-primary px-3.5 py-1.5 text-xs font-bold uppercase tracking-wide text-primary-foreground transition-opacity hover:opacity-90"
-                        >
-                          Trade
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
+                    {v === "Fills" ? "Your fills" : v}
+                  </button>
                 ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-        {board.error && <p className="mt-3 text-xs text-muted-foreground">{board.error}</p>}
+              </div>
+              <div className="flex h-64 min-h-0 flex-col lg:h-auto lg:flex-1">
+                {railView === "Book" ? (
+                  <DepthPanel instrument={selected} className="min-h-0 flex-1" flush />
+                ) : (
+                  <MyFills
+                    instrument={selected}
+                    trading={trading}
+                    className="min-h-0 flex-1"
+                    flush
+                  />
+                )}
+              </div>
+              <div className="shrink-0 border-t border-overlay-border">
+                <OrderTicket
+                  instrument={selected}
+                  action={action}
+                  onActionChange={setAction}
+                  trading={trading}
+                  prefill={closeIntent}
+                  flush
+                />
+              </div>
+            </>
+          )}
+        </aside>
       </div>
 
-      {/* ── Positions ── */}
-      <div className="mt-8">
-        <PositionsPanel
-          positions={trading.positions}
-          portfolio={trading.portfolio}
-          assetClass={assetClass}
-          onSelect={setSelectedSymbol}
-        />
-      </div>
-
-      {/* ── Orders ── */}
-      <div className="mt-8">
-        <h2 className="mb-4 font-mono text-sm uppercase tracking-wider text-muted-foreground">
-          Orders
-        </h2>
-        <OrdersPanelView trading={trading} />
-      </div>
+      {/* ── Dock: positions, orders, and the full instrument list ──────────────────────── */}
+      <DeskDock
+        trading={trading}
+        instruments={instruments}
+        assetClass={assetClass}
+        selectedSymbol={selected?.symbol ?? null}
+        connected={board.connected}
+        boardError={board.error}
+        onSelect={(symbol) => {
+          setSelectedSymbol(symbol);
+          revealTicket();
+        }}
+        onClosePosition={closePosition}
+        favKey={favKey}
+        classIcon={(c) => <ClassIcon assetClass={c} />}
+        instrumentsLabel={tableTitle}
+      />
     </div>
   );
 }

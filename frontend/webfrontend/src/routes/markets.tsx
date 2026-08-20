@@ -50,6 +50,13 @@ function favKeyFor(row: MarketRow) {
   return `${row.market}:${row.symbol}`;
 }
 
+/** The row's instrument, pre-selected on whichever desk `MARKET_ROUTES` sends it to. */
+function tradeSearchFor(row: MarketRow) {
+  return row.market === "forex"
+    ? { symbol: row.symbol }
+    : { symbol: row.symbol, class: row.market };
+}
+
 const COMPACT = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 2 });
 
 function formatVolume(row: MarketRow): string | null {
@@ -543,6 +550,7 @@ function MarketsPage() {
                               />
                               <Link
                                 to={MARKET_ROUTES[row.market]}
+                                search={tradeSearchFor(row)}
                                 className="inline-block rounded-lg bg-primary px-3.5 py-1.5 text-xs font-bold uppercase tracking-wide text-primary-foreground transition-opacity hover:opacity-90"
                               >
                                 Trade

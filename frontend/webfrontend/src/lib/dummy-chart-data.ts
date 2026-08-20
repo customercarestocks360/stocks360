@@ -161,3 +161,14 @@ export function generateSeries(seed: string, timeframe: Timeframe, basePrice: nu
 export function isIntraday(timeframe: Timeframe) {
   return TF_CONFIG[timeframe].intraday;
 }
+
+/**
+ * Folds a live price tick into the in-progress bar: extends the high/low and moves the
+ * close, without touching `time`/`open`. Keeps updating the same bar until the next REST
+ * refetch rolls the series to a new one.
+ * ponytail: no timeframe-aware bar-boundary rollover — add if candles need to open a fresh
+ * bar exactly on the timeframe boundary instead of waiting for the next refetch.
+ */
+export function mergeLiveTick(bar: ChartPoint, price: number): ChartPoint {
+  return { ...bar, high: Math.max(bar.high, price), low: Math.min(bar.low, price), close: price, price };
+}

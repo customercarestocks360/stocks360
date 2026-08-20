@@ -1,15 +1,16 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
-import {
-  useAuth,
-  txKind,
-  txStatus,
-  lockedAmount,
-  NETWORK_OF,
-  type DepositMethod,
-} from "@/components/AuthProvider";
+import { useAuth } from "@/components/AuthProvider";
 import { ConvertWidget } from "@/components/ui/convert-widget";
+import { useTrading } from "@/hooks/useTrading";
+import { useFundingRequests } from "@/hooks/useFundingRequests";
+import { ApiError } from "@/lib/api";
+import { currentIdToken } from "@/lib/firebase";
+import { requestWithdrawalFunding, newIdempotencyKey, type FundingNetwork } from "@/lib/funding-api";
+import { amount as parseAmount, type SettlementCurrency } from "@/lib/trading-api";
+
+type DepositMethod = SettlementCurrency;
 
 export const Route = createFileRoute("/withdraw")({
   head: () => ({
@@ -29,7 +30,7 @@ type AssetOption = {
 };
 
 type NetworkOption = {
-  code: string;
+  code: FundingNetwork;
   name: string;
   destinationLabel: string;
   destinationPlaceholder: string;
@@ -82,7 +83,9 @@ const NETWORK_OPTIONS: NetworkOption[] = [
     fee: "1 USDT",
   },
   {
-    code: "MATIC",
+    // The backend's rail enum names this chain POLYGON, not the ticker MATIC — sending
+    // the wrong string here would 422 on every Polygon withdrawal.
+    code: "POLYGON",
     name: "Polygon",
     destinationLabel: "Wallet Address (Polygon)",
     destinationPlaceholder: "0x…",
@@ -238,36 +241,60 @@ function Step({
 }
 
 function WithdrawPage() {
-  const { isLoggedIn, kycCompleted, balances, transactions, requestWithdrawal } = useAuth();
+  const { isLoggedIn, kycCompleted } = useAuth();
+  const trading = useTrading();
+  const withdrawals = useFundingRequests("withdrawal");
 
   const asset = ASSET_OPTIONS[0]!;
   const [network, setNetwork] = useState<NetworkOption>(NETWORK_OPTIONS[0]!);
   const [destination, setDestination] = useState("");
   const [amount, setAmount] = useState("");
-  const [stage, setStage] = useState<"idle" | "requested">("idle");
+  const [stage, setStage] = useState<"idle" | "submitting" | "requested">("idle");
+  const [error, setError] = useState("");
   const [openFaq, setOpenFaq] = useState<number | null>(null);
   const [showConvert, setShowConvert] = useState(false);
 
   /**
-   * What's actually free to withdraw right now — the raw balance minus
-   * whatever's already locked in a pending withdrawal request.
+   * What's actually free to withdraw right now. `Balance.available` already excludes
+   * anything reserved — by an open buy order or by an earlier pending withdrawal — so
+   * there is no local locked-amount math to redo here.
    */
-  const available = balances[asset.code] - lockedAmount(transactions, asset.code);
+  const available = trading.availableIn(asset.code);
 
-  const recentWithdrawals = useMemo(
-    () => transactions.filter((t) => txKind(t) === "withdraw").slice(0, 5),
-    [transactions],
-  );
+  const recentWithdrawals = withdrawals.requests.slice(0, 5);
 
   const value = parseFloat(amount);
   const overBalance = Number.isFinite(value) && value > available;
   const canSubmit =
     Number.isFinite(value) && value > 0 && !overBalance && destination.trim().length > 0 && stage === "idle";
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!canSubmit) return;
-    requestWithdrawal(asset.code, value, destination.trim(), network.code);
-    setStage("requested");
+    setStage("submitting");
+    setError("");
+    try {
+      const token = await currentIdToken();
+      await requestWithdrawalFunding(
+        {
+          currency: asset.code,
+          amount: String(value),
+          network: network.code,
+          destination: destination.trim(),
+          idempotency_key: newIdempotencyKey(),
+        },
+        token,
+      );
+      setStage("requested");
+      void withdrawals.refresh();
+      void trading.refresh();
+    } catch (err) {
+      setStage("idle");
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : "Could not request this withdrawal. Please try again.",
+      );
+    }
   };
 
   if (!isLoggedIn || !kycCompleted) {
@@ -448,13 +475,18 @@ function WithdrawPage() {
                         <span className="font-semibold text-foreground">{network.arrival}</span>
                       </div>
 
+                      {error && (
+                        <p className="mt-3 text-xs text-destructive" role="alert">
+                          {error}
+                        </p>
+                      )}
                       <button
                         type="button"
-                        onClick={handleSubmit}
+                        onClick={() => void handleSubmit()}
                         disabled={!canSubmit}
                         className="mt-4 flex w-full items-center justify-center gap-2 rounded sm:rounded-xl bg-primary px-4 py-3 text-sm font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
                       >
-                        Request withdrawal
+                        {stage === "submitting" ? "Requesting…" : "Request withdrawal"}
                       </button>
                       <p className="mt-3 text-center text-[11px] text-muted-foreground/70">
                         This locks the amount immediately. It's debited from your balance only once settled.
@@ -521,7 +553,7 @@ function WithdrawPage() {
                 </thead>
                 <tbody>
                   {recentWithdrawals.map((t) => {
-                    const status = txStatus(t);
+                    const status = t.status;
                     const tone =
                       status === "cancelled"
                         ? "text-muted-foreground"
@@ -530,12 +562,15 @@ function WithdrawPage() {
                           : "text-down";
                     return (
                       <tr key={t.id} className="border-b border-border last:border-b-0">
-                        <td className="px-1 sm:px-2 py-2.5 sm:py-4 font-mono text-xs text-muted-foreground">{stamp(t.date)}</td>
-                        <td className="px-1 sm:px-2 py-2.5 sm:py-4 font-medium text-foreground">{t.method}</td>
-                        <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-muted-foreground">{NETWORK_OF[t.method]}</td>
-                        <td className={`px-1 sm:px-2 py-2.5 sm:py-4 text-right font-mono font-semibold ${tone}`}>−{fmt(t.amount)}</td>
+                        <td className="px-1 sm:px-2 py-2.5 sm:py-4 font-mono text-xs text-muted-foreground">{stamp(t.created_at)}</td>
+                        <td className="px-1 sm:px-2 py-2.5 sm:py-4 font-medium text-foreground">{t.currency}</td>
+                        <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-muted-foreground">{t.network}</td>
+                        <td className={`px-1 sm:px-2 py-2.5 sm:py-4 text-right font-mono font-semibold ${tone}`}>
+                          −{fmt(parseAmount(t.amount) ?? 0)}
+                        </td>
                         <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-right">
                           <span
+                            title={t.resolution_note ?? undefined}
                             className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ${
                               status === "cancelled"
                                 ? "bg-muted text-muted-foreground"
