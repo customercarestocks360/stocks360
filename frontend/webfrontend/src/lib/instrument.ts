@@ -66,3 +66,16 @@ const COMPACT = new Intl.NumberFormat("en-US", { notation: "compact", maximumFra
 export function formatCompact(value: number | null): string {
   return value === null || !Number.isFinite(value) ? "—" : COMPACT.format(value);
 }
+
+/**
+ * A money amount with its currency named rather than glyphed — "1,204.50 USDT".
+ *
+ * Named because a glyph is ambiguous: `$` is both USD and a dozen other dollars, and this
+ * app holds INR, USD and USDT side by side. Amounts are per currency everywhere for the same
+ * reason — there is no licensed FX rate here to add them up with.
+ */
+export function formatMoney(value: number | null, currency: string): string {
+  if (value === null || !Number.isFinite(value)) return "—";
+  const n = value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return `${n} ${currency}`;
+}

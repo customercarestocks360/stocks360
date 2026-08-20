@@ -1,10 +1,11 @@
 import { Link, useLocation } from "@tanstack/react-router";
 
+// Five tabs, not six: FX is a class on the /trade desk rather than its own destination, and
+// five is also the most a phone fits before the labels start truncating.
 const TABS = [
   { n: "Home", t: "/", icon: "fa-house" },
   { n: "Markets", t: "/markets", icon: "fa-chart-line" },
   { n: "Trade", t: "/trade", icon: "fa-arrow-right-arrow-left" },
-  { n: "Forex", t: "/forex", icon: "fa-money-bill-transfer" },
   { n: "Wallet", t: "/wallet", icon: "fa-wallet" },
   { n: "Account", t: "/account", icon: "fa-user" },
 ] as const;

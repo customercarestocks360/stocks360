@@ -226,7 +226,7 @@ instead; `—` means the request carries nothing but the bearer token.
 | `GET /crypto/ticker/{symbol}` | 24h ticker, served from the live cache when available | `/crypto/ticker/BTCUSDT` | quote |
 | `GET /crypto/tickers` | Batch tickers. `?symbols=BTCUSDT,ETHUSDT` or repeated `?symbols=`, max 50 | `?symbols=BTCUSDT,ETHUSDT` | list of quotes |
 | `GET /crypto/orderbook/{symbol}` | Depth. `?limit=` one of 5/10/20/50/100/500/1000 | `/crypto/orderbook/BTCUSDT?limit=20` | order book |
-| `GET /crypto/klines/{symbol}` | Candles. `?interval=` 1m–1M, `?limit=` 1–1000 | `/crypto/klines/BTCUSDT?interval=1h&limit=200` | series |
+| `GET /crypto/klines/{symbol}` | **Public — no token.** Candles. `?interval=` 1m–1M, `?limit=` 1–1000 | `/crypto/klines/BTCUSDT?interval=1h&limit=200` | series |
 | `GET /crypto/stream/stats` | Fan-out diagnostics for this process | — | stats |
 | `POST /crypto/watchlists` | Create an instance from `{ name, symbols }`. `409` duplicate name or cap reached | `{"name": "Majors", "symbols": ["BTCUSDT", "ETHUSDT"]}` | `201` + watchlist |
 | `GET /crypto/watchlists` | Your watchlists, newest first. `?limit=` 1–200 | `?limit=50` | list |
@@ -241,7 +241,7 @@ instead; `—` means the request carries nothing but the bearer token.
 | `GET /forex/session` | Whether the interbank market is open | — | session |
 | `GET /forex/quote/{pair}` | Quote with bid, ask, mid and the spread in price and pips | `/forex/quote/EUR-USD` | quote |
 | `GET /forex/quotes` | Batch quotes. `?symbols=EUR-USD,GBP-USD` or repeated, max 30 | `?symbols=EUR-USD,GBP-USD` | list of quotes |
-| `GET /forex/candles/{pair}` | `?series=daily\|intraday`, `?limit=` 1–360 | `/forex/candles/EUR-USD?series=daily&limit=90` | series |
+| `GET /forex/candles/{pair}` | **Public — no token.** `?interval=` 1m–1mo, `?range=` 1d–max. Two sources, picked by interval: at `1m`/`2m`/`5m` the bars are **aggregated from AwesomeAPI ticks** (its `/json/{pair}/100` feed, ~46s apart, ~77 min of history) because Yahoo's own fine FX intervals are price-rounded before publication — an hour of `1m` came back 100 % flat (`o==h==l==c`) and `5m` held barely two distinct price levels, which draws as a row of dashes. Ticks are unrounded, so aggregating them gives 2 % flat at `2m`. Coarser intervals come from the Yahoo chart feed (`EURUSD=X`), since 100 ticks cannot cover a day. AwesomeAPI's raw rows are never used as candles directly: its `high`/`low` are session extremes repeated identically on every row and `varBid` is change against the session open. | `/forex/candles/EUR-USD?interval=2m&range=1d` | series |
 | `GET /forex/stream/stats` | Fan-out diagnostics for this process | — | stats |
 | `POST /forex/watchlists` | Create an instance from `{ name, symbols }` | `{"name": "Majors", "symbols": ["EUR-USD", "USD-JPY"]}` | `201` + watchlist |
 | `GET /forex/watchlists` | Your watchlists, newest first | `?limit=50` | list |
@@ -255,7 +255,7 @@ instead; `—` means the request carries nothing but the bearer token.
 | `GET /stocks/instruments` | Search the instrument master. `?search=`, `?limit=` 1–50 | `?search=reliance&limit=10` | list of instruments |
 | `GET /stocks/quote/{symbol}` | Quote with price, change, day range, volume, market state | `/stocks/quote/RELIANCE.NS` | quote |
 | `GET /stocks/quotes` | Batch quotes. `?symbols=AAPL,RELIANCE.NS`, max 20 | `?symbols=AAPL,RELIANCE.NS` | list of quotes |
-| `GET /stocks/candles/{symbol}` | `?interval=` 1m–1mo, `?range=` 1d–max | `/stocks/candles/AAPL?interval=1d&range=1mo` | series |
+| `GET /stocks/candles/{symbol}` | **Public — no token.** `?interval=` 1m–1mo, `?range=` 1d–max | `/stocks/candles/AAPL?interval=1d&range=1mo` | series |
 | `GET /stocks/stream/stats` | Fan-out diagnostics for this process | — | stats |
 | `POST /stocks/watchlists` | Create an instance from `{ name, symbols }` | `{"name": "Nifty picks", "symbols": ["RELIANCE.NS", "AAPL"]}` | `201` + watchlist |
 | `GET /stocks/watchlists` | Your watchlists, newest first | `?limit=50` | list |

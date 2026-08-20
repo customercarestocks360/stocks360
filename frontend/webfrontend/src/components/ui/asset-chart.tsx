@@ -10,7 +10,9 @@ import {
   type ISeriesApi,
   type UTCTimestamp,
 } from "lightweight-charts";
-import { TIMEFRAMES, generateSeries, isIntraday, mergeLiveTick, type ChartPoint, type Timeframe } from "@/lib/dummy-chart-data";
+import { TIMEFRAMES, mergeLiveTick, type ChartPoint, type Timeframe } from "@/lib/chart-data";
+import { describeSeries } from "@/lib/chart-window";
+import { decimalsFor } from "@/lib/instrument";
 
 const MA_WINDOW = 20;
 const UP = "#26a69a";
@@ -133,19 +135,6 @@ function ToolBtn({
   );
 }
 
-function PerfTile({ label, pct }: { label: string; pct: number }) {
-  const up = pct >= 0;
-  return (
-    <div className="rounded-lg border border-border bg-card p-3 text-center">
-      <div className={`font-mono text-sm font-bold ${up ? "text-up" : "text-down"}`}>
-        {up ? "+" : ""}
-        {pct.toFixed(2)}%
-      </div>
-      <div className="mt-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">{label}</div>
-    </div>
-  );
-}
-
 /**
  * Shared chart panel used on the Trade/Forex pages, rendered with
  * lightweight-charts so pixel↔price mapping is exact (which is what makes the
@@ -235,6 +224,10 @@ export function AssetChart({
   const volRef = useRef<ISeriesApi<"Histogram"> | null>(null);
   const maRef = useRef<ISeriesApi<"Line"> | null>(null);
   const drawIdRef = useRef(1);
+  /** Which series the time scale was last framed for — see the `fitContent()` guard below. */
+  const fittedRef = useRef("");
+  /** Bar count at the last draw, to tell "a bar was appended" from "the same bars again". */
+  const drawnLenRef = useRef(0);
   /** A fingertip is far less precise than a mouse cursor — widen the hit-test radius for it. */
   const lastPointerTypeRef = useRef<string>("mouse");
   const undoRef = useRef<Drawing[][]>([]);
@@ -253,26 +246,23 @@ export function AssetChart({
   >(null);
 
   /**
-   * `basePrice` ticks on every price update; reading it directly here would recompute the
-   * demo series (and, downstream, force a full chart rebuild that resets zoom/pan) on every
-   * tick. A ref captures it without becoming a render/memo dependency.
+   * Only ever real candles.
+   *
+   * This used to fall back to `generateSeries` — a seeded random walk — whenever `series` was
+   * absent, which was every signed-out visit and every failed request. It was captioned as a
+   * sample, but a synthetic candlestick chart is indistinguishable from a real one and the
+   * surrounding UI says "Live". The candle endpoints are public now, so there is a real series
+   * to draw; when there genuinely is none the chart renders empty and says so.
    */
-  const basePriceRef = useRef(basePrice);
-  basePriceRef.current = basePrice;
-  const demoSeries = useMemo(
-    () => generateSeries(seed, timeframe, basePriceRef.current),
-    [seed, timeframe],
-  );
-
   const data = useMemo(() => {
-    const base = series ?? demoSeries;
+    const base = series ?? [];
     let sum = 0;
     return base.map((p, i) => {
       sum += p.close;
       if (i >= MA_WINDOW) sum -= base[i - MA_WINDOW]!.close;
       return { ...p, ma: i >= MA_WINDOW - 1 ? sum / MA_WINDOW : undefined } as ChartPoint;
     });
-  }, [series, demoSeries]);
+  }, [series]);
 
   const timeIndex = useMemo(() => {
     const m = new Map<number, number>();
@@ -280,37 +270,48 @@ export function AssetChart({
     return m;
   }, [data]);
 
+  /** FX publishes none at all, so the volume control and its pane are meaningless there. */
+  const seriesHasVolume = useMemo(() => data.some((d) => d.volume > 0), [data]);
+
+  /**
+   * What the loaded bars *are*, measured from the bars — the period they cover and the size of
+   * one — as opposed to the timeframe that was asked for.
+   *
+   * The two are not the same and the chart used to caption itself with the request. A venue
+   * only has the bars it has: `1W` on an equity is five sessions, which is four calendar days;
+   * a session twenty minutes old has twenty minutes under `1H`; `ALL` read "2Y" on the button
+   * while crypto asked for 500 daily bars, which is sixteen months. Everything the header and
+   * the buttons say about period now comes from here.
+   */
+  const shape = useMemo(() => describeSeries(data), [data]);
+
   const rawLastPoint = data[data.length - 1];
+  /** Every series is real now, so a live tick always belongs on the last bar. */
+  const liveTick = livePrice;
   /** Folds the live tick into the last bar for header/readout display, without mutating `data`. */
   const lastPoint = useMemo(
-    () => (livePrice != null && rawLastPoint ? mergeLiveTick(rawLastPoint, livePrice) : rawLastPoint),
-    [rawLastPoint, livePrice],
+    () => (liveTick != null && rawLastPoint ? mergeLiveTick(rawLastPoint, liveTick) : rawLastPoint),
+    [rawLastPoint, liveTick],
   );
   const firstPoint = data[0];
   const lastPrice = lastPoint?.close ?? basePrice;
   const firstPrice = firstPoint?.open ?? basePrice;
   const changePct = firstPrice ? ((lastPrice - firstPrice) / firstPrice) * 100 : 0;
   const up = changePct >= 0;
-  const decimals = lastPrice < 1 ? 4 : lastPrice < 100 ? 3 : 2;
+  /**
+   * The shared rule, not a local one. This used to be its own ladder (`< 1 ? 4 : < 100 ? 3 : 2`)
+   * which printed EUR/USD as 1.168 while the ribbon, using `decimalsFor`, printed 1.1684 — the
+   * same instrument quoted to two different precisions on one screen, losing a pip in the chart.
+   */
+  const decimals = decimalsFor(lastPrice);
   const readout = hoverIndex !== null ? (data[hoverIndex] ?? lastPoint) : lastPoint;
 
-  /**
-   * Multi-window performance tiles. Each window needs its own series, and on a real feed
-   * that would mean three more requests per symbol — so they are shown only for the demo
-   * series. Inventing them next to real candles would be the worst of both.
-   */
-  const perf = useMemo(
-    () =>
-      series
-        ? []
-        : (["1W", "1M", "ALL"] as Timeframe[]).map((tf) => {
-            const s = generateSeries(seed, tf, basePriceRef.current);
-            const f = s[0]?.open ?? basePriceRef.current;
-            const l = s[s.length - 1]?.close ?? basePriceRef.current;
-            return { tf: tf === "ALL" ? "2Y" : tf, pct: f ? ((l - f) / f) * 100 : 0 };
-          }),
-    [series, seed],
-  );
+  /*
+    The multi-window performance tiles are gone with the demo series. They were derived from
+    three extra generated series, so they only ever existed for synthetic data; the equivalent
+    for real candles is three more requests per symbol, which is a feature to ask for rather
+    than something to fake.
+  */
 
   /* Everything the imperative listeners need, kept in a ref so the handlers
      never read stale closure values. */
@@ -643,6 +644,16 @@ export function AssetChart({
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
+    /*
+      Whether the newest bar is on screen right now. Read *before* the data is replaced, because
+      `setData` preserves the visible *logical* range rather than the right edge: append a bar
+      and the range that ended on the last one now ends one short of it, so on a live series the
+      newest bar would slide off to the right and the chart would drift into the past by itself.
+      Panned back into history, the range is what should be preserved, so this only fires when
+      the reader was actually watching the edge.
+    */
+    const range = chart.timeScale().getVisibleLogicalRange();
+    const wasAtRightEdge = range === null || range.to >= drawnLenRef.current - 1;
     if (mainRef.current) {
       chart.removeSeries(mainRef.current);
       mainRef.current = null;
@@ -652,18 +663,25 @@ export function AssetChart({
       maRef.current = null;
     }
     const closes = data.map((d) => ({ time: d.time as UTCTimestamp, value: d.close }));
+    /**
+     * The axis needs telling how precise the instrument is: left to its default it renders an
+     * FX pair's whole visible range as "1.17 / 1.18", collapsing the pips the chart exists to
+     * show. `minMove` is the smallest step the scale is allowed to label.
+     */
+    const priceFormat = { type: "price" as const, precision: decimals, minMove: 10 ** -decimals };
     if (chartType === "candles") {
       const s = chart.addCandlestickSeries({
         upColor: UP, downColor: DOWN, borderUpColor: UP, borderDownColor: DOWN, wickUpColor: UP, wickDownColor: DOWN,
+        priceFormat,
       });
       s.setData(data.map((d) => ({ time: d.time as UTCTimestamp, open: d.open, high: d.high, low: d.low, close: d.close })));
       mainRef.current = s;
     } else if (chartType === "area") {
-      const s = chart.addAreaSeries({ lineColor: color, topColor: withAlpha(color, 0.35), bottomColor: withAlpha(color, 0), lineWidth: 2 });
+      const s = chart.addAreaSeries({ lineColor: color, topColor: withAlpha(color, 0.35), bottomColor: withAlpha(color, 0), lineWidth: 2, priceFormat });
       s.setData(closes);
       mainRef.current = s;
     } else {
-      const s = chart.addLineSeries({ color, lineWidth: 2, lineType: LineType.Simple });
+      const s = chart.addLineSeries({ color, lineWidth: 2, lineType: LineType.Simple, priceFormat });
       s.setData(closes);
       mainRef.current = s;
     }
@@ -672,15 +690,50 @@ export function AssetChart({
       ma.setData(data.filter((d) => d.ma != null).map((d) => ({ time: d.time as UTCTimestamp, value: d.ma! })));
       maRef.current = ma;
     }
+    /*
+      FX has no venue volume — it is an OTC market, so every bar's volume is legitimately 0.
+      Plotting that reserved the bottom quarter of the pane for an empty histogram and squeezed
+      the candles into what was left. When there is no volume to show, the price series gets the
+      whole height back.
+    */
+    const plotVolume = showVolume && seriesHasVolume;
     volRef.current?.setData(
-      showVolume
+      plotVolume
         ? data.map((d) => ({ time: d.time as UTCTimestamp, value: d.volume, color: d.close >= d.open ? withAlpha(UP, 0.5) : withAlpha(DOWN, 0.5) }))
         : [],
     );
-    chart.applyOptions({ timeScale: { timeVisible: isIntraday(timeframe), secondsVisible: false } });
-    chart.timeScale().fitContent();
+    chart.priceScale("right").applyOptions({
+      scaleMargins: { top: 0.08, bottom: plotVolume ? 0.26 : 0.08 },
+    });
+    chart.applyOptions({ timeScale: { timeVisible: shape.intraday, secondsVisible: false } });
+    /*
+      Only frame the series when it is a *different* series. `data` now changes on every poll,
+      and an unconditional `fitContent()` threw away the reader's pan and zoom every time one
+      landed — a 1-minute chart would snap back to the full window mid-inspection. A poll that
+      changed nothing does not even reach here, since `useChartSeries` keeps the old array.
+    */
+    const view = `${seed}|${timeframe}|${chartType}|${isFullscreen}`;
+    if (fittedRef.current !== view) {
+      fittedRef.current = view;
+      chart.timeScale().fitContent();
+    } else if (wasAtRightEdge && data.length !== drawnLenRef.current) {
+      chart.timeScale().scrollToRealTime();
+    }
+    drawnLenRef.current = data.length;
     renderOverlay();
-  }, [data, chartType, showMA, showVolume, color, timeframe, isFullscreen, renderOverlay]);
+  }, [
+    data,
+    chartType,
+    showMA,
+    showVolume,
+    seriesHasVolume,
+    color,
+    seed,
+    timeframe,
+    shape.intraday,
+    isFullscreen,
+    renderOverlay,
+  ]);
 
   /**
    * Live ticks update the in-progress bar via `series.update()` — the lightweight-charts call
@@ -690,8 +743,8 @@ export function AssetChart({
   useEffect(() => {
     const main = mainRef.current;
     const bar = rawLastPoint;
-    if (!main || !bar || livePrice == null) return;
-    const merged = mergeLiveTick(bar, livePrice);
+    if (!main || !bar || liveTick == null) return;
+    const merged = mergeLiveTick(bar, liveTick);
     if (chartType === "candles") {
       (main as ISeriesApi<"Candlestick">).update({
         time: merged.time as UTCTimestamp,
@@ -703,7 +756,7 @@ export function AssetChart({
     } else {
       (main as ISeriesApi<"Area" | "Line">).update({ time: merged.time as UTCTimestamp, value: merged.close });
     }
-  }, [livePrice, rawLastPoint, chartType]);
+  }, [liveTick, rawLastPoint, chartType]);
 
   /* Repaint the vector layer whenever anything visual about it changes. */
   useEffect(() => {
@@ -1039,6 +1092,18 @@ export function AssetChart({
 
   const selected = drawings.find((d) => d.id === selectedId) ?? null;
 
+  /**
+   * What a timeframe button says: the period it will request, except for the pressed one, which
+   * says the period that actually came back.
+   *
+   * They are not always the same and the difference used to be invisible. `ALL` was hardcoded
+   * to "2Y" while the crypto desk asked for 500 daily bars — sixteen months — and `1H` clicked
+   * twenty minutes into a session drew twenty minutes of bars under a button reading an hour.
+   * `title` keeps the requested name reachable so it stays obvious which button is pressed.
+   */
+  const timeframeLabel = (tf: Timeframe) =>
+    tf === timeframe && shape.covered > 0 ? shape.label : tf;
+
   /* ---------------- render pieces ---------------- */
   /**
    * The bar readout — the OHLCV of whatever bar the crosshair is over, falling back to the
@@ -1058,11 +1123,18 @@ export function AssetChart({
           <span>Vol <span className="text-foreground">{fmtInt(readout.volume)}</span></span>
         </div>
       )}
-      <span className={`font-mono text-[11px] font-bold ${up ? "text-up" : "text-down"}`}>
-        {up ? "+" : ""}
-        {changePct.toFixed(2)}%
-        <span className="ml-1 font-normal text-muted-foreground">{timeframe}</span>
-      </span>
+      {/* The move across the loaded series, which is scoped to the timeframe and so says
+          something the ribbon's day change does not — captioned with the period the bars
+          actually cover and the size of one, not with the timeframe that was requested. */}
+      {data.length > 0 && (
+        <span className={`font-mono text-[11px] font-bold ${up ? "text-up" : "text-down"}`}>
+          {up ? "+" : ""}
+          {changePct.toFixed(2)}%
+          <span className="ml-1 font-normal text-muted-foreground">
+            {shape.label} · {shape.barLabel} bars
+          </span>
+        </span>
+      )}
     </div>
   );
 
@@ -1075,13 +1147,14 @@ export function AssetChart({
             key={tf}
             type="button"
             onClick={() => setTimeframe(tf)}
+            title={tf}
             className={`rounded border px-2 py-1 font-mono text-xs transition-colors ${
               tf === timeframe
                 ? "border-primary bg-primary font-bold text-primary-foreground"
                 : "border-border bg-secondary/40 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
             }`}
           >
-            {tf === "ALL" ? "2Y" : tf}
+            {timeframeLabel(tf)}
           </button>
         ))}
       </div>
@@ -1120,13 +1193,24 @@ export function AssetChart({
             MA{MA_WINDOW}
           </button>
         </HoverTip>
-        <HoverTip label={showVolume ? "Hide volume" : "Show volume"}>
+        {/* Disabled rather than hidden where the market has none: an inert-looking toggle is
+            confusing, but a missing one makes the reader wonder where volume went. */}
+        <HoverTip
+          label={
+            !seriesHasVolume
+              ? "This market publishes no volume"
+              : showVolume
+                ? "Hide volume"
+                : "Show volume"
+          }
+        >
           <button
             type="button"
+            disabled={!seriesHasVolume}
             onClick={() => setShowVolume((v) => !v)}
             className={`rounded border px-2 py-1 font-mono text-xs font-semibold transition-colors ${
-              showVolume ? "border-primary bg-primary text-primary-foreground" : "border-border bg-secondary/40 text-muted-foreground hover:text-foreground"
-            }`}
+              showVolume && seriesHasVolume ? "border-primary bg-primary text-primary-foreground" : "border-border bg-secondary/40 text-muted-foreground hover:text-foreground"
+            } ${seriesHasVolume ? "" : "cursor-not-allowed opacity-40"}`}
           >
             Vol
           </button>
@@ -1151,19 +1235,9 @@ export function AssetChart({
     <div className="relative min-h-0 flex-1">
       <div ref={hostRef} className="absolute inset-0 touch-none" />
       <canvas ref={overlayRef} className="pointer-events-none absolute inset-0" />
-      {/*
-        The demo series is a seeded random walk, not a price history. When it is what is on
-        screen that has to be stated plainly — a synthetic candlestick chart is indistinguishable
-        from a real one, and the surrounding UI says "Live".
-      */}
-      {series === undefined && (
-        <div className="pointer-events-none absolute left-1/2 top-3 z-30 -translate-x-1/2 rounded-full border border-amber-500/40 bg-amber-500/10 px-3 py-1 font-mono text-[10px] uppercase tracking-wider text-amber-600 shadow-sm backdrop-blur dark:text-amber-400">
-          <i className="fa-solid fa-flask mr-1.5" />
-          Sample data — sign in for real candles
-        </div>
-      )}
-      {/* Feed status for a chart driven by real candles — never shown for the demo series. */}
-      {!loadingSeries && !feedConnected && series !== undefined && (
+      {/* The "sample data" badge is gone because the sample data is gone: candles are public,
+          so what is drawn here is always the real series. */}
+      {!loadingSeries && !feedConnected && (
         <div className="pointer-events-none absolute left-1/2 top-3 z-30 -translate-x-1/2 rounded-full border border-amber-500/40 bg-amber-500/10 px-3 py-1 font-mono text-[10px] uppercase tracking-wider text-amber-600 shadow-sm backdrop-blur dark:text-amber-400">
           <i className="fa-solid fa-plug-circle-xmark mr-1.5" />
           Reconnecting to live feed…
@@ -1181,7 +1255,7 @@ export function AssetChart({
           {seriesError}
         </div>
       )}
-      {!loadingSeries && !seriesError && series !== undefined && series.length === 0 && (
+      {!loadingSeries && !seriesError && series?.length === 0 && (
         <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center">
           <span className="rounded-lg border border-border bg-card/90 px-3 py-2 text-xs text-muted-foreground shadow-sm backdrop-blur">
             No candles for this interval.
@@ -1388,13 +1462,6 @@ export function AssetChart({
             {changePct.toFixed(2)}%
           </span>
         </div>
-        {perf.length > 0 && (
-          <div className="mt-3 grid grid-cols-3 gap-2">
-            {perf.map((p) => (
-              <PerfTile key={p.tf} label={p.tf} pct={p.pct} />
-            ))}
-          </div>
-        )}
       </div>
     </>
   );
@@ -1430,13 +1497,14 @@ export function AssetChart({
                   key={tf}
                   type="button"
                   onClick={() => setTimeframe(tf)}
+                  title={tf}
                   className={`rounded border px-2 py-1 font-mono text-xs transition-colors ${
                     tf === timeframe
                       ? "border-primary bg-primary font-bold text-primary-foreground"
                       : "border-border bg-secondary/40 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
                   }`}
                 >
-                  {tf === "ALL" ? "2Y" : tf}
+                  {timeframeLabel(tf)}
                 </button>
               ))}
             </div>
@@ -1473,13 +1541,14 @@ export function AssetChart({
               key={tf}
               type="button"
               onClick={() => setTimeframe(tf)}
+              title={tf}
               className={`shrink-0 rounded border px-2.5 py-1 font-mono text-xs transition-colors ${
                 tf === timeframe
                   ? "border-primary bg-primary font-bold text-primary-foreground"
                   : "border-border bg-secondary/40 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
               }`}
             >
-              {tf === "ALL" ? "2Y" : tf}
+              {timeframeLabel(tf)}
             </button>
           ))}
         </div>

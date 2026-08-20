@@ -370,14 +370,26 @@ async def quotes(symbols: list[str]) -> list[StockQuote]:
     return [q for q in results if q is not None]
 
 
-async def candles(symbol: str, interval: Interval, span: Range) -> tuple[list[Candle], str | None]:
+async def candles(
+    symbol: str,
+    interval: Interval,
+    span: Range,
+    extra_precision: int = 0,
+) -> tuple[list[Candle], str | None]:
+    """`extra_precision` adds decimal places beyond the upstream's own `priceHint`.
+
+    Equities need none — a hint of 2 is exactly how a share price is quoted. FX does: the hint
+    for a major is 4, but the pair moves in fractional pips, so rounding to 4 flattens any bar
+    whose range was under half a pip into `open == high == low == close`, which a candlestick
+    chart can only draw as a dash.
+    """
     result = await _chart(symbol, interval, span)
     stamps = result.get("timestamp") or []
     series = ((result.get("indicators") or {}).get("quote") or [{}])[0]
     opens, highs = series.get("open") or [], series.get("high") or []
     lows, closes = series.get("low") or [], series.get("close") or []
     volumes = series.get("volume") or []
-    hint = min(8, max(0, int(result["meta"].get("priceHint") or 2)))
+    hint = min(8, max(0, int(result["meta"].get("priceHint") or 2)) + extra_precision)
 
     out: list[Candle] = []
     for i, stamp in enumerate(stamps):

@@ -294,7 +294,8 @@ function Index() {
 
               {/* Forex Card — mock live ticker + sparkline */}
               <Link
-                to="/forex"
+                to="/trade"
+                search={{ class: "forex" as const }}
                 data-reveal="approach"
                 data-delay="3"
                 className="group relative flex flex-1 flex-col overflow-hidden rounded sm:rounded-3xl border border-border bg-card p-4 sm:p-8 transition-all duration-500 hover:-translate-y-1.5 hover:shadow-2xl hover:border-primary/30 cursor-pointer min-h-[380px]"

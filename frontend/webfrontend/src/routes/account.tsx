@@ -4,17 +4,12 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { useAuth, type Order, type Transaction } from "@/components/AuthProvider";
 import { useFavorites } from "@/components/FavoritesProvider";
 import { FavoriteStar } from "@/components/ui/favorite-star";
-import { MiniSparkline } from "@/components/ui/marketing";
 import { currentIdToken } from "@/lib/firebase";
-import {
-  ASSETS,
-  CATEGORY_PICKS,
-  TYPE_ROUTES,
-  changeFor,
-  findAsset,
-  favKey,
-  type Asset,
-} from "@/lib/market-assets";
+import { useTrading } from "@/hooks/useTrading";
+import { useMarketTable, type MarketRow } from "@/hooks/useMarketTable";
+import type { OverviewMarket } from "@/lib/market-overview";
+import { formatMoney } from "@/lib/instrument";
+import { amount as parseAmount } from "@/lib/trading-api";
 import {
   ONBOARDING_STEPS,
   ONBOARDING_STEP_LABELS,
@@ -49,16 +44,16 @@ export const Route = createFileRoute("/account")({
   component: AccountPage,
 });
 
-const USDT_TO_INR = 93;
-
-const MARKET_TABS = [
-  "Holding",
-  "Hot",
-  "New Listing",
-  "Favorite",
-  "Top Gainers",
-  "24h Volume",
-] as const;
+/**
+ * Only the tabs that have a real source.
+ *
+ * "Hot", "New Listing" and "24h Volume" are gone along with the hardcoded table they were cut
+ * from. The first two were three tickers picked by hand — nothing here ranks listings by heat or
+ * by age — and ranking by volume would sort a share count against a traded value in USDT, two
+ * different units in one column. Gainers and losers survive because a percentage is comparable
+ * across all three markets.
+ */
+const MARKET_TABS = ["Holding", "Favorite", "Top Gainers", "Top Losers"] as const;
 type MarketTab = (typeof MARKET_TABS)[number];
 
 const TIME_FILTERS = [
@@ -272,18 +267,27 @@ function FilterBar({
   );
 }
 
-function AssetIcon({ asset, size = "h-8 w-8" }: { asset: Asset; size?: string }) {
+/** Same colour language as `/markets`, the wallet and the desks — one palette per asset class. */
+const CLASS_STYLES: Record<OverviewMarket, { icon: string; color: string }> = {
+  crypto: { icon: "fa-coins", color: "#f59e0b" },
+  forex: { icon: "fa-money-bill-transfer", color: "#3b82f6" },
+  stocks: { icon: "fa-chart-line", color: "#10b981" },
+};
+
+function MarketIcon({ market, size = "h-8 w-8" }: { market: OverviewMarket; size?: string }) {
+  const style = CLASS_STYLES[market];
   return (
     <span
       className={`flex ${size} shrink-0 items-center justify-center rounded-full font-mono text-[11px] font-bold`}
-      style={{ backgroundColor: `${asset.color}20`, color: asset.color }}
+      style={{ backgroundColor: `${style.color}20`, color: style.color }}
     >
-      <i className={`fa-solid ${asset.icon} text-xs`} />
+      <i className={`fa-solid ${style.icon} text-xs`} />
     </span>
   );
 }
 
-function ChangeBadge({ value }: { value: number }) {
+function ChangeBadge({ value }: { value: number | null }) {
+  if (value === null) return <span className="font-mono text-sm text-muted-foreground">—</span>;
   const up = value >= 0;
   return (
     <span className={`text-sm font-mono font-semibold ${up ? "text-up" : "text-down"}`}>
@@ -293,21 +297,40 @@ function ChangeBadge({ value }: { value: number }) {
   );
 }
 
-function AssetRow({ asset }: { asset: Asset }) {
+/**
+ * Favorites are keyed "<market>:<symbol>", the scheme `/markets` already uses, so a star set on
+ * one page is the same star on the other. They used to be keyed off this page own hardcoded
+ * tickers ("stock:AAPL"), which could never line up with a real feed symbol like RELIANCE.NS.
+ */
+function favKeyFor(row: MarketRow) {
+  return `${row.market}:${row.symbol}`;
+}
+
+/** One live row: the feed price and change, not a number typed into a table. */
+function AssetRow({ row }: { row: MarketRow }) {
   return (
     <div className="flex items-center gap-3 border-b border-border px-1 py-3 last:border-b-0">
-      <FavoriteStar id={favKey(asset)} />
-      <AssetIcon asset={asset} />
+      <FavoriteStar id={favKeyFor(row)} />
+      <MarketIcon market={row.market} />
       <div className="min-w-0">
-        <div className="font-semibold text-foreground">{asset.sym}</div>
-        <div className="truncate text-xs text-muted-foreground">{asset.name}</div>
+        <div className="font-semibold text-foreground">{row.label}</div>
+        <div className="truncate text-xs text-muted-foreground">{row.name}</div>
       </div>
       <div className="ml-auto text-right">
-        <div className="font-mono text-sm text-foreground">{asset.price}</div>
-        <ChangeBadge value={changeFor(asset, "24h")} />
+        <div className={`font-mono text-sm text-foreground ${row.stale ? "opacity-60" : ""}`}>
+          {row.price ?? "Awaiting quote…"}
+          {row.stale && (
+            <i
+              className="fa-solid fa-clock ml-1.5 text-[10px] text-muted-foreground"
+              title="Market closed or no recent trade — last known price"
+            />
+          )}
+        </div>
+        <ChangeBadge value={row.changePercent} />
       </div>
       <Link
-        to={TYPE_ROUTES[asset.type]}
+        to="/trade"
+        search={{ symbol: row.symbol, class: row.market }}
         className="ml-4 shrink-0 rounded-lg bg-primary px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-primary-foreground transition-opacity hover:opacity-90"
       >
         Trade
@@ -325,13 +348,15 @@ function AccountPage() {
     name,
     kycCompleted,
     onboardingStatus,
-    balances,
     transactions,
     orders,
     logout,
     setName,
   } = useAuth();
   const { isFavorite } = useFavorites();
+  /* The real portfolio and the real price feed — the same two sources /wallet and /markets use. */
+  const trading = useTrading();
+  const { rows: marketFeed, connected: feedConnected } = useMarketTable();
   const [sidebar, setSidebar] = useState<SidebarKey>(tab ?? "dashboard");
   const [marketTab, setMarketTab] = useState<MarketTab>("Holding");
   const [editingName, setEditingName] = useState(false);
@@ -394,16 +419,27 @@ function AccountPage() {
     };
   }, [isLoggedIn]);
 
-  const totalValueUsdt = balances.USDT;
+  /*
+    The portfolio trend chart is gone.
+    It was fourteen points of `Math.sin` scaled by the current balance — a green line that
+    always sloped up, drawn under the heading "Est. Total Value" as if it were account history.
+    Nothing here records a balance over time (the ledger is per movement, not per day), so the
+    honest options were a real series or none, and this is none.
+  */
 
-  const trendPoints = useMemo(() => {
-    const base = Math.max(totalValueUsdt, 1);
-    return Array.from({ length: 14 }, (_, i) =>
-      Math.round(base * (0.85 + 0.15 * Math.sin(i * 0.8 + 1.2) + i * 0.01)),
-    );
-  }, [totalValueUsdt]);
+  const favoriteRows = useMemo(
+    () => marketFeed.filter((r) => isFavorite(favKeyFor(r))),
+    [marketFeed, isFavorite],
+  );
 
-  const favoriteAssets = useMemo(() => ASSETS.filter((a) => isFavorite(favKey(a))), [isFavorite]);
+  /** Ranked on the live change percentage. A row the feed has not priced yet cannot be ranked. */
+  const rankedByChange = useMemo(
+    () =>
+      marketFeed
+        .filter((r) => r.changePercent !== null)
+        .sort((a, b) => b.changePercent! - a.changePercent!),
+    [marketFeed],
+  );
 
   const filteredPayments = useMemo(
     () => filterTransactions(transactions, ordersQuery, ordersTime),
@@ -418,22 +454,18 @@ function AccountPage() {
     [transactions, assetsQuery, assetsTime],
   );
 
-  const marketRows: Asset[] = useMemo(() => {
+  const marketRows: MarketRow[] = useMemo(() => {
     switch (marketTab) {
-      case "Hot":
-        return CATEGORY_PICKS.find((c) => c.title === "Hot")!.syms.map(findAsset);
-      case "New Listing":
-        return CATEGORY_PICKS.find((c) => c.title === "New")!.syms.map(findAsset);
-      case "Top Gainers":
-        return CATEGORY_PICKS.find((c) => c.title === "Top Gainer")!.syms.map(findAsset);
-      case "24h Volume":
-        return CATEGORY_PICKS.find((c) => c.title === "Top Volume")!.syms.map(findAsset);
       case "Favorite":
-        return favoriteAssets;
+        return favoriteRows;
+      case "Top Gainers":
+        return rankedByChange.slice(0, 5);
+      case "Top Losers":
+        return rankedByChange.slice(-5).reverse();
       default:
         return [];
     }
-  }, [marketTab, favoriteAssets]);
+  }, [marketTab, favoriteRows, rankedByChange]);
 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -575,17 +607,32 @@ function AccountPage() {
                   <div className="rounded sm:rounded-2xl border border-border bg-card p-6">
                     <div className="flex flex-wrap items-start justify-between gap-4">
                       <div>
-                        <div className="text-sm text-muted-foreground">Est. Total Value</div>
-                        <div className="mt-2 font-mono text-3xl font-bold text-foreground">
-                          {totalValueUsdt.toLocaleString(undefined, {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                          })}{" "}
-                          USDT
-                        </div>
-                        <div className="mt-2 text-xs text-muted-foreground">
-                          {balances.USDT.toLocaleString()} USDT Available
-                        </div>
+                        <div className="text-sm text-muted-foreground">Cash balance</div>
+                        {trading.balances.length === 0 ? (
+                          <div className="mt-2 font-mono text-3xl font-bold text-foreground">
+                            {trading.loading ? "Loading…" : "No cash held yet"}
+                          </div>
+                        ) : (
+                          <div className="mt-2 flex flex-wrap gap-x-8 gap-y-2">
+                            {trading.balances.map((b) => (
+                              <div key={b.currency}>
+                                <div className="font-mono text-3xl font-bold text-foreground">
+                                  {formatMoney(parseAmount(b.total), b.currency)}
+                                </div>
+                                <div className="mt-1 text-xs text-muted-foreground">
+                                  {formatMoney(parseAmount(b.available), b.currency)} available
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {/* Per currency, with no grand total: adding INR to USDT needs an FX rate
+                            this app has no licensed source for — the same rule /wallet and the
+                            backend own portfolio endpoint follow. This card used to read a
+                            single simulated USDT figure out of localStorage. */}
+                        {trading.error && (
+                          <p className="mt-2 text-xs text-destructive">{trading.error}</p>
+                        )}
                       </div>
                       <div className="flex flex-wrap gap-2">
                         <Link
@@ -612,19 +659,21 @@ function AccountPage() {
                         </button>
                       </div>
                     </div>
-                    <div className="mt-4">
-                      <MiniSparkline
-                        color="var(--up)"
-                        points={trendPoints}
-                        className="h-24 w-full"
-                      />
-                    </div>
                   </div>
 
                   {/* Markets */}
                   <div className="rounded sm:rounded-2xl border border-border bg-card p-6">
                     <div className="mb-4 flex items-center justify-between">
-                      <h2 className="text-lg font-bold text-foreground">Markets</h2>
+                      <div className="flex items-baseline gap-2">
+                        <h2 className="text-lg font-bold text-foreground">Markets</h2>
+                        {/* These rows are the live overview feed. Saying so matters because the
+                            panel used to render a hardcoded table that could never be stale. */}
+                        {!feedConnected && (
+                          <span className="font-mono text-[10px] uppercase tracking-wider text-amber-600 dark:text-amber-400">
+                            reconnecting…
+                          </span>
+                        )}
+                      </div>
                       <Link
                         to="/markets"
                         className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
@@ -650,17 +699,39 @@ function AccountPage() {
                     </div>
 
                     {marketTab === "Holding" ? (
-                      <div>
-                        <div className="flex items-center gap-3 px-1 py-3">
-                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#26a17b]/15 text-[10px] font-bold text-[#26a17b]">
-                            <i className="fa-solid fa-dollar-sign" />
-                          </span>
-                          <div className="font-semibold text-foreground">USDT</div>
-                          <div className="ml-auto font-mono text-sm text-foreground">
-                            {balances.USDT.toLocaleString()} USDT
-                          </div>
+                      trading.positions.length === 0 ? (
+                        <p className="py-8 text-center text-sm text-muted-foreground">
+                          {trading.loading
+                            ? "Loading your holdings…"
+                            : "You hold no positions yet."}
+                        </p>
+                      ) : (
+                        <div>
+                          {/* Marked to market by the backend: the value and P&L move with the
+                              feed, so this is the live worth of the position, not its cost. */}
+                          {trading.positions.map((pos) => (
+                            <div
+                              key={`${pos.asset_class}:${pos.symbol}`}
+                              className="flex items-center gap-3 border-b border-border px-1 py-3 last:border-b-0"
+                            >
+                              <MarketIcon market={pos.asset_class} />
+                              <div className="min-w-0">
+                                <div className="font-semibold text-foreground">{pos.symbol}</div>
+                                <div className="truncate text-xs text-muted-foreground">
+                                  {pos.quantity} @{" "}
+                                  {formatMoney(parseAmount(pos.average_price), pos.currency)}
+                                </div>
+                              </div>
+                              <div className="ml-auto text-right">
+                                <div className="font-mono text-sm text-foreground">
+                                  {formatMoney(parseAmount(pos.market_value), pos.currency)}
+                                </div>
+                                <ChangeBadge value={parseAmount(pos.unrealized_pnl_percent)} />
+                              </div>
+                            </div>
+                          ))}
                         </div>
-                      </div>
+                      )
                     ) : marketRows.length === 0 ? (
                       <p className="py-8 text-center text-sm text-muted-foreground">
                         {marketTab === "Favorite"
@@ -669,8 +740,8 @@ function AccountPage() {
                       </p>
                     ) : (
                       <div>
-                        {marketRows.map((a) => (
-                          <AssetRow key={a.sym} asset={a} />
+                        {marketRows.map((row) => (
+                          <AssetRow key={favKeyFor(row)} row={row} />
                         ))}
                       </div>
                     )}
@@ -930,10 +1001,21 @@ function AccountPage() {
                   {assetsSubTab === "overview" && (
                     <div className="mb-5 grid gap-4 sm:grid-cols-1">
                       <div className="rounded sm:rounded-xl border border-border bg-background/40 p-4">
-                        <div className="text-xs text-muted-foreground">USDT Balance</div>
-                        <div className="mt-1 font-mono text-xl font-bold text-foreground">
-                          {balances.USDT.toLocaleString()} USDT
-                        </div>
+                        <div className="text-xs text-muted-foreground">Cash balance</div>
+                        {trading.balances.length === 0 ? (
+                          <div className="mt-1 font-mono text-xl font-bold text-foreground">
+                            {trading.loading ? "Loading…" : "No cash held yet"}
+                          </div>
+                        ) : (
+                          trading.balances.map((b) => (
+                            <div
+                              key={b.currency}
+                              className="mt-1 font-mono text-xl font-bold text-foreground"
+                            >
+                              {formatMoney(parseAmount(b.total), b.currency)}
+                            </div>
+                          ))
+                        )}
                       </div>
                     </div>
                   )}

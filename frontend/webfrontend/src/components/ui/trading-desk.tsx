@@ -26,11 +26,14 @@ import { DepthPanel, MyFills } from "@/components/ui/order-book";
 import { OrderTicket } from "@/components/ui/order-ticket";
 import { InstrumentRibbon } from "@/components/ui/instrument-ribbon";
 import { DeskDock } from "@/components/ui/desk-dock";
+import { DeskWorkspace, resetDeskLayout } from "@/components/ui/desk-workspace";
+import { MobileTradeBar } from "@/components/ui/mobile-trade-bar";
 import { formatPrice, type TradeInstrument } from "@/lib/instrument";
+import { blankInstrument } from "@/lib/quote-to-instrument";
 import { searchUniverse, type SearchHit } from "@/lib/instrument-search";
 import { type AssetClass, type PositionValuation } from "@/lib/trading-api";
 import { fetchForexSession, type SessionInfo } from "@/lib/watchlists-api";
-import type { Timeframe } from "@/lib/dummy-chart-data";
+import type { Timeframe } from "@/lib/chart-data";
 import { WatchlistPanel } from "@/components/ui/watchlist-panel";
 import { useTrading } from "@/hooks/useTrading";
 import { useTradingBoard } from "@/hooks/useTradingBoard";
@@ -136,9 +139,22 @@ export function TradingDesk({
     if (selectedSymbol) {
       const found = instruments.find((i) => i.symbol === selectedSymbol);
       if (found) return found;
+      /*
+        An explicitly chosen symbol the board does not carry still wins.
+
+        `instruments` is only the streamed headline set (five per market) plus whatever has been
+        resolved into it, so a "Trade" click from `/markets` on anything outside that set — or
+        any deep link while signed out, when the quote routes cannot be called — found nothing
+        here and fell through to `instruments[0]`. That silently swapped the user's instrument
+        for whichever one streams first, which on the equities desk is always RELIANCE.
+
+        A placeholder keeps the requested instrument selected and honestly unpriced; the quote
+        fills in as soon as `board.resolve` lands one.
+      */
+      return blankInstrument(assetClass, selectedSymbol);
     }
     return instruments[0] ?? null;
-  }, [instruments, selectedSymbol]);
+  }, [instruments, selectedSymbol, assetClass]);
 
   const chart = useChartSeries(assetClass, selected?.symbol ?? "", timeframe);
 
@@ -270,7 +286,9 @@ export function TradingDesk({
       : "Connecting to live prices…";
 
   return (
-    <div className="flex flex-col bg-background lg:h-[calc(100vh-6rem)] lg:overflow-hidden">
+    // `pb-14` below lg reserves room for the fixed mobile trade bar, so the dock's last rows
+    // are not left sitting underneath it.
+    <div className="flex flex-col bg-background pb-14 lg:h-[calc(100vh-6rem)] lg:overflow-hidden lg:pb-0">
       {/* ── Toolbar: what market, which instrument, is the feed up ─────────────────────── */}
       <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-overlay-border bg-surface px-2.5 py-2 sm:px-3">
         {assetClasses.length > 1 && (
@@ -382,6 +400,17 @@ export function TradingDesk({
             <span className="hidden sm:inline"> for candles, depth and trading</span>
           </span>
         )}
+
+        {/* Pane widths persist, so there has to be a way back to the defaults. */}
+        <button
+          type="button"
+          onClick={resetDeskLayout}
+          title="Reset panel sizes to their defaults"
+          className="ml-auto hidden shrink-0 items-center gap-1.5 rounded border border-overlay-border px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground transition-colors hover:text-foreground lg:flex"
+        >
+          <i className="fa-solid fa-table-columns text-[10px]" />
+          Reset layout
+        </button>
       </div>
 
       {/* ── The instrument ribbon: the one place this desk prints the quote ────────────── */}
@@ -399,120 +428,147 @@ export function TradingDesk({
         />
       )}
 
-      {/* ── Workspace: watchlist │ chart │ book + ticket ───────────────────────────────── */}
-      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        <aside className="flex shrink-0 flex-col border-b border-overlay-border bg-surface lg:w-60 lg:border-b-0 lg:border-r xl:w-64">
-          <WatchlistPanel
-            assetClass={assetClass}
-            watchlists={board.watchlists}
-            instruments={instruments}
-            selectedSymbol={selected?.symbol ?? null}
-            onSelectSymbol={setSelectedSymbol}
-            activeSymbol={selected?.symbol ?? null}
-            streaming={board.streaming}
-            connected={board.connected}
-            className="h-72 min-h-0 lg:h-auto lg:flex-1"
-          />
-        </aside>
-
-        <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-          {selected ? (
-            <div className="flex h-[26rem] min-h-0 flex-col p-2 sm:h-[30rem] sm:p-3 lg:h-auto lg:flex-1">
-              <AssetChart
-                seed={selected.symbol}
-                color={CLASS_STYLES[assetClass].color}
-                basePrice={selected.price ?? 0}
-                symbol={selected.label}
-                name={selected.name}
-                exchange={selected.currency ?? CLASS_LABELS[assetClass]}
-                marketStatusLabel={
-                  selected.marketState === "closed" ? "Market closed" : "Market open"
-                }
-                watchlist={watchlist}
-                onSelectSymbol={(item) => setSelectedSymbol(item.sym)}
-                {...(chart.series ? { series: chart.series } : {})}
-                timeframe={timeframe}
-                onTimeframeChange={setTimeframe}
-                loadingSeries={chart.loading}
-                seriesError={chart.error}
-                livePrice={selected.price ?? undefined}
-                feedConnected={board.connected}
-              />
-            </div>
-          ) : (
-            <div className="flex h-72 items-center justify-center text-xs text-muted-foreground lg:h-auto lg:flex-1">
-              {board.connected ? "Loading market…" : "Connecting to the market feed…"}
-            </div>
-          )}
-        </main>
-
-        <aside
-          ref={ticketRef}
-          className="flex shrink-0 flex-col border-t border-overlay-border bg-surface lg:w-72 lg:border-l lg:border-t-0 xl:w-80"
-        >
-          {selected && (
-            <>
-              {/* Book and your fills want the same rectangle, so they share it. */}
-              <div className="flex shrink-0 items-center gap-px border-b border-overlay-border px-1.5 pt-1.5">
-                {RAIL_VIEWS.map((v) => (
-                  <button
-                    key={v}
-                    type="button"
-                    onClick={() => setRailView(v)}
-                    className={`rounded-t px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-colors ${
-                      railView === v
-                        ? "bg-surface-hover text-foreground"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    {v === "Fills" ? "Your fills" : v}
-                  </button>
-                ))}
-              </div>
-              <div className="flex h-64 min-h-0 flex-col lg:h-auto lg:flex-1">
-                {railView === "Book" ? (
-                  <DepthPanel instrument={selected} className="min-h-0 flex-1" flush />
-                ) : (
-                  <MyFills
-                    instrument={selected}
-                    trading={trading}
-                    className="min-h-0 flex-1"
-                    flush
-                  />
-                )}
-              </div>
-              <div className="shrink-0 border-t border-overlay-border">
-                <OrderTicket
-                  instrument={selected}
-                  action={action}
-                  onActionChange={setAction}
-                  trading={trading}
-                  prefill={closeIntent}
-                  flush
+      {/* ── Workspace: watchlist │ chart │ ticket + book ───────────────────────────────── */}
+      <DeskWorkspace
+        watchlist={
+          <aside className="flex min-h-0 flex-col border-b border-overlay-border bg-surface lg:border-b-0 lg:border-r">
+            <WatchlistPanel
+              assetClass={assetClass}
+              watchlists={board.watchlists}
+              instruments={instruments}
+              selectedSymbol={selected?.symbol ?? null}
+              onSelectSymbol={setSelectedSymbol}
+              activeSymbol={selected?.symbol ?? null}
+              streaming={board.streaming}
+              connected={board.connected}
+              className="h-64 min-h-0 lg:h-auto lg:flex-1"
+            />
+          </aside>
+        }
+        chart={
+          <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+            {selected ? (
+              <div className="flex h-[22rem] min-h-0 flex-col p-1.5 sm:h-[28rem] sm:p-3 lg:h-auto lg:flex-1">
+                <AssetChart
+                  seed={selected.symbol}
+                  color={CLASS_STYLES[assetClass].color}
+                  basePrice={selected.price ?? 0}
+                  symbol={selected.label}
+                  name={selected.name}
+                  exchange={selected.currency ?? CLASS_LABELS[assetClass]}
+                  marketStatusLabel={
+                    selected.marketState === "closed" ? "Market closed" : "Market open"
+                  }
+                  watchlist={watchlist}
+                  onSelectSymbol={(item) => setSelectedSymbol(item.sym)}
+                  {...(chart.series ? { series: chart.series } : {})}
+                  timeframe={timeframe}
+                  onTimeframeChange={setTimeframe}
+                  loadingSeries={chart.loading}
+                  seriesError={chart.error}
+                  livePrice={selected.price ?? undefined}
+                  feedConnected={board.connected}
                 />
               </div>
-            </>
-          )}
-        </aside>
-      </div>
-
-      {/* ── Dock: positions, orders, and the full instrument list ──────────────────────── */}
-      <DeskDock
-        trading={trading}
-        instruments={instruments}
-        assetClass={assetClass}
-        selectedSymbol={selected?.symbol ?? null}
-        connected={board.connected}
-        boardError={board.error}
-        onSelect={(symbol) => {
-          setSelectedSymbol(symbol);
-          revealTicket();
-        }}
-        onClosePosition={closePosition}
-        favKey={favKey}
-        classIcon={(c) => <ClassIcon assetClass={c} />}
-        instrumentsLabel={tableTitle}
+            ) : (
+              <div className="flex h-64 items-center justify-center text-xs text-muted-foreground lg:h-auto lg:flex-1">
+                {board.connected ? "Loading market…" : "Connecting to the market feed…"}
+              </div>
+            )}
+          </main>
+        }
+        rail={
+          <aside
+            ref={ticketRef}
+            /*
+              `overflow-y-auto` is load-bearing. The ticket above is `shrink-0`, and a signed-in
+              limit-order ticket is tall enough to eat the whole rail — which left the order book
+              squeezed to zero height with nothing to scroll, so it could not be reached at all.
+              The rail is the single scroller; the book keeps a floor via `min-h` below.
+            */
+            className="flex min-h-0 flex-col border-t border-overlay-border bg-surface lg:overflow-y-auto lg:border-l lg:border-t-0"
+          >
+            {selected && (
+              <>
+                {/*
+                  Order entry sits at the top of the rail, above the book. It used to be last,
+                  under the book and the fills list, where on any short viewport it fell below
+                  the fold — the buy button was effectively hidden behind a scroll.
+                */}
+                <div className="shrink-0 border-b border-overlay-border">
+                  <OrderTicket
+                    instrument={selected}
+                    action={action}
+                    onActionChange={setAction}
+                    trading={trading}
+                    prefill={closeIntent}
+                    flush
+                  />
+                </div>
+                {/* Book and your fills want the same rectangle, so they share it. */}
+                <div className="flex shrink-0 items-center gap-px border-b border-overlay-border px-1.5 pt-1.5">
+                  {RAIL_VIEWS.map((v) => (
+                    <button
+                      key={v}
+                      type="button"
+                      onClick={() => setRailView(v)}
+                      className={`rounded-t px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-colors ${
+                        railView === v
+                          ? "bg-surface-hover text-foreground"
+                          : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      {v === "Fills" ? "Your fills" : v}
+                    </button>
+                  ))}
+                </div>
+                {/* A floor so the ladder is always legible, and `flex-1` so it takes any slack. */}
+                <div className="flex h-56 min-h-0 shrink-0 flex-col lg:h-auto lg:min-h-[17rem] lg:flex-1">
+                  {railView === "Book" ? (
+                    <DepthPanel instrument={selected} className="min-h-0 flex-1" flush />
+                  ) : (
+                    <MyFills
+                      instrument={selected}
+                      trading={trading}
+                      className="min-h-0 flex-1"
+                      flush
+                    />
+                  )}
+                </div>
+              </>
+            )}
+          </aside>
+        }
+        dock={
+          <DeskDock
+            trading={trading}
+            instruments={instruments}
+            assetClass={assetClass}
+            selectedSymbol={selected?.symbol ?? null}
+            connected={board.connected}
+            boardError={board.error}
+            onSelect={(symbol) => {
+              setSelectedSymbol(symbol);
+              revealTicket();
+            }}
+            onClosePosition={closePosition}
+            favKey={favKey}
+            classIcon={(c) => <ClassIcon assetClass={c} />}
+            instrumentsLabel={tableTitle}
+          />
+        }
       />
+
+      {/* ── Phone: a persistent buy/sell bar that opens the ticket as a sheet ──────────── */}
+      {selected && (
+        <MobileTradeBar
+          instrument={selected}
+          action={action}
+          onActionChange={setAction}
+          trading={trading}
+          prefill={closeIntent}
+        />
+      )}
     </div>
   );
 }

@@ -204,13 +204,15 @@ async def get_order_book(
 @router.get(
     "/klines/{symbol}",
     response_model=KlineSeries,
-    responses={**UNAUTHORIZED, **UNKNOWN_SYMBOL, **UPSTREAM_ERROR, **RATE_LIMITED},
+    # No UNAUTHORIZED: this route is public, so it can never answer 401.
+    responses={**UNKNOWN_SYMBOL, **UPSTREAM_ERROR, **RATE_LIMITED},
     summary="Candlesticks",
-    description="Newest candle last. `interval` accepts the standard set from 1m to 1M.",
+    description="Newest candle last. **No token required** — this is public market data, the "
+    "same stance `/market/overview/stream` takes. `interval` accepts the standard set from "
+    "1m to 1M.",
 )
 async def get_klines(
     symbol: str,
-    _: dict = Depends(get_current_user),
     interval: KlineInterval = Query(KlineInterval.h1),
     limit: int = Query(200, ge=1, le=1000),
 ):

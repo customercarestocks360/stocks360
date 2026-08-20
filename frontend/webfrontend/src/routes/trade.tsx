@@ -2,16 +2,17 @@ import { createFileRoute } from "@tanstack/react-router";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { TradingDesk } from "@/components/ui/trading-desk";
 
-type TradeSearch = { symbol?: string; class?: "stocks" | "crypto" };
+type TradeSearch = { symbol?: string; class?: "stocks" | "crypto" | "forex" };
+
+const CLASSES = ["stocks", "crypto", "forex"] as const;
 
 export const Route = createFileRoute("/trade")({
   // `/markets`' "Trade" button deep-links here with `?symbol=&class=`, so the desk opens
   // already on the instrument the user clicked rather than whatever streams in first.
   validateSearch: (search: Record<string, unknown>): TradeSearch => {
     const symbol = typeof search["symbol"] === "string" ? search["symbol"] : undefined;
-    const cls = search["class"] === "stocks" || search["class"] === "crypto"
-      ? search["class"]
-      : undefined;
+    const raw = search["class"];
+    const cls = CLASSES.find((c) => c === raw);
     return { ...(symbol ? { symbol } : {}), ...(cls ? { class: cls } : {}) };
   },
   head: () => ({
@@ -19,7 +20,7 @@ export const Route = createFileRoute("/trade")({
       { title: "Trade — Stocks360" },
       {
         name: "description",
-        content: "Trade global equities and crypto spot from one unified account.",
+        content: "Trade global equities, crypto spot and forex from one unified account.",
       },
     ],
   }),
@@ -27,12 +28,13 @@ export const Route = createFileRoute("/trade")({
 });
 
 /**
- * Equities and crypto spot, on one desk.
+ * The one desk: equities, crypto spot and forex.
  *
- * Both live here because the venue treats them the same way — long-only spot, settled in the
- * instrument's own quote currency — and because `/markets` links every equity *and* every
- * crypto row to this route. Forex has its own page only because its panel set differs: a real
- * quoted spread instead of an order book.
+ * FX used to have its own route. It did not need one — the desk is parameterised by asset
+ * class, and the only thing FX does differently is show a quoted spread where crypto shows a
+ * book, which is a panel-level difference the desk already handles per instrument. A separate
+ * page meant two URLs, two nav entries and a second copy of every layout fix. `/forex` now
+ * redirects here with `?class=forex`.
  */
 function TradePage() {
   const { symbol, class: assetClass } = Route.useSearch();
@@ -43,7 +45,7 @@ function TradePage() {
           gaps the old layout left. */}
       <section className="relative overflow-hidden border-b border-border">
         <TradingDesk
-          assetClasses={["stocks", "crypto"]}
+          assetClasses={CLASSES}
           tableTitle="Instruments"
           initialAssetClass={assetClass}
           initialSymbol={symbol}

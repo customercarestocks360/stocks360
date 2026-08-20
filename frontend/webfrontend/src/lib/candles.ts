@@ -9,29 +9,22 @@
  *
  * The chart's timeframe buttons are calendar-ish labels (`1H`/`1D`/`1W`/`1M`/`ALL`), while
  * the endpoints want an interval plus either a range or a limit. `REQUEST_FOR` is that
- * translation, chosen per feed so a timeframe means roughly the same span on all three.
+ * translation, chosen per feed so a timeframe means as nearly as possible the same span on
+ * all three. As nearly as possible is not exactly: what a venue actually returns is measured
+ * from the bars by `describeSeries`, and that — not the button — is what the chart is
+ * captioned with.
  */
-import type { ChartPoint, Timeframe } from "@/lib/dummy-chart-data";
+import type { ChartPoint, Timeframe } from "@/lib/chart-data";
+import { WINDOW_HOURS, trimToWindow } from "@/lib/chart-window";
 import {
   fetchCryptoKlines,
   fetchForexCandles,
   fetchStockCandles,
   type CryptoInterval,
-  type ForexSeriesKind,
   type StockInterval,
   type StockRange,
 } from "@/lib/markets-api";
 import type { AssetClass } from "@/lib/trading-api";
-
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-/** Intraday bars get a clock label, daily-and-longer bars get a date. */
-function labelFor(d: Date, intraday: boolean): string {
-  if (intraday) {
-    return `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
-  }
-  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
-}
 
 type RawCandle = {
   at: string;
@@ -46,7 +39,7 @@ type RawCandle = {
  * Drops any candle the feed could not price rather than plotting a zero, which on a chart
  * reads as a crash to nothing. Oldest first — every endpoint already returns newest last.
  */
-function toChartPoints(raw: RawCandle[], intraday: boolean): ChartPoint[] {
+function toChartPoints(raw: RawCandle[]): ChartPoint[] {
   const out: ChartPoint[] = [];
   for (const c of raw) {
     const open = Number(c.open);
@@ -64,15 +57,10 @@ function toChartPoints(raw: RawCandle[], intraday: boolean): ChartPoint[] {
     ) {
       continue;
     }
-    const dateObj = new Date(ms);
     const volume = c.volume === null || c.volume === undefined ? 0 : Number(c.volume);
     out.push({
       // lightweight-charts wants seconds, not milliseconds.
       time: Math.floor(ms / 1000),
-      dateObj,
-      index: out.length,
-      label: labelFor(dateObj, intraday),
-      price: close,
       open,
       high,
       low,
@@ -88,47 +76,44 @@ function toChartPoints(raw: RawCandle[], intraday: boolean): ChartPoint[] {
  *
  * The equity provider refuses some interval/range pairs outright (a `502`), and only reaches
  * back about a week at `1m` — so the fine intervals are paired with short ranges here rather
- * than discovered at runtime. FX `intraday` is the provider's recent snapshots, which is the
- * closest thing it has to an intraday bar.
+ * than discovered at runtime.
  */
 const REQUEST_FOR: Record<
   Timeframe,
   {
-    intraday: boolean;
     crypto: { interval: CryptoInterval; limit: number };
     stocks: { interval: StockInterval; range: StockRange };
-    forex: { series: ForexSeriesKind; limit: number };
+    forex: { interval: StockInterval; range: StockRange };
   }
 > = {
   "1H": {
-    intraday: true,
     crypto: { interval: "1m", limit: 60 },
     stocks: { interval: "1m", range: "1d" },
-    forex: { series: "intraday", limit: 60 },
+    forex: { interval: "2m", range: "1d" },
   },
   "1D": {
-    intraday: true,
     crypto: { interval: "5m", limit: 288 },
     stocks: { interval: "5m", range: "1d" },
-    forex: { series: "intraday", limit: 180 },
+    forex: { interval: "15m", range: "5d" },
   },
   "1W": {
-    intraday: true,
     crypto: { interval: "1h", limit: 168 },
+    // `5d` is the longest range Yahoo serves at 30m, and it covers the 7-day window.
     stocks: { interval: "30m", range: "5d" },
-    forex: { series: "intraday", limit: 360 },
+    forex: { interval: "60m", range: "1mo" },
   },
   "1M": {
-    intraday: false,
     crypto: { interval: "4h", limit: 180 },
-    stocks: { interval: "1d", range: "1mo" },
-    forex: { series: "daily", limit: 30 },
+    stocks: { interval: "1d", range: "3mo" },
+    forex: { interval: "1d", range: "3mo" },
   },
   ALL: {
-    intraday: false,
-    crypto: { interval: "1d", limit: 500 },
+    // 730 daily bars, not the 500 this used to ask for: the other two feeds are asked for `2y`
+    // and 500 bars is sixteen months, so `ALL` meant two different periods depending on which
+    // desk you were on. Binance's own cap is 1000.
+    crypto: { interval: "1d", limit: 730 },
     stocks: { interval: "1d", range: "2y" },
-    forex: { series: "daily", limit: 360 },
+    forex: { interval: "1d", range: "2y" },
   },
 };
 
@@ -146,30 +131,35 @@ export async function fetchChartSeries(
   signal?: AbortSignal,
 ): Promise<ChartPoint[]> {
   const plan = REQUEST_FOR[timeframe];
+  const window = WINDOW_HOURS[timeframe];
 
   if (assetClass === "crypto") {
     const series = await fetchCryptoKlines(symbol, token, plan.crypto, signal);
-    return toChartPoints(
-      series.klines.map((k) => ({
-        at: k.open_time,
-        open: k.open,
-        high: k.high,
-        low: k.low,
-        close: k.close,
-        // Base-asset volume is the one that matches an OHLC bar's units.
-        volume: k.volume,
-      })),
-      plan.intraday,
+    // Binance takes an exact bar count, so this window is already right; trimming is a no-op
+    // that keeps every class going through one path.
+    return trimToWindow(
+      toChartPoints(
+        series.klines.map((k) => ({
+          at: k.open_time,
+          open: k.open,
+          high: k.high,
+          low: k.low,
+          close: k.close,
+          // Base-asset volume is the one that matches an OHLC bar's units.
+          volume: k.volume,
+        })),
+      ),
+      window,
     );
   }
 
   if (assetClass === "stocks") {
     const series = await fetchStockCandles(symbol, token, plan.stocks, signal);
-    return toChartPoints(series.candles, plan.intraday);
+    return trimToWindow(toChartPoints(series.candles), window);
   }
 
   const series = await fetchForexCandles(symbol, token, plan.forex, signal);
   // FX has no volume; `toChartPoints` maps the absent field to 0 and the chart's volume
   // histogram simply renders flat, which is the truth for this market.
-  return toChartPoints(series.candles, plan.intraday);
+  return trimToWindow(toChartPoints(series.candles), window);
 }

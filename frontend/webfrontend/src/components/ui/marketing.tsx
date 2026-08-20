@@ -95,49 +95,6 @@ export function OrbitRing({
   );
 }
 
-/* ────── Mini Sparkline — mock ticker/chart preview ────── */
-export function MiniSparkline({
-  color = "var(--up)",
-  points,
-  className = "h-32 w-full",
-}: {
-  color?: string;
-  points: number[];
-  /** Tailwind sizing classes for the chart's rendered box (bigger = more visible). */
-  className?: string;
-}) {
-  const width = 320;
-  const height = 140;
-  const max = Math.max(...points);
-  const min = Math.min(...points);
-  const range = max - min || 1;
-  const step = width / (points.length - 1);
-  const coords = points.map((p, i) => `${i * step},${height - ((p - min) / range) * height}`);
-  const linePath = `M${coords.join(" L")}`;
-  const areaPath = `${linePath} L${width},${height} L0,${height} Z`;
-  const gradId = `spark-${color.replace(/[^a-zA-Z0-9]/g, "")}`;
-  return (
-    <svg viewBox={`0 0 ${width} ${height}`} className={`${className} overflow-visible`} preserveAspectRatio="none">
-      <defs>
-        <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity="0.35" />
-          <stop offset="100%" stopColor={color} stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <path d={areaPath} fill={`url(#${gradId})`} />
-      <path
-        d={linePath}
-        fill="none"
-        stroke={color}
-        strokeWidth="2.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        className="transition-all duration-700"
-      />
-    </svg>
-  );
-}
-
 /* ────── Icon Tile Row — colored icon chips standing in for illustrations ────── */
 export function IconTileRow({ items }: { items: { icon: string; color: string }[] }) {
   return (

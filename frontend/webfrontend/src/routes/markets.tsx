@@ -22,10 +22,10 @@ export const Route = createFileRoute("/markets")({
   component: MarketsPage,
 });
 
-/** Where a row's "Trade" button goes. `/trade` is the generic desk; forex has its own. */
-const MARKET_ROUTES: Record<OverviewMarket, "/trade" | "/forex"> = {
+/** Every market trades on the one desk now — the class rides along in the search params. */
+const MARKET_ROUTES: Record<OverviewMarket, "/trade"> = {
   crypto: "/trade",
-  forex: "/forex",
+  forex: "/trade",
   stocks: "/trade",
 };
 
@@ -52,9 +52,7 @@ function favKeyFor(row: MarketRow) {
 
 /** The row's instrument, pre-selected on whichever desk `MARKET_ROUTES` sends it to. */
 function tradeSearchFor(row: MarketRow) {
-  return row.market === "forex"
-    ? { symbol: row.symbol }
-    : { symbol: row.symbol, class: row.market };
+  return { symbol: row.symbol, class: row.market };
 }
 
 const COMPACT = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 2 });
@@ -512,8 +510,12 @@ function MarketsPage() {
                             <div className="flex items-center gap-3">
                               <MarketIcon market={row.market} />
                               <div className="min-w-0">
+                                {/* Carries the same search params as the row's Trade button —
+                                    without them this landed on the desk's default instrument
+                                    rather than the one whose name was clicked. */}
                                 <Link
                                   to={MARKET_ROUTES[row.market]}
+                                  search={tradeSearchFor(row)}
                                   className="font-semibold text-foreground hover:text-primary hover:underline"
                                 >
                                   {row.name}

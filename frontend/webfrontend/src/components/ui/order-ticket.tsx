@@ -162,7 +162,7 @@ export function OrderTicket({
   className?: string | undefined;
   layout?: "vertical" | "horizontal";
   /** Set by a "Close position" action elsewhere on the page — sizes the ticket to flatten it. */
-  prefill?: { symbol: string; quantity: string } | null;
+  prefill?: { symbol: string; quantity: string } | null | undefined;
   /** Drops the card chrome for a ticket docked inside an already-framed rail. */
   flush?: boolean;
 }) {

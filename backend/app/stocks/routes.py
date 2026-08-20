@@ -199,14 +199,16 @@ async def get_quotes(
 @router.get(
     "/candles/{symbol}",
     response_model=CandleSeries,
-    responses={**UNAUTHORIZED, **UNKNOWN_SYMBOL, **UPSTREAM_ERROR, **RATE_LIMITED},
+    # No UNAUTHORIZED: this route is public, so it can never answer 401.
+    responses={**UNKNOWN_SYMBOL, **UPSTREAM_ERROR, **RATE_LIMITED},
     summary="Candles",
-    description="Newest candle last. The upstream limits how far back fine intervals go — "
-    "roughly a week for `1m` — and answers a `502` when the combination is not allowed.",
+    description="Newest candle last. **No token required** — this is public market data, the "
+    "same stance `/market/overview/stream` takes. The upstream limits how far back fine "
+    "intervals go — roughly a week for `1m` — and answers a `502` when the combination is not "
+    "allowed.",
 )
 async def get_candles(
     symbol: Symbol,
-    _: dict = Depends(get_current_user),
     interval: Interval = Query(Interval.d1),
     range: Range = Query(Range.mo6),
 ):

@@ -31,6 +31,7 @@ from app.core.config import (
 from app.forex import repository, upstream
 from app.forex.hub import hub
 from app.schemas.common import NOT_FOUND, UNAUTHORIZED, UNAVAILABLE
+from app.schemas.stocks import Interval, Range
 from app.schemas.forex import (
     PAIR_PATTERN,
     RATE_LIMITED,
@@ -241,20 +242,28 @@ async def get_quotes(
 @router.get(
     "/candles/{pair}",
     response_model=CandleSeries,
-    responses={**UNAUTHORIZED, **UNKNOWN_PAIR, **UPSTREAM_ERROR, **RATE_LIMITED},
+    # No UNAUTHORIZED: this route is public, so it can never answer 401.
+    responses={**UNKNOWN_PAIR, **UPSTREAM_ERROR, **RATE_LIMITED},
     summary="Candles",
-    description="Newest candle last. `daily` gives one candle per trading day; "
-    "`intraday` gives the provider's most recent snapshots.",
+    description="Newest candle last. **No token required** — this is public market data, the "
+    "same stance `/market/overview/stream` takes. `interval` is the bar size and `range` how "
+    "far back to reach — the same pairing the equities candles use, because FX bars come from "
+    "the same upstream (AwesomeAPI publishes ticks, not bars; see `upstream.candles`). "
+    "`series` in the response reports whether the chosen interval is intraday or daily.",
 )
 async def get_candles(
     pair: Pair,
-    _: dict = Depends(get_current_user),
-    series: CandleSeriesKind = Query(CandleSeriesKind.daily),
-    limit: int = Query(90, ge=1, le=360),
+    interval: Interval = Query(Interval.d1),
+    range: Range = Query(Range.mo3),
 ):
     await upstream.assert_supported([pair])
-    rows = await upstream.candles(pair, series, limit)
-    return CandleSeries(symbol=pair, series=series, count=len(rows), candles=rows)
+    rows = await upstream.candles(pair, interval, range)
+    kind = (
+        CandleSeriesKind.daily
+        if interval in (Interval.d1, Interval.wk1, Interval.mo1)
+        else CandleSeriesKind.intraday
+    )
+    return CandleSeries(symbol=pair, series=kind, count=len(rows), candles=rows)
 
 
 @router.get(

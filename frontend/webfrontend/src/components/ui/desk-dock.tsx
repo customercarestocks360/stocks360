@@ -10,7 +10,7 @@
  * Orders keeps its own inner tabs (open / history / fills) because those are three views of
  * one resource; the dock's tabs are three different resources.
  */
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FavoriteStar } from "@/components/ui/favorite-star";
 import { OrdersPanelView } from "@/components/ui/orders-panel";
 import { decimalsFor, formatCompact, formatPrice, type TradeInstrument } from "@/lib/instrument";
@@ -351,8 +351,18 @@ export function DeskDock({
   /** What the desk calls its instrument list — "Instruments", "Currency pairs", etc. */
   instrumentsLabel: string;
 }) {
-  const [tab, setTab] = useState<Tab>("Positions");
+  /**
+   * Positions and orders both need a session, so a signed-out visitor would land on a panel
+   * that can only say "sign in". The instrument list streams for everyone, so it opens there
+   * and moves to positions once the session resolves — unless the visitor has already picked
+   * a tab, in which case yanking it away underneath them would be worse than a stale default.
+   */
+  const [tab, setTab] = useState<Tab>("Instruments");
   const [collapsed, setCollapsed] = useState(false);
+  const tabPickedByUser = useRef(false);
+  useEffect(() => {
+    if (!tabPickedByUser.current && trading.ready) setTab("Positions");
+  }, [trading.ready]);
 
   const openCount = trading.orders.filter((o) => o.status === "open").length;
   const positionCount = trading.positions.filter((p) => p.asset_class === assetClass).length;
@@ -365,14 +375,21 @@ export function DeskDock({
       </span>
     ) : null;
 
+  // A fixed band on desktop whose body scrolls: without a height the tables grow to their
+  // natural size and push the dock straight out through the bottom of the shell.
   return (
-    <div className="flex min-h-0 shrink-0 flex-col border-t border-overlay-border bg-surface">
+    <div
+      className={`flex shrink-0 flex-col border-t border-overlay-border bg-surface ${
+        collapsed ? "" : "lg:h-[min(17rem,30vh)]"
+      }`}
+    >
       <div className="flex shrink-0 items-center gap-px border-b border-overlay-border">
         {TABS.map((t) => (
           <button
             key={t}
             type="button"
             onClick={() => {
+              tabPickedByUser.current = true;
               setTab(t);
               setCollapsed(false);
             }}
@@ -409,7 +426,7 @@ export function DeskDock({
       </div>
 
       {!collapsed && (
-        <div className="min-h-0 flex-1 overflow-auto">
+        <div className="min-h-0 flex-1 overflow-auto lg:max-h-none max-h-96">
           {!trading.ready && tab !== "Instruments" ? (
             <Empty>Sign in to see your {tab.toLowerCase()}.</Empty>
           ) : tab === "Positions" ? (

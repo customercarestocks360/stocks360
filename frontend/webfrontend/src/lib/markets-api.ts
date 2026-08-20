@@ -408,15 +408,20 @@ export function fetchStockCandles(
   );
 }
 
+/**
+ * FX candles take an interval/range pair, exactly like equities: both now come from the same
+ * upstream. The FX provider's own intraday endpoint returns ticks whose high/low are session
+ * extremes repeated on every row, which drew as a row of identical dashes rather than candles.
+ */
 export function fetchForexCandles(
   pair: string,
   token: string,
-  options: { series?: ForexSeriesKind; limit?: number } = {},
+  options: { interval?: StockInterval; range?: StockRange } = {},
   signal?: AbortSignal,
 ): Promise<ForexCandleSeries> {
   const params = new URLSearchParams({
-    series: options.series ?? "daily",
-    limit: String(options.limit ?? 90),
+    interval: options.interval ?? "1d",
+    range: options.range ?? "3mo",
   });
   return apiFetch<ForexCandleSeries>(
     `/forex/candles/${encodeURIComponent(pair)}?${params.toString()}`,

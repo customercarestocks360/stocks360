@@ -47,6 +47,39 @@ function Cell({
   );
 }
 
+/** Where the last price sits between the session low and high, as a track with a marker. */
+function DayRange({
+  low,
+  high,
+  price,
+  decimals,
+}: {
+  low: number | null;
+  high: number | null;
+  price: number | null;
+  decimals: number;
+}) {
+  if (low === null || high === null || price === null || high <= low)
+    return <span className="font-mono text-xs text-muted-foreground">Not published</span>;
+  const pct = Math.max(0, Math.min(100, ((price - low) / (high - low)) * 100));
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="font-mono text-[10px] text-muted-foreground">
+        {formatPrice(low, decimals)}
+      </span>
+      <div className="relative h-1 w-16 rounded-full bg-muted">
+        <span
+          className="absolute top-1/2 h-2 w-2 -translate-y-1/2 rounded-full border-2 border-surface bg-primary"
+          style={{ left: `calc(${pct}% - 4px)` }}
+        />
+      </div>
+      <span className="font-mono text-[10px] text-muted-foreground">
+        {formatPrice(high, decimals)}
+      </span>
+    </div>
+  );
+}
+
 /**
  * The price cell: large, tabular, and flashed green/red on change.
  *
@@ -174,8 +207,31 @@ export function InstrumentRibbon({
         />
       )}
 
-      {/* Buy/sell live at the far end so the ribbon reads quote → action, left to right. */}
-      <div className="ml-auto flex shrink-0 items-center gap-1.5 border-l border-overlay-border px-3 py-2">
+      {/* Where the session sits inside the day's range — the one cell every feed can fill. */}
+      <div className="hidden min-w-0 shrink-0 flex-col justify-center px-3 py-1.5 sm:flex sm:px-4">
+        <span className="text-[9px] font-medium uppercase tracking-[0.14em] text-muted-foreground/70">
+          Day range
+        </span>
+        <DayRange low={i.dayLow} high={i.dayHigh} price={i.price} decimals={decimals} />
+      </div>
+
+      <Cell
+        label="Session"
+        tone="muted"
+        mono={false}
+        value={
+          <span className="capitalize">
+            {i.marketState ? i.marketState.replace("_", " ") : "Unknown"}
+          </span>
+        }
+      />
+
+      {/*
+        Buy/sell sit just past the last stat rather than pinned to the far edge: a signed-out
+        visitor has most cells dropped for want of a token, and `ml-auto` then stranded the
+        actions across a third of the screen of nothing.
+      */}
+      <div className="flex shrink-0 items-center gap-1.5 border-l border-overlay-border px-3 py-2">
         <button
           type="button"
           onClick={onBuy}

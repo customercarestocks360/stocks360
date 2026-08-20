@@ -23,12 +23,16 @@ from app.core.config import (
 )
 from app.schemas.forex import (
     Candle,
-    CandleSeriesKind,
     ForexQuote,
     PairInfo,
     fx_session_state,
     pip_size,
 )
+from app.schemas.stocks import Interval, Range
+# Candles are sourced from Yahoo rather than AwesomeAPI — see `candles()` for why. Reusing the
+# equities client keeps one Yahoo integration (its pooling, retries and error mapping) instead
+# of a second copy here.
+from app.stocks import upstream as yahoo
 
 logger = logging.getLogger(__name__)
 
@@ -202,34 +206,101 @@ async def quotes(pairs: list[str]) -> list[ForexQuote]:
     return out
 
 
-async def candles(pair: str, series: CandleSeriesKind, limit: int) -> list[Candle]:
-    """Newest candle last.
+def _yahoo_symbol(pair: str) -> str:
+    """`EUR-USD` is `EURUSD=X` in Yahoo's symbology."""
+    return f"{_compact(pair)}=X"
 
-    The provider returns newest first and publishes high/low/close/change but no open, so
-    the open is reconstructed as `close - change`.
-    """
-    path = (
-        f"/json/daily/{pair}/{limit}"
-        if series is CandleSeriesKind.daily
-        else f"/json/{pair}/{limit}"
-    )
-    rows = await _get(path)
-    out: list[Candle] = []
-    for row in rows:
+
+# Yahoo's finest FX intervals are price-quantised: an hour of EUR/USD at 1m came back with
+# every bar flat (open == high == low == close) and 5m offered barely two distinct price
+# levels, because the values are rounded before publication. AwesomeAPI's tick feed is not —
+# consecutive ticks read 1.16731, 1.16727, 1.16735, 1.16747 — so for the finest views the bars
+# are built from those ticks instead. It only reaches ~77 minutes (100 ticks, ~46s apart),
+# which is exactly the span the shortest view needs; everything longer stays on Yahoo.
+_TICK_BUCKET_SECONDS = {Interval.m1: 60, Interval.m2: 120, Interval.m5: 300}
+_TICK_LIMIT = 100
+
+
+async def _tick_candles(pair: str, bucket: int) -> list[Candle]:
+    """Real OHLC bars aggregated from the tick feed. Newest candle last."""
+    rows = await _get(f"/json/{pair}/{_TICK_LIMIT}")
+    # The provider returns newest first; bars are built oldest to newest.
+    ticks: list[tuple[int, Decimal]] = []
+    for row in reversed(rows):
         if "timestamp" not in row:
             continue
-        close = _dec(row.get("bid"))
-        change = _dec(row.get("varBid"))
+        try:
+            ticks.append((int(row["timestamp"]), _dec(row.get("bid"))))
+        except (KeyError, ValueError, TypeError, InvalidOperation):
+            continue
+
+    buckets: dict[int, list[Decimal]] = {}
+    for stamp, price in ticks:
+        if price is None or price <= 0:
+            continue
+        buckets.setdefault(stamp - (stamp % bucket), []).append(price)
+
+    out: list[Candle] = []
+    for start in sorted(buckets):
+        prices = buckets[start]
+        open_, close = prices[0], prices[-1]
+        change = close - open_
         out.append(
             Candle(
-                at=datetime.fromtimestamp(int(row["timestamp"]), tz=timezone.utc),
-                open=close - change,
-                high=_dec(row.get("high")),
-                low=_dec(row.get("low")),
+                at=datetime.fromtimestamp(start, tz=timezone.utc),
+                open=open_,
+                high=max(prices),
+                low=min(prices),
                 close=close,
                 change=change,
-                change_percent=_dec(row.get("pctChange")),
+                change_percent=(
+                    (change / open_ * 100).quantize(Decimal("0.0001")) if open_ else Decimal(0)
+                ),
             )
         )
-    out.reverse()
+    return out
+
+
+async def candles(pair: str, interval: Interval, span: Range) -> list[Candle]:
+    """Newest candle last.
+
+    **Not from AwesomeAPI.** Its intraday endpoint (`/json/{pair}/{n}`) returns *ticks*, not
+    bars: `high` and `low` are the session extremes repeated identically on every row, and
+    `varBid` is the change against the session open rather than the previous tick. Building a
+    candle from that yields one bar per tick, all sharing the same high, low and open — which
+    a candlestick chart draws as a row of identical dashes. It also caps at 100 ticks (~77
+    minutes), so it cannot cover a day at any resolution.
+
+    Yahoo quotes FX pairs as `EURUSD=X` with genuine per-bar OHLC, so bars come from there —
+    except at the finest intervals, where Yahoo's own values are too coarse to form a body and
+    the tick feed is used instead (see `_tick_candles`). Quotes and the live stream stay on
+    AwesomeAPI, which publishes a real bid/ask spread that Yahoo does not.
+    """
+    bucket = _TICK_BUCKET_SECONDS.get(interval)
+    if bucket is not None:
+        bars = await _tick_candles(pair, bucket)
+        # The tick feed can be short or briefly empty; Yahoo is the fallback rather than a gap.
+        if len(bars) >= 5:
+            return bars
+
+    # One extra decimal past Yahoo's hint: a major's hint is 4, but it trades in fractional
+    # pips, and rounding to 4 flattens sub-pip bars into dashes.
+    rows, _ = await yahoo.candles(_yahoo_symbol(pair), interval, span, extra_precision=1)
+    out: list[Candle] = []
+    for row in rows:
+        # The FX candle schema carries change/change_percent; with real bars these are the
+        # bar's own move, where before they were the whole session's.
+        change = row.close - row.open
+        percent = (change / row.open * 100) if row.open else Decimal(0)
+        out.append(
+            Candle(
+                at=row.at,
+                open=row.open,
+                high=row.high,
+                low=row.low,
+                close=row.close,
+                change=change,
+                change_percent=percent.quantize(Decimal("0.0001")),
+            )
+        )
     return out

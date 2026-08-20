@@ -3,10 +3,10 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useTheme } from "@/components/ThemeProvider";
 import { useAuth } from "@/components/AuthProvider";
 
+// No Forex entry: FX is a class on the one desk at /trade, not a separate destination.
 const NAV_LINKS = [
   { n: "Markets", t: "/markets" },
   { n: "Trade", t: "/trade" },
-  { n: "Forex", t: "/forex" },
   { n: "Wallet", t: "/wallet" },
   { n: "About Us", t: "/about" },
 ];

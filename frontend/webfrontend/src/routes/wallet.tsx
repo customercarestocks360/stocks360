@@ -5,6 +5,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { OrdersPanel } from "@/components/ui/orders-panel";
 import { useTrading } from "@/hooks/useTrading";
 import { useFundingRequests } from "@/hooks/useFundingRequests";
+import { formatMoney } from "@/lib/instrument";
 import { amount as parseAmount, type AssetClass } from "@/lib/trading-api";
 import type { FundingRequest } from "@/lib/funding-api";
 
@@ -25,20 +26,14 @@ const CLASS_STYLES: Record<AssetClass, { icon: string; color: string }> = {
   stocks: { icon: "fa-chart-line", color: "#10b981" },
 };
 
-/** Where a position's "Trade" link goes — mirrors `/markets`' `MARKET_ROUTES`. */
+/** Where a position's "Trade" link goes — every class lands on the one desk. */
 function tradeLinkFor(assetClass: AssetClass, symbol: string) {
-  return assetClass === "forex"
-    ? { to: "/forex" as const, search: { symbol } }
-    : { to: "/trade" as const, search: { symbol, class: assetClass as "crypto" | "stocks" } };
+  return { to: "/trade" as const, search: { symbol, class: assetClass } };
 }
 
 function fmt(n: number | null, decimals = 4) {
   if (n === null) return "—";
   return n.toLocaleString("en-US", { maximumFractionDigits: decimals });
-}
-function fmtMoney(n: number | null, currency: string) {
-  if (n === null) return "—";
-  return `${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
 }
 function stamp(iso: string) {
   const d = new Date(iso);
@@ -105,7 +100,7 @@ function WalletPage() {
         icon: "fa-dollar-sign",
         available: parseAmount(b.available),
         locked: parseAmount(b.reserved),
-        value: fmtMoney(parseAmount(b.total), b.currency),
+        value: formatMoney(parseAmount(b.total), b.currency),
         tradeTo: null,
       }));
 
@@ -119,7 +114,7 @@ function WalletPage() {
         icon: style.icon,
         available: parseAmount(p.available_quantity),
         locked: parseAmount(p.reserved_quantity),
-        value: fmtMoney(parseAmount(p.market_value), p.currency),
+        value: formatMoney(parseAmount(p.market_value), p.currency),
         tradeTo: tradeLinkFor(p.asset_class, p.symbol),
       };
     });
@@ -210,11 +205,11 @@ function WalletPage() {
                 return (
                   <div key={b.currency}>
                     <div className="font-mono text-2xl font-bold tracking-tight text-foreground">
-                      {fmtMoney(parseAmount(b.total), b.currency)}
+                      {formatMoney(parseAmount(b.total), b.currency)}
                     </div>
                     {reserved > 0 && (
                       <div className="mt-1 text-xs text-muted-foreground">
-                        {fmtMoney(reserved, b.currency)} locked
+                        {formatMoney(reserved, b.currency)} locked
                       </div>
                     )}
                   </div>
