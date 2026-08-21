@@ -39,6 +39,11 @@ export type OverviewTick = {
   currency: string | null;
   /** Outside the feed's freshness window — a closed weekend market, not a fault. */
   stale: boolean;
+  /** Forex only — the real quoted bid, ask and spread. `null` for crypto and stocks. */
+  bid: number | null;
+  ask: number | null;
+  spread: number | null;
+  spreadPips: number | null;
 };
 
 export type OverviewState = {
@@ -105,6 +110,10 @@ type RawTick = {
   change_percent: string | null;
   currency: string | null;
   stale: boolean;
+  bid: string | null;
+  ask: string | null;
+  spread: string | null;
+  spread_pips: string | null;
 };
 
 type RawFrame = {
@@ -158,6 +167,10 @@ function applyTick(raw: RawTick): void {
     changePercent: toNumber(raw.change_percent),
     currency: raw.currency ?? null,
     stale: raw.stale,
+    bid: toNumber(raw.bid),
+    ask: toNumber(raw.ask),
+    spread: toNumber(raw.spread),
+    spreadPips: toNumber(raw.spread_pips),
   });
 }
 

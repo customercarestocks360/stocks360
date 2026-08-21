@@ -21,6 +21,7 @@ from app.core.config import (
     FOREX_STALE_SECONDS,
     FOREX_TIMEOUT_SECONDS,
 )
+from app.forex import twelvedata
 from app.schemas.forex import (
     Candle,
     ForexQuote,
@@ -29,6 +30,7 @@ from app.schemas.forex import (
     pip_size,
 )
 from app.schemas.stocks import Interval, Range
+
 # Candles are sourced from Yahoo rather than AwesomeAPI — see `candles()` for why. Reusing the
 # equities client keeps one Yahoo integration (its pooling, retries and error mapping) instead
 # of a second copy here.
@@ -57,6 +59,7 @@ def start() -> None:
             headers={"Accept": "application/json"},
         )
         logger.info("Forex upstream REST client ready (%s)", FOREX_REST_URL)
+    twelvedata.start()
 
 
 async def stop() -> None:
@@ -66,6 +69,7 @@ async def stop() -> None:
         _client = None
     _pairs.clear()
     _pairs_fetched_at = 0.0
+    await twelvedata.stop()
 
 
 def _dec(value: Any) -> Decimal:
@@ -264,6 +268,13 @@ async def _tick_candles(pair: str, bucket: int) -> list[Candle]:
 async def candles(pair: str, interval: Interval, span: Range) -> list[Candle]:
     """Newest candle last.
 
+    **Twelve Data first, when configured.** `FOREX_TWELVEDATA_API_KEY` is blank by default,
+    in which case this never runs and the rest of this docstring is the whole story. Set, it
+    is tried first because it is simply better data — genuine OHLC at every interval, not
+    reconstructed from ticks or rounded flat — and `twelvedata.candles()` returns `None`
+    rather than raising for anything it cannot serve, so a miss falls straight through to the
+    logic below instead of costing the caller an error.
+
     **Not from AwesomeAPI.** Its intraday endpoint (`/json/{pair}/{n}`) returns *ticks*, not
     bars: `high` and `low` are the session extremes repeated identically on every row, and
     `varBid` is the change against the session open rather than the previous tick. Building a
@@ -276,6 +287,11 @@ async def candles(pair: str, interval: Interval, span: Range) -> list[Candle]:
     the tick feed is used instead (see `_tick_candles`). Quotes and the live stream stay on
     AwesomeAPI, which publishes a real bid/ask spread that Yahoo does not.
     """
+    if twelvedata.enabled():
+        bars = await twelvedata.candles(pair, interval)
+        if bars is not None:
+            return bars
+
     bucket = _TICK_BUCKET_SECONDS.get(interval)
     if bucket is not None:
         bars = await _tick_candles(pair, bucket)

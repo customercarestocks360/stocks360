@@ -8,14 +8,7 @@
  * caption is now *derived*, so a mistake here mislabels a real chart instead of failing loudly.
  */
 import assert from "node:assert/strict";
-import {
-  barSeconds,
-  coveredSeconds,
-  describeSeries,
-  durationLabel,
-  trimToWindow,
-  MIN_BARS,
-} from "./chart-window.ts";
+import { barSeconds, coveredSeconds, describeSeries, durationLabel } from "./chart-window.ts";
 import type { ChartPoint } from "./chart-data.ts";
 
 const bar = (time: number): ChartPoint => ({ time, open: 1, high: 1, low: 1, close: 1, volume: 0 });
@@ -49,20 +42,6 @@ assert.equal(durationLabel(7 * 86400), "1W");
 assert.equal(durationLabel(30 * 86400), "1M");
 assert.equal(durationLabel(730 * 86400), "2Y", "crypto's ALL request is really two years");
 assert.equal(durationLabel(500 * 86400), "1Y 4M", "…and 500 daily bars is really sixteen months");
-
-// ── trimming ──────────────────────────────────────────────────────────────────────────────
-assert.deepEqual(trimToWindow([], 1), []);
-assert.equal(trimToWindow(series(375, 60), null).length, 375, "ALL is never trimmed");
-assert.equal(trimToWindow(series(375, 60), 1).length, 60, "a 1h window of 1m bars is 60 of them");
-assert.equal(coveredSeconds(trimToWindow(series(375, 60), 1)), 3600, "…covering exactly an hour");
-// A session that opened twenty minutes ago cannot fill an hour, and the caption says so
-// rather than the button's "1H".
-assert.equal(trimToWindow(series(20, 60), 1).length, 20);
-assert.equal(describeSeries(trimToWindow(series(20, 60), 1)).label, "20m");
-// The `MIN_BARS` floor is the sharpest case: a window that would keep one bar keeps eight
-// instead, so what is drawn can be days wider than what was asked for.
-assert.equal(trimToWindow(series(20, 86400), 1).length, MIN_BARS);
-assert.equal(describeSeries(trimToWindow(series(20, 86400), 1)).label, "1W 1D");
 
 // ── the caption ───────────────────────────────────────────────────────────────────────────
 assert.deepEqual(describeSeries([]), {

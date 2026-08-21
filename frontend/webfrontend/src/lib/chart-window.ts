@@ -1,56 +1,21 @@
 /**
- * How much history each timeframe button promises, the trim that enforces it, and — because
- * the promise cannot always be kept — the description of what a series *actually* covers.
+ * What a loaded series *actually* is — the period it covers and the size of one bar — read
+ * off the bars themselves rather than off the button that requested them.
  *
  * Kept apart from `candles.ts` because that module pulls in the API clients, and this is pure
  * arithmetic over a series — the part worth testing on its own. `chart-window.check.ts` is
  * that test; run it with `node src/lib/chart-window.check.ts`.
  *
- * The upstreams cannot be asked for an arbitrary window. Yahoo's shortest `range` is `1d`, so a
- * `1H` request returns a whole session: `1H` and `1D` were rendering the *same* span for
- * equities and only the bar size differed, which makes the buttons look inert. FX, on the same
- * feed, was showing a month under `1W`. So the range is picked to *cover* the window and the
- * series is trimmed to it here.
- *
- * Trimming closes the gap but cannot close it completely, and this is where the chart used to
- * start lying. A venue only has the bars it has: `1W` on an equity is five sessions, which is
- * four calendar days of bars, not seven; a session that opened twenty minutes ago has twenty
- * minutes under `1H`; `ALL` was captioned "2Y" on a button while crypto asked for 500 daily
- * bars, which is sixteen months. The window is a *request*. `describeSeries` reads what came
- * back, and that is what the chart is captioned with.
+ * This used to also own the trim that enforced a timeframe button's promised calendar window
+ * (`1H` meaning "the last hour," `1D` "the last day," …) — `WINDOW_HOURS` and `trimToWindow`,
+ * since removed. Every feed's buttons are candle-size selectors now (`candles.ts`), each asking
+ * for enough bars to clear ~1000 on its own, so there is no window left to trim to; a `1H` chart
+ * that got a shorter or longer span than expected is not a bug to hide, it is what the venue had,
+ * and `describeSeries` below is what makes that visible instead of silent.
  */
-import type { ChartPoint, Timeframe } from "@/lib/chart-data";
-
-export const WINDOW_HOURS: Record<Timeframe, number | null> = {
-  "1H": 1,
-  "1D": 24,
-  "1W": 24 * 7,
-  "1M": 24 * 30,
-  /** No trim: the request range already *is* the window. */
-  ALL: null,
-};
-
-/** Below this many bars a trimmed window reads as broken, so keep the tail instead. */
-export const MIN_BARS = 8;
+import type { ChartPoint } from "@/lib/chart-data";
 
 const DAY = 86400;
-
-/**
- * Trims `points` to the last `hours` of the series.
- *
- * Anchored on the newest bar rather than `Date.now()`: over a weekend, or for an equity whose
- * session closed hours ago, "the last hour" has to mean the last hour that *traded*, otherwise
- * the cutoff lands past the final bar and the chart comes back empty.
- */
-export function trimToWindow(points: ChartPoint[], hours: number | null): ChartPoint[] {
-  if (hours === null || points.length === 0) return points;
-  const newest = points[points.length - 1]!.time;
-  const cutoff = newest - hours * 3600;
-  // Strictly after the cutoff. `>=` also kept the bar sitting exactly on it, so a one-hour
-  // window of one-minute bars was 61 bars and the chart reported covering "1H 1m".
-  const windowed = points.filter((p) => p.time > cutoff);
-  return windowed.length >= MIN_BARS ? windowed : points.slice(-MIN_BARS);
-}
 
 /**
  * The bar size, as the median gap between consecutive bars.

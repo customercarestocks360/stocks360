@@ -149,5 +149,11 @@ export function withOverviewTick(
     changePercent: tick.changePercent ?? base.changePercent,
     currency: base.currency ?? tick.currency,
     stale: tick.stale,
+    // Forex only — the tick carries the real bid/ask/spread live; other markets never set
+    // these on the overview socket, so `base` (REST, or nothing yet) still wins for them.
+    bid: tick.bid ?? base.bid,
+    ask: tick.ask ?? base.ask,
+    spread: tick.spread ?? base.spread,
+    spreadPips: tick.spreadPips ?? base.spreadPips,
   };
 }

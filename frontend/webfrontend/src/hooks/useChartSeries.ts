@@ -126,8 +126,15 @@ export function useChartSeries(
           A token is sent when there is one and omitted when there is not. The route ignores it
           either way; passing it keeps signed-in traffic attributable in the access log, and
           `currentIdToken()` must not be called while signed out because it throws.
+
+          The `.catch` matters: `currentIdToken()` is a Firebase SDK call and can throw for
+          reasons that have nothing to do with candles — a refresh hiccup reaching Google, or
+          this machine's clock drift tripping token verification. The candle endpoints are
+          public, so losing the token should cost attribution, not the whole chart; letting
+          that throw escape here used to fail the entire load with a "Could not load candles"
+          that had never actually tried to load any.
         */
-        const token = authReady && isLoggedIn ? await currentIdToken() : "";
+        const token = authReady && isLoggedIn ? await currentIdToken().catch(() => "") : "";
         const points = await fetchChartSeries(
           assetClass,
           symbol,

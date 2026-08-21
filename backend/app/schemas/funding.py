@@ -25,6 +25,7 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, StringConstraints
 
+from app.core.config import TRADING_ACCOUNT_CURRENCY
 from app.schemas.common import ErrorResponse
 from app.schemas.trading import Amount, IdempotencyKey, Money, SettlementCurrency, Settles
 
@@ -141,7 +142,11 @@ class _Strict(BaseModel):
 
 
 class _FundingBase(_Strict):
-    currency: Settles
+    currency: Settles | None = Field(
+        default=None,
+        description=f"Optional, and only {TRADING_ACCOUNT_CURRENCY} is accepted — this venue "
+        "settles into one balance, so there is no second currency to fund",
+    )
     amount: Money
     network: NetworkCode
     idempotency_key: IdempotencyKey
@@ -150,6 +155,21 @@ class _FundingBase(_Strict):
         max_length=128,
         description="The transaction id, UTR or hash a reviewer can check this against",
     )
+
+    def _assert_one_balance(self) -> None:
+        """The reviewed queue funds the same single balance the instant endpoints do.
+
+        Accepting an INR request here and crediting an INR wallet would leave money in a
+        currency nothing can be traded out of, which is worse than refusing it: the user
+        would see a balance and every order against it would fail.
+        """
+        if self.currency is None:
+            self.currency = SettlementCurrency(TRADING_ACCOUNT_CURRENCY)
+        elif self.currency.value != TRADING_ACCOUNT_CURRENCY:
+            raise ValueError(
+                f"This venue holds a single {TRADING_ACCOUNT_CURRENCY} balance, so "
+                f"{self.currency.value} cannot be funded or paid out. Omit `currency`."
+            )
 
     def _assert_rail_carries_currency(self) -> None:
         allowed = NETWORKS_FOR.get(self.currency.value, frozenset())
@@ -160,6 +180,7 @@ class _FundingBase(_Strict):
             )
 
     def model_post_init(self, _context: Any) -> None:
+        self._assert_one_balance()
         self._assert_rail_carries_currency()
 
 

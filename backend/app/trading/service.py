@@ -5,13 +5,36 @@ endpoints serve, and cash is book money this API creates on request. There is no
 no clearing member and no custody anywhere behind it. Everything here is built to be
 correct as an accounting system, which is a different claim from being a real one.
 
+**One balance funds everything.** An account holds a single wallet in
+`TRADING_ACCOUNT_CURRENCY` (USDT), opened at `TRADING_INITIAL_BALANCE`, and every asset
+class settles into it. An instrument priced in something else has its notional converted by
+`app.trading.fx` at a rate fixed when the order is placed and carried on the order, so the
+same order can never settle at two different rates and the matcher never has to look one
+up. Prices stay in the instrument's own currency; everything that reaches a balance is in
+the account currency.
+
+**Positions are signed, and both directions are real.** Positive is long, negative short,
+one document per instrument. A sell against a long reduces it and reserves the units; a sell
+with nothing behind it opens a short and reserves cash. Shorting is allowed on the asset
+classes in `TRADING_SHORT_SELLING_CLASSES` — crypto and forex, which are natively two-sided
+— and refused on equities, where a short is a stock loan needing a borrow this venue cannot
+arrange. An order that would carry a position *through* zero is refused rather than split.
+
+**One settlement path.** `money.apply_fill` turns a fill into a complete set of deltas and
+`_settle_fill` applies them. There used to be a `_settle_buy` and a `_settle_sell`, and the
+split is what let a leveraged round trip mint money: the buy took only its margin out of the
+wallet while the sell credited the full gross proceeds back, so buying and selling at one
+unchanged price left the account richer by most of the notional. Closing now returns the
+margin released plus the P&L realized, which is the only pair of numbers that conserves.
+
 The order of the checks in `place_order()` is deliberate and is the honest answer to
 "proper conditionality":
 
 1. **Is the venue open for business** — the feature flag.
 2. **Is the caller allowed to trade at all** — onboarding submitted, KYC tier reached.
-3. **Does the instrument exist, and can we hold what it settles in** — resolved against
-   the live symbol universe, not a list in this repository.
+3. **Does the instrument exist, and can we price what it settles in** — resolved against
+   the live symbol universe, not a list in this repository, and convertible to the account
+   currency.
 4. **Is the specific product enabled for this caller** — crypto spot, forex, domestic or
    foreign equity, taken from the onboarding outcome. A product still under review is a
    separate answer from one never requested, because the user can do something about one
@@ -19,7 +42,9 @@ The order of the checks in `place_order()` is deliberate and is the honest answe
 5. **Is the order itself coherent against the market** — stop on the correct side, price
    inside the band, notional inside the bounds, and for anything that must fill now, a
    market that is open and a price that is fresh.
-6. **Are the funds or the units actually there** — atomically, as part of locking them.
+6. **Is the direction permitted** — a short only where the asset class carries one, and
+   never through zero.
+7. **Are the funds or the units actually there** — atomically, as part of locking them.
 
 Each check is cheap and ordered before the expensive one after it, and no check is done
 twice with a gap in between where the answer could change.
@@ -34,13 +59,17 @@ from fastapi import HTTPException, status
 from pymongo.errors import DuplicateKeyError
 
 from app.core.config import (
+    TRADING_ACCOUNT_CURRENCY,
     TRADING_ENABLED,
     TRADING_MAX_DEPOSIT,
     TRADING_MAX_OPEN_ORDERS,
     TRADING_MAX_ORDER_NOTIONAL,
     TRADING_MAX_WITHDRAWAL,
     TRADING_MIN_ORDER_NOTIONAL,
+    TRADING_MIN_QUANTITY,
+    TRADING_OPEN_ACCESS,
     TRADING_PRICE_BAND_PERCENT,
+    TRADING_SHORT_SELLING_CLASSES,
 )
 from app.onboarding import repository as onboarding_repository
 from app.schemas.onboarding import KycTier, OnboardingStatus, Product
@@ -59,11 +88,25 @@ from app.schemas.trading import (
     OrderType,
     Portfolio,
     Position,
+    PositionSide,
     PositionValuation,
     TimeInForce,
 )
-from app.trading import pricing, repository
-from app.trading.money import ZERO, fee_for, money, notional_of, percent_change
+from app.trading import fx, pricing, repository
+from app.trading.money import (
+    ONE,
+    ZERO,
+    FillEffect,
+    apply_fill,
+    cash_shortfall,
+    fee_for,
+    margin_of,
+    money,
+    notional_of,
+    percent_change,
+    sign_of,
+    wallet_delta,
+)
 from app.trading.pricing import Mark
 from app.users import repository as users_repository
 
@@ -138,7 +181,13 @@ def _products(user: dict, field: str) -> list[Product]:
 
 
 def _trading_block(user: dict) -> str | None:
-    """Why this account cannot trade at all, or None when it can."""
+    """Why this account cannot trade at all, or None when it can.
+
+    The single place the account-level gate is decided, so `TRADING_OPEN_ACCESS` only has to
+    be honoured here: `assert_can_trade`, `eligibility` and the funding gate all read this.
+    """
+    if TRADING_OPEN_ACCESS:
+        return None
     onboarding = _status_of(user)
     if onboarding is OnboardingStatus.rejected:
         return "Your application was rejected — trading is not available on this account"
@@ -164,7 +213,13 @@ def assert_product_enabled(user: dict, product: Product) -> None:
     A product sitting in `pending_products` was requested and is waiting on the income
     proof; one in neither list was never asked for during onboarding. Telling those apart
     is the difference between "wait" and "you need to do something".
+
+    Skipped entirely under `TRADING_OPEN_ACCESS`, which is the default: refusing a funded
+    account access to a paper market because it did not tick that box during onboarding was
+    the gate with the least to justify it.
     """
+    if TRADING_OPEN_ACCESS:
+        return
     if product in _products(user, "enabled_products"):
         return
     if product in _products(user, "pending_products"):
@@ -192,7 +247,12 @@ def eligibility(uid: str) -> Eligibility:
         candidates = pricing.products_for_class(asset_class)
         granted = [p for p in candidates if p in enabled]
         waiting = [p for p in candidates if p in pending]
-        if blocked:
+        # Under open access every class is tradable, so there is nothing to explain and no
+        # review to be waiting on — the products list stays, since it still describes what
+        # this class *would* require if the gate were put back.
+        if TRADING_OPEN_ACCESS:
+            reason = None
+        elif blocked:
             reason = blocked
         elif granted:
             reason = None
@@ -206,8 +266,8 @@ def eligibility(uid: str) -> Eligibility:
             AssetClassEligibility(
                 asset_class=asset_class,
                 products=candidates,
-                enabled=blocked is None and bool(granted),
-                pending_review=bool(waiting),
+                enabled=TRADING_OPEN_ACCESS or (blocked is None and bool(granted)),
+                pending_review=bool(waiting) and not TRADING_OPEN_ACCESS,
                 market_state=pricing.feed_state(asset_class),
                 reason=reason,
             )
@@ -267,6 +327,77 @@ def _assert_stop_direction(payload: OrderRequest, mark: Mark) -> None:
             detail=f"A sell stop triggers on the way down, so `stop_price` must be below the "
             f"last price of {mark.last}",
         )
+
+
+def _assert_quantity(quantity: Decimal, symbol: str) -> None:
+    if quantity < TRADING_MIN_QUANTITY:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Minimum order size for {symbol} is {TRADING_MIN_QUANTITY}, got {quantity}",
+        )
+
+
+def _net_quantity(position: dict | None) -> Decimal:
+    """A position's signed size, locked units included.
+
+    `available_quantity` is signed and `reserved_quantity` is not, so the net is the sum:
+    a long with a resting sell is still that long, and a short has nothing reserved.
+    """
+    if position is None:
+        return ZERO
+    return money(position["available_quantity"] + position["reserved_quantity"])
+
+
+def _direction(quantity: Decimal) -> PositionSide:
+    sign = sign_of(quantity)
+    if sign > 0:
+        return PositionSide.long
+    return PositionSide.short if sign < 0 else PositionSide.flat
+
+
+def _reserves_units(side: OrderSide, net: Decimal) -> bool:
+    """Whether this order locks stock rather than cash.
+
+    Exactly one case does: a sell against an existing long, which is the classic "these
+    shares are promised" reservation. Everything else — a buy either way, and a sell that
+    opens a short — commits cash, because that is what it actually consumes.
+    """
+    return side is OrderSide.sell and net > 0
+
+
+def _assert_short_selling_allowed(asset_class: AssetClass, symbol: str, net: Decimal) -> None:
+    """A sell with nothing behind it is a short, and not every market can carry one.
+
+    Crypto and FX are natively two-sided, so a sell there is simply the other direction.
+    Shorting a listed share is a stock loan — a borrow, a locate, a recall — and this venue
+    has no borrow desk, so it says no rather than pretending the position is financed.
+    """
+    if asset_class.value in TRADING_SHORT_SELLING_CLASSES:
+        return
+    held = f"you hold {net}" if net != 0 else "you hold none"
+    raise _conflict(
+        f"Selling {symbol} needs units you already own and {held}. Short selling is not "
+        f"available on {asset_class.value} — it would need a stock borrow this venue cannot "
+        f"arrange. It is available on "
+        f"{', '.join(sorted(TRADING_SHORT_SELLING_CLASSES))}."
+    )
+
+
+def _assert_no_flip(side: OrderSide, quantity: Decimal, net: Decimal, symbol: str) -> None:
+    """Refuse an order that would carry a position through zero and out the other side.
+
+    Deliberate, not an oversight: one fill carries one fee, and splitting it across a close
+    and an open makes both halves approximate. "Close it, then open the other way" is two
+    orders the caller can already place, and both of them price honestly.
+    """
+    side_sign = 1 if side is OrderSide.buy else -1
+    if sign_of(net) in (0, side_sign) or quantity <= abs(net):
+        return
+    raise _conflict(
+        f"You are {_direction(net).value} {abs(net)} {symbol} and this order is for "
+        f"{quantity}, which would flip the position through zero. Close the {abs(net)} you "
+        f"hold first, then open the other side — one order cannot price both halves."
+    )
 
 
 def _assert_notional(notional: Decimal, currency: str) -> None:
@@ -374,19 +505,48 @@ async def place_order(uid: str, payload: OrderRequest) -> dict:
     if must_fill_now and not mark.tradable:
         raise _conflict(_closed_detail(mark))
 
+    _assert_quantity(payload.quantity, payload.symbol)
+
+    # The rate is fetched once, here, and travels on the order — see `app.trading.fx` for
+    # why settlement must never look it up again. A currency nothing can price against the
+    # account currency is a 409 now rather than an order that cannot be funded later.
+    fx_rate = await fx.rate_for(mark.currency)
+
     reserve_price = _reservation_price(payload, mark)
-    notional = notional_of(payload.quantity, reserve_price)
-    _assert_notional(notional, mark.currency)
+    notional_quote = notional_of(payload.quantity, reserve_price)
+    # Bounds now apply to the converted figure, which is the first time they have meant the
+    # same thing across markets: the old per-quote-currency band compared INR to USD.
+    notional = fx.convert(notional_quote, fx_rate)
+    _assert_notional(notional, TRADING_ACCOUNT_CURRENCY)
 
     if await asyncio.to_thread(repository.count_open_orders, uid) >= TRADING_MAX_OPEN_ORDERS:
         raise _conflict(
             f"You already have {TRADING_MAX_OPEN_ORDERS} open orders — cancel one first"
         )
 
+    # What the caller already holds decides what this order commits: stock if it is selling
+    # a long, cash in every other case. Read once, here, so placement and settlement agree
+    # on which of the two the order is holding.
+    held = await asyncio.to_thread(
+        repository.get_position, uid, payload.asset_class.value, payload.symbol
+    )
+    net = _net_quantity(held)
+    # Order matters. Any sell bigger than the long behind it ends up net short, so the
+    # short-selling gate is asked first — otherwise an equity sell of 10 against 5 held is
+    # refused for "flipping through zero", advice the caller cannot act on because there is
+    # no other side to open. On a shortable class the flip check is the right refusal and
+    # runs next.
+    if payload.side is OrderSide.sell and payload.quantity > max(net, ZERO):
+        _assert_short_selling_allowed(payload.asset_class, payload.symbol, net)
+    _assert_no_flip(payload.side, payload.quantity, net, payload.symbol)
+
     now = _now()
-    is_buy = payload.side is OrderSide.buy
-    reserved_amount = money(notional + fee_for(notional)) if is_buy else ZERO
-    reserved_quantity = payload.quantity if not is_buy else ZERO
+    # Cash orders lock margin, not the full notional — see `money.margin_of`. A sell against
+    # a long locks the units instead, which is what stops the same stock being sold twice.
+    if _reserves_units(payload.side, net):
+        reserved_amount, reserved_quantity = ZERO, payload.quantity
+    else:
+        reserved_amount, reserved_quantity = money(margin_of(notional) + fee_for(notional)), ZERO
 
     doc = {
         "_id": repository.new_id(),
@@ -400,6 +560,8 @@ async def place_order(uid: str, payload: OrderRequest) -> dict:
         "status": OrderStatus.open.value,
         "funded": False,
         "currency": mark.currency,
+        "account_currency": TRADING_ACCOUNT_CURRENCY,
+        "fx_rate": fx_rate,
         "quantity": payload.quantity,
         "filled_quantity": ZERO,
         "limit_price": payload.limit_price,
@@ -411,6 +573,7 @@ async def place_order(uid: str, payload: OrderRequest) -> dict:
         "reserved_amount": reserved_amount,
         "reserved_quantity": reserved_quantity,
         "reject_reason": None,
+        "liquidation": False,
         "created_at": now,
         "updated_at": now,
         "expires_at": _day_expiry(now) if payload.time_in_force is TimeInForce.day else None,
@@ -459,42 +622,53 @@ def _closed_detail(mark: Mark) -> str:
 
 
 async def _reserve_for(order: dict, amount: Decimal, quantity: Decimal) -> None:
-    """Lock cash for a buy or units for a sell. Failure closes the order as rejected."""
+    """Lock cash or units, whichever this order committed. Failure rejects the order.
+
+    Which one it is was decided at placement and is recorded in the order's own
+    `reserved_amount` / `reserved_quantity`, so this does not re-derive it from the side —
+    a sell locks stock when it is closing a long and cash when it is opening a short, and
+    guessing again here is how the two halves get out of step.
+    """
     uid, order_id = order["uid"], order["id"]
 
-    if order["side"] == OrderSide.buy.value:
-        await asyncio.to_thread(repository.ensure_wallet, uid, order["currency"])
-        entry = await asyncio.to_thread(
-            repository.apply_to_wallet,
-            uid,
-            order["currency"],
-            available_delta=-amount,
-            reserved_delta=amount,
-            kind=LedgerKind.reserve,
-            require_available=amount,
-            order_id=order_id,
+    if quantity > 0:
+        position = await asyncio.to_thread(
+            repository.reserve_quantity, uid, order["asset_class"], order["symbol"], quantity
         )
-        if entry is None:
-            balance = await asyncio.to_thread(repository.get_balance, uid, order["currency"])
-            held = balance["available"] if balance else ZERO
-            await _reject(order_id, "Insufficient funds")
+        if position is None:
+            held = await asyncio.to_thread(
+                repository.get_position, uid, order["asset_class"], order["symbol"]
+            )
+            free = held["available_quantity"] if held else ZERO
+            await _reject(order_id, "Insufficient position")
             raise _conflict(
-                f"This order needs {amount} {order['currency']} and you have {held} available"
+                f"Selling {quantity} {order['symbol']} needs that many unlocked units and "
+                f"you have {free} free. Cancel a resting sell to release some."
             )
         return
 
-    position = await asyncio.to_thread(
-        repository.reserve_quantity, uid, order["asset_class"], order["symbol"], quantity
+    await asyncio.to_thread(repository.ensure_wallet, uid, TRADING_ACCOUNT_CURRENCY)
+    if amount <= 0:
+        return
+    entry = await asyncio.to_thread(
+        repository.apply_to_wallet,
+        uid,
+        TRADING_ACCOUNT_CURRENCY,
+        available_delta=-amount,
+        reserved_delta=amount,
+        kind=LedgerKind.reserve,
+        require_available=amount,
+        order_id=order_id,
     )
-    if position is None:
-        held = await asyncio.to_thread(
-            repository.get_position, uid, order["asset_class"], order["symbol"]
+    if entry is None:
+        balance = await asyncio.to_thread(
+            repository.get_balance, uid, TRADING_ACCOUNT_CURRENCY
         )
-        free = held["available_quantity"] if held else ZERO
-        await _reject(order_id, "Insufficient position")
+        held = balance["available"] if balance else ZERO
+        await _reject(order_id, "Insufficient funds")
         raise _conflict(
-            f"Selling {quantity} {order['symbol']} needs that many free units and you hold "
-            f"{free}. This venue is long-only spot — there is no short selling."
+            f"This order needs {amount} {TRADING_ACCOUNT_CURRENCY} and you have {held} "
+            f"available"
         )
 
 
@@ -523,6 +697,17 @@ async def close_and_release(
     return await asyncio.to_thread(repository.get_order_unscoped, order_id) or closed
 
 
+def _wallet_currency(order: dict) -> str:
+    """Which wallet this order's cash lives in.
+
+    Always the account currency for anything placed since the balance became universal.
+    Orders written before that reserved cash in the instrument's own quote currency, and
+    that is the wallet their reservation has to go back to — releasing it into the account
+    currency instead would move value between two wallets and lose it from one of them.
+    """
+    return order.get("account_currency") or order["currency"]
+
+
 async def release_reservation(order: dict) -> None:
     """Return an order's reservation. Safe to run twice — the guards are on the balances
     themselves, so a second attempt finds nothing to give back and does nothing. That is
@@ -531,7 +716,7 @@ async def release_reservation(order: dict) -> None:
         await asyncio.to_thread(
             repository.apply_to_wallet,
             order["uid"],
-            order["currency"],
+            _wallet_currency(order),
             available_delta=order["reserved_amount"],
             reserved_delta=-order["reserved_amount"],
             kind=LedgerKind.release,
@@ -603,14 +788,48 @@ async def _execute_locked(order_id: str, mark: Mark) -> dict | None:
         return None
 
     quantity: Decimal = order["quantity"]
-    notional = notional_of(quantity, price)
-    fee = fee_for(notional)
     side = OrderSide(order["side"])
+    rate: Decimal = order.get("fx_rate") or ONE
 
-    if side is OrderSide.buy:
-        funded = await _fund_buy(order, notional, fee)
-        if not funded:
-            return await _reject_for_funds(order)
+    # Prices are quoted in the instrument's currency; every figure that reaches a balance is
+    # in the account currency. The conversion happens once, here, using the rate the order
+    # has carried since placement.
+    notional_quote = notional_of(quantity, price)
+    notional = fx.convert(notional_quote, rate)
+    fee = fee_for(notional)
+
+    position = await asyncio.to_thread(
+        repository.get_position, order["uid"], order["asset_class"], order["symbol"]
+    )
+    net = _net_quantity(position)
+    try:
+        effect = apply_fill(
+            quantity=net,
+            cost_basis=position["cost_basis"] if position else ZERO,
+            cost_basis_quote=(position or {}).get("cost_basis_quote", ZERO),
+            margin_used=position["margin_used"] if position else ZERO,
+            side_sign=1 if side is OrderSide.buy else -1,
+            fill_quantity=quantity,
+            notional=notional,
+            notional_quote=notional_quote,
+            fee=fee,
+            margin=money(margin_of(notional) + fee),
+        )
+    except ValueError:
+        # The position moved under a resting order until this fill would flip it through
+        # zero — a short partly closed by another order, say. Refused for the same reason it
+        # is refused at placement, and the caller gets the reservation back.
+        return await _reject_and_release(
+            order, "This order would flip the position through zero — close what is open first"
+        )
+
+    # Every fill, not only the cash-reserving ones: a sell that reserved units can still
+    # settle a leveraged loss deeper than the margin behind it, and that comes out of cash.
+    if not await _fund_cash_leg(order, effect):
+        return await _reject_and_release(
+            order,
+            "Insufficient funds at execution — the market moved past the reserved price",
+        )
 
     claimed = await asyncio.to_thread(
         repository.claim_fill, order_id, quantity=quantity, price=price, notional=notional, fee=fee
@@ -618,10 +837,7 @@ async def _execute_locked(order_id: str, mark: Mark) -> dict | None:
     if claimed is None:
         return None  # someone else took it between the read and here
 
-    if side is OrderSide.buy:
-        settled = await _settle_buy(claimed, notional, fee)
-    else:
-        settled = await _settle_sell(claimed, notional, fee)
+    await _settle_fill(claimed, effect)
 
     trade = await asyncio.to_thread(
         repository.record_trade,
@@ -633,17 +849,25 @@ async def _execute_locked(order_id: str, mark: Mark) -> dict | None:
             "symbol": order["symbol"],
             "side": side.value,
             "currency": order["currency"],
+            "account_currency": _wallet_currency(order),
+            "fx_rate": rate,
             "quantity": quantity,
             "price": price,
             "notional": notional,
             "fee": fee,
-            "realized_pnl": settled,
+            "opened": money(quantity - effect.closed_quantity),
+            "closed": effect.closed_quantity,
+            # Only the closing part of a fill books P&L. An opening fill reports null
+            # rather than zero: "nothing was realized" and "it came out flat" differ.
+            "realized_pnl": effect.realized if effect.closed_quantity > 0 else None,
+            "liquidation": order.get("liquidation", False),
             "at": _now(),
         },
     )
     logger.info(
-        "Filled %s %s %s %s @ %s (%s), trade %s",
-        order["uid"], side.value, quantity, order["symbol"], price, order["currency"], trade["id"],
+        "Filled %s %s %s %s @ %s %s (%s %s), trade %s",
+        order["uid"], side.value, quantity, order["symbol"], price, order["currency"],
+        notional, _wallet_currency(order), trade["id"],
     )
 
     await asyncio.to_thread(repository.clear_reservations, order_id)
@@ -656,126 +880,212 @@ def _stop_reached(order: dict, mark: Mark) -> bool:
     return mark.last >= stop if order["side"] == OrderSide.buy.value else mark.last <= stop
 
 
-async def _fund_buy(order: dict, notional: Decimal, fee: Decimal) -> bool:
-    """Make sure the reservation covers what the fill actually costs.
+async def _fund_cash_leg(order: dict, effect: FillEffect) -> bool:
+    """Make sure the wallet can absorb what this fill takes out of it, before it is claimed.
 
-    A stop buy reserved at its stop price; if the market gapped through it the fill costs
-    more, and the difference has to come out of available cash. When it cannot, the order
-    is rejected rather than filled on credit — this venue does not lend.
+    Three situations produce a shortfall, and they are the same shape:
+
+    * A stop buy reserved at its stop price and the market gapped through it, so the margin
+      costs more than was locked.
+    * A buy closing a short settles a loss bigger than the collateral posted against it.
+    * A **sell closing a long** does the same. That one reserved units, not cash, so it
+      looks as though it needs no funding — but under leverage a position can lose far more
+      than the margin behind it, and the difference still has to come out of the balance.
+      Which is why this runs for every fill and not only the cash-reserving ones.
+
+    An **opening** fill that cannot be covered is rejected: this venue does not lend to open
+    a position. A **closing** fill that cannot be covered goes through anyway and drives the
+    balance negative, which is a deliberate choice — refusing to close leaves the user
+    holding a position that only gets worse, and a negative balance is contained (every
+    reservation and withdrawal guards on `require_available`, so nothing can be traded or
+    paid out of it). Reaching that point means the margin engine did not get here first, and
+    that is what the critical log is for.
     """
-    shortfall = money(notional + fee - order["reserved_amount"])
+    reserved: Decimal = order.get("reserved_amount", ZERO)
+    shortfall = cash_shortfall(reserved, effect)
     if shortfall <= 0:
         return True
+
     entry = await asyncio.to_thread(
         repository.apply_to_wallet,
         order["uid"],
-        order["currency"],
+        _wallet_currency(order),
         available_delta=-shortfall,
         reserved_delta=shortfall,
         kind=LedgerKind.reserve,
         require_available=shortfall,
         order_id=order["id"],
     )
-    if entry is None:
+    if entry is not None:
+        await asyncio.to_thread(repository.add_reservation, order["id"], shortfall)
+        order["reserved_amount"] = money(reserved + shortfall)
+        return True
+
+    if effect.closed_quantity <= 0:
         return False
-    await asyncio.to_thread(repository.add_reservation, order["id"], shortfall)
-    order["reserved_amount"] = money(order["reserved_amount"] + shortfall)
+    logger.critical(
+        "Order %s closes a position at a loss %s beyond what %s can cover — settling into a "
+        "negative balance rather than leaving the position open",
+        order["id"], shortfall, order["uid"],
+    )
     return True
 
 
-async def _reject_for_funds(order: dict) -> dict | None:
+async def _reject_and_release(order: dict, reason: str) -> dict | None:
     closed = await asyncio.to_thread(
-        repository.claim_close,
-        order["id"],
-        OrderStatus.rejected,
-        None,
-        "Insufficient funds at execution — the market moved past the reserved price",
+        repository.claim_close, order["id"], OrderStatus.rejected, None, reason
     )
     if closed is None:
         return None
     await release_reservation(closed)
-    logger.info("Rejected order %s: reservation could not cover the fill", order["id"])
+    logger.info("Rejected order %s: %s", order["id"], reason)
     return await asyncio.to_thread(repository.get_order_unscoped, order["id"])
 
 
-async def _settle_buy(order: dict, notional: Decimal, fee: Decimal) -> None:
-    """Cash leaves first, then the position appears.
+async def _settle_fill(order: dict, effect: FillEffect) -> None:
+    """Move the cash, then move the position. One path for every fill.
 
-    That order matters: if this process dies between the two, the user is short the cash
-    and missing the asset, which is recoverable from the trade record. The other order
-    would create the asset for free.
+    There used to be two, `_settle_buy` and `_settle_sell`, and the split is what let a
+    leveraged round trip mint money: the buy took only its margin out of the wallet while
+    the sell credited the *full* proceeds back in, so buying and selling at one unchanged
+    price left the account richer by most of the notional. With a signed position there is
+    one formula (`money.apply_fill`) and the wallet moves by what that formula says, which
+    is the margin released plus the P&L realized — never the gross proceeds.
+
+    Cash first, position second, deliberately: if this process dies between the two the
+    user is out the cash and missing the position, which the trade record can repair. The
+    other order would hand out a position nothing was paid for.
     """
-    cost = money(notional + fee)
-    reserved: Decimal = order["reserved_amount"]
-    refund = money(reserved - cost)  # `_fund_buy` guarantees this is not negative
+    uid, order_id = order["uid"], order["id"]
+    currency = _wallet_currency(order)
+    reserved: Decimal = order.get("reserved_amount", ZERO)
+    available_delta, reserved_delta = wallet_delta(reserved, effect)
 
+    await asyncio.to_thread(repository.ensure_wallet, uid, currency)
     entry = await asyncio.to_thread(
         repository.apply_to_wallet,
-        order["uid"],
-        order["currency"],
-        available_delta=refund,
-        reserved_delta=-reserved,
-        kind=LedgerKind.trade_debit,
-        require_reserved=reserved,
-        order_id=order["id"],
+        uid,
+        currency,
+        available_delta=available_delta,
+        reserved_delta=reserved_delta,
+        kind=LedgerKind.trade_credit if effect.cash_delta >= 0 else LedgerKind.trade_debit,
+        require_reserved=reserved if reserved > 0 else None,
+        order_id=order_id,
     )
     if entry is None:
-        # Unreachable while the settlement lock holds and the reservation is intact. If it
-        # ever fires, the order says filled and the cash was not taken — loud, not silent.
+        # Unreachable while the settlement lock holds and `_fund_cash_leg` has run. If it
+        # ever fires, the order says filled and the cash did not move — loud, not silent.
         logger.critical(
             "Order %s filled but its %s reservation of %s could not be consumed",
-            order["id"], order["currency"], reserved,
+            order_id, currency, reserved,
         )
+
     await asyncio.to_thread(
-        repository.ensure_position,
-        order["uid"], order["asset_class"], order["symbol"], order["currency"],
+        repository.ensure_position, uid, order["asset_class"], order["symbol"], order["currency"]
     )
-    await asyncio.to_thread(
-        repository.add_to_position,
-        order["uid"], order["asset_class"], order["symbol"], order["quantity"], cost,
+    reserved_quantity: Decimal = order.get("reserved_quantity", ZERO)
+    applied = await asyncio.to_thread(
+        repository.apply_fill_to_position,
+        uid,
+        order["asset_class"],
+        order["symbol"],
+        effect,
+        require_reserved_quantity=reserved_quantity if reserved_quantity > 0 else None,
     )
-    return None
-
-
-async def _settle_sell(order: dict, notional: Decimal, fee: Decimal) -> Decimal:
-    """The position goes first, then the proceeds arrive — the mirror of a buy, and
-    conservative for the same reason.
-
-    Realised P&L is proceeds net of fee less the average cost of the units sold, where the
-    average already includes the fee paid on the way in. So a round trip at an unchanged
-    price shows a loss of both commissions, which is the true result.
-    """
-    uid, asset_class, symbol = order["uid"], order["asset_class"], order["symbol"]
-    quantity: Decimal = order["quantity"]
-    proceeds = money(notional - fee)
-
-    position = await asyncio.to_thread(repository.get_position, uid, asset_class, symbol)
-    total = (
-        position["available_quantity"] + position["reserved_quantity"] if position else ZERO
-    )
-    average = money(position["cost_basis"] / total) if position and total > 0 else ZERO
-    basis_sold = money(average * quantity)
-    realized = money(proceeds - basis_sold)
-
-    reduced = await asyncio.to_thread(
-        repository.reduce_position, uid, asset_class, symbol, quantity, basis_sold, realized
-    )
-    if reduced is None:
+    if applied is None:
         logger.critical(
             "Order %s filled but %s units of %s were not reserved on the position",
-            order["id"], quantity, symbol,
+            order_id, reserved_quantity, order["symbol"],
         )
-    await asyncio.to_thread(repository.ensure_wallet, uid, order["currency"])
-    await asyncio.to_thread(
-        repository.apply_to_wallet,
-        uid,
-        order["currency"],
-        available_delta=proceeds,
-        reserved_delta=ZERO,
-        kind=LedgerKind.trade_credit,
-        order_id=order["id"],
+
+
+
+# --------------------------------------------------------------------------- #
+# Margin liquidation
+# --------------------------------------------------------------------------- #
+
+
+async def liquidate_position(uid: str, asset_class: AssetClass, symbol: str, mark: Mark) -> dict | None:
+    """Force-close a leveraged position whose margin has run out, at the current mark.
+
+    Called by `TradingEngine` when `margin_used + unrealized P&L <= 0` for this holding —
+    never by a route, and never on the caller's behalf, which is why this bypasses
+    `assert_can_trade`/`assert_product_enabled`/the notional band entirely: those gate a
+    user opening or growing a position, not the venue closing one down before it goes
+    further underwater. It reuses the ordinary order path end to end (`_reserve_for`,
+    `execute`) rather than settling by hand, so a liquidation is accounted exactly like any
+    other fill — `apply_fill` releases this position's margin the same way either way.
+
+    Works in both directions: a long is sold out of, a short is bought back. A short is the
+    side that needs this most, since its loss is not bounded by the price reaching zero.
+    """
+    position = await asyncio.to_thread(repository.get_position, uid, asset_class.value, symbol)
+    if position is None or position["available_quantity"] == 0:
+        return None
+
+    # Whichever way the position faces, closing it is an order the other way. A long is
+    # sold out of; a short is bought back. `available_quantity` is signed, so its sign is
+    # the whole decision and its magnitude is the size.
+    free: Decimal = position["available_quantity"]
+    closing_side = OrderSide.sell if free > 0 else OrderSide.buy
+    quantity = abs(free)
+
+    rate = await fx.rate_for(mark.currency)
+    notional = fx.convert(notional_of(quantity, mark.execution_price(closing_side)), rate)
+
+    now = _now()
+    doc = {
+        "_id": repository.new_id(),
+        "uid": uid,
+        "client_order_id": f"liquidation-{repository.new_id()}",
+        "asset_class": asset_class.value,
+        "symbol": symbol,
+        "side": closing_side.value,
+        "type": OrderType.market.value,
+        "time_in_force": TimeInForce.ioc.value,
+        "status": OrderStatus.open.value,
+        "funded": False,
+        "currency": mark.currency,
+        "account_currency": TRADING_ACCOUNT_CURRENCY,
+        "fx_rate": rate,
+        "quantity": quantity,
+        "filled_quantity": ZERO,
+        "limit_price": None,
+        "stop_price": None,
+        "triggered": False,
+        "average_price": None,
+        "filled_notional": None,
+        "fee": ZERO,
+        # Closing a long promises the stock; closing a short needs cash to buy it back, and
+        # the margin already posted is what that cash comes out of.
+        "reserved_amount": ZERO if closing_side is OrderSide.sell else money(
+            margin_of(notional) + fee_for(notional)
+        ),
+        "reserved_quantity": quantity if closing_side is OrderSide.sell else ZERO,
+        "reject_reason": None,
+        "liquidation": True,
+        "created_at": now,
+        "updated_at": now,
+        "expires_at": None,
+        "closed_at": None,
+    }
+    order = await asyncio.to_thread(repository.create_order, doc)
+    await _reserve_for(order, order["reserved_amount"], order["reserved_quantity"])
+    await asyncio.to_thread(repository.mark_funded, order["id"])
+    order["funded"] = True
+
+    filled = await execute(order, mark)
+    if filled is not None:
+        logger.warning(
+            "Margin call: liquidated %s %s for %s at %s", order["quantity"], symbol, uid, mark.last
+        )
+        return filled
+
+    # The mark went stale or untradable between the caller's snapshot and here — the same
+    # race `place_order` handles for an ordinary IOC order, closed the same way.
+    return await close_and_release(
+        order["id"], OrderStatus.cancelled, "Margin call could not fill against the current price"
     )
-    return realized
 
 
 # --------------------------------------------------------------------------- #
@@ -825,7 +1135,9 @@ async def _move_funds(uid: str, payload: FundsRequest, kind: LedgerKind, credit:
     this module nobody would notice until the numbers stopped adding up.
     """
     scope = kind.value
-    currency = payload.currency.value
+    # `FundsRequest` has already refused anything that is not the account currency, so this
+    # is the one balance either direction can move.
+    currency = payload.currency.value if payload.currency else TRADING_ACCOUNT_CURRENCY
     existing = await asyncio.to_thread(repository.claim_key, uid, scope, payload.idempotency_key)
     if existing is not None:
         if existing.get("result_id"):
@@ -840,8 +1152,9 @@ async def _move_funds(uid: str, payload: FundsRequest, kind: LedgerKind, credit:
         )
 
     try:
-        if credit:
-            await asyncio.to_thread(repository.ensure_wallet, uid, currency)
+        # Unconditionally, not just on a credit: a new account's opening balance arrives
+        # with the wallet, so a withdrawal can be the first thing it ever does.
+        await asyncio.to_thread(repository.ensure_wallet, uid, currency)
         entry = await asyncio.to_thread(
             repository.apply_to_wallet,
             uid,
@@ -886,20 +1199,38 @@ def _balance(doc: dict) -> Balance:
 
 
 def balances(uid: str) -> list[Balance]:
-    return [_balance(doc) for doc in repository.list_balances(uid)]
+    """Every wallet on the account, the account currency first.
+
+    `ensure_wallet` runs here rather than only on the first order, so a brand-new account
+    reads back its opening balance instead of an empty list — the balance exists from the
+    moment someone looks, which is the only version of "you start with 1000" that a client
+    can render without placing a trade first.
+    """
+    repository.ensure_wallet(uid, TRADING_ACCOUNT_CURRENCY)
+    rows = [_balance(doc) for doc in repository.list_balances(uid)]
+    rows.sort(key=lambda row: (row.currency != TRADING_ACCOUNT_CURRENCY, row.currency))
+    return rows
 
 
 def _position(doc: dict) -> Position:
-    total = doc["available_quantity"] + doc["reserved_quantity"]
+    net = money(doc["available_quantity"] + doc["reserved_quantity"])
+    basis_quote = doc.get("cost_basis_quote", doc["cost_basis"])
     return Position(
         asset_class=AssetClass(doc["asset_class"]),
         symbol=doc["symbol"],
         currency=doc["currency"],
-        quantity=total,
+        # Absent on a position opened before the balance became universal, whose basis is in
+        # the instrument's own currency — labelling it USDT would be a quiet lie.
+        account_currency=doc.get("account_currency") or doc["currency"],
+        direction=_direction(net),
+        quantity=net,
         available_quantity=doc["available_quantity"],
         reserved_quantity=doc["reserved_quantity"],
-        average_price=money(doc["cost_basis"] / total) if total > 0 else None,
+        # Break-even in the currency the market quotes, so it is comparable with
+        # `last_price`. Dividing two signed numbers gives a positive price on both sides.
+        average_price=money(basis_quote / net) if net != 0 else None,
         cost_basis=doc["cost_basis"],
+        margin_used=doc["margin_used"],
         realized_pnl=doc["realized_pnl"],
         updated_at=doc["updated_at"],
     )
@@ -931,60 +1262,120 @@ def account(uid: str) -> Account:
 
 
 async def portfolio(uid: str) -> Portfolio:
-    """Positions marked against the live feeds.
+    """Positions marked against the live feeds, totalled in the account currency.
 
-    Totals are per currency and there is no grand total, because converting INR into USDT
-    would need an FX rate this API has no licensed source for. A made-up total is worse
-    than no total.
+    There is a grand total now, and the reason there was not one before has genuinely gone
+    away rather than been papered over: every position's cash leg is already converted, so
+    `equity` adds numbers that are all in the same unit instead of pretending INR and USDT
+    are interchangeable. Each row still reports the price in the currency its market quotes,
+    with the `fx_rate` that valued it, so the conversion is visible rather than implied.
     """
     held = await asyncio.to_thread(positions, uid)
-    cash = await asyncio.to_thread(balances, uid)
+    cash_rows = await asyncio.to_thread(balances, uid)
 
-    marks = await asyncio.gather(
-        *(pricing.mark_or_none(p.asset_class, p.symbol) for p in held)
+    # Marks and rates in one gather: a portfolio of Indian equities needs one rate, not one
+    # per position, and `fx.rate_for` caches so the duplicates collapse.
+    marks = await asyncio.gather(*(pricing.mark_or_none(p.asset_class, p.symbol) for p in held))
+    rates = await asyncio.gather(
+        *(_rate_or_none(p.currency) for p in held), return_exceptions=False
     )
 
     valued: list[PositionValuation] = []
-    market_value: dict[str, Decimal] = {}
-    unrealized: dict[str, Decimal] = {}
-    realized: dict[str, Decimal] = {}
+    market_value = ZERO
+    unrealized = ZERO
+    realized = ZERO
+    margin_used = ZERO
+    by_currency: dict[str, Decimal] = {}
+    unrealized_by_currency: dict[str, Decimal] = {}
+    realized_by_currency: dict[str, Decimal] = {}
 
-    for position, mark in zip(held, marks):
-        realized[position.currency] = money(
-            realized.get(position.currency, ZERO) + position.realized_pnl
+    for position, mark, rate in zip(held, marks, rates):
+        realized = money(realized + position.realized_pnl)
+        margin_used = money(margin_used + position.margin_used)
+        realized_by_currency[TRADING_ACCOUNT_CURRENCY] = money(
+            realized_by_currency.get(TRADING_ACCOUNT_CURRENCY, ZERO) + position.realized_pnl
         )
         row = PositionValuation(**position.model_dump())
-        if mark is not None:
-            value = money(position.quantity * mark.last)
+        if mark is not None and rate is not None:
+            # Signed, so a short contributes negative value and summing gives net exposure.
+            value = fx.convert(money(position.quantity * mark.last), rate)
             pnl = money(value - position.cost_basis)
             row.last_price = mark.last
+            row.fx_rate = rate
             row.market_value = value
             row.unrealized_pnl = pnl
+            # Against the cash actually posted, not against the basis: at 200x a 1% move is
+            # a 200% swing on what the position tied up, and that is the number that matters.
             row.unrealized_pnl_percent = (
-                percent_change(value, position.cost_basis) if position.cost_basis > 0 else None
+                percent_change(money(position.margin_used + pnl), position.margin_used)
+                if position.margin_used > 0
+                else None
             )
             row.market_state = mark.market_state
             row.stale = mark.stale
-            market_value[position.currency] = money(
-                market_value.get(position.currency, ZERO) + value
+            market_value = money(market_value + value)
+            unrealized = money(unrealized + pnl)
+            by_currency[TRADING_ACCOUNT_CURRENCY] = money(
+                by_currency.get(TRADING_ACCOUNT_CURRENCY, ZERO) + value
             )
-            unrealized[position.currency] = money(
-                unrealized.get(position.currency, ZERO) + pnl
+            unrealized_by_currency[TRADING_ACCOUNT_CURRENCY] = money(
+                unrealized_by_currency.get(TRADING_ACCOUNT_CURRENCY, ZERO) + pnl
             )
         valued.append(row)
 
+    cash = money(
+        sum(
+            (row.total for row in cash_rows if row.currency == TRADING_ACCOUNT_CURRENCY),
+            ZERO,
+        )
+    )
+    free_margin = money(
+        sum(
+            (row.available for row in cash_rows if row.currency == TRADING_ACCOUNT_CURRENCY),
+            ZERO,
+        )
+    )
     priced = sum(1 for row in valued if row.market_value is not None)
     return Portfolio(
         uid=uid,
-        balances=cash,
+        account_currency=TRADING_ACCOUNT_CURRENCY,
+        balances=cash_rows,
         positions=valued,
-        market_value_by_currency=market_value,
-        unrealized_pnl_by_currency=unrealized,
-        realized_pnl_by_currency=realized,
+        cash=cash,
+        market_value=market_value,
+        # Opening a position moves its margin *out* of the wallet — `available` and
+        # `reserved` both drop and `margin_used` on the position picks it up — so equity has
+        # to add the collateral back before applying what the position has done since.
+        # `market_value` is exposure, not ownership: under margin it is many times the cash
+        # committed, and adding it here would report an account many times its real size.
+        equity=money(cash + margin_used + unrealized),
+        unrealized_pnl=unrealized,
+        realized_pnl=realized,
+        margin_used=margin_used,
+        free_margin=free_margin,
+        market_value_by_currency=by_currency,
+        unrealized_pnl_by_currency=unrealized_by_currency,
+        realized_pnl_by_currency=realized_by_currency,
         priced=priced,
         unpriced=len(valued) - priced,
         at=_now(),
     )
+
+
+async def _rate_or_none(currency: str) -> Decimal | None:
+    """Best-effort conversion rate, for valuing a portfolio.
+
+    A position whose currency cannot be priced right now is reported unpriced rather than
+    failing the whole request — the same courtesy `pricing.mark_or_none` extends to a feed
+    that is down. The holding is real either way; only the valuation is missing.
+    """
+    try:
+        return await fx.rate_for(currency)
+    except HTTPException as exc:
+        logger.info("No FX rate for %s: %s", currency, exc.detail)
+    except Exception as exc:
+        logger.warning("Rating %s failed: %s", currency, exc)
+    return None
 
 
 # --------------------------------------------------------------------------- #

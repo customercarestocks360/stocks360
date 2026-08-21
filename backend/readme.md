@@ -53,6 +53,8 @@ All Firebase config lives in `.env` — nothing is hardcoded in the app or the t
 | `FOREX_STALE_SECONDS` | Quote age before it is flagged stale, default `180` |
 | `FOREX_MAX_WATCHLISTS` / `FOREX_MAX_SYMBOLS_PER_WATCHLIST` / `FOREX_MAX_SOCKETS_PER_USER` | Per-user caps, default `20` / `30` / `5` |
 | `FOREX_HEARTBEAT_SECONDS` | Silence before a heartbeat frame, 5–300, default `20` |
+| `FOREX_TWELVEDATA_API_KEY` | Optional second forex candle source ([twelvedata.com](https://twelvedata.com/pricing), free, no card). Tried first when set — real OHLC at every interval, unlike AwesomeAPI's ~77-minute tick cap or Yahoo's near-flat fine-interval FX bars. Blank (default) skips it entirely |
+| `FOREX_TWELVEDATA_URL` | Twelve Data base URL, default `https://api.twelvedata.com` |
 | `YAHOO_REST_URL` / `YAHOO_USER_AGENT` | Equity upstream. The browser UA is **required** — Yahoo refuses requests without one |
 | `STOCKS_POLL_SECONDS` / `STOCKS_POLL_CONCURRENCY` | Poll cadence and burst cap, default `15` / `6` |
 | `STOCKS_STALE_SECONDS` | Quote age before it is flagged stale, default `1800` (the feed is ~15m delayed) |
@@ -64,8 +66,14 @@ All Firebase config lives in `.env` — nothing is hardcoded in the app or the t
 | `TRADING_FEE_BPS` | Commission in basis points of notional, default `10` (0.1%), rounded up |
 | `TRADING_PRICE_BAND_PERCENT` | How far a limit or stop price may sit from the last trade, default `20` |
 | `TRADING_MAX_OPEN_ORDERS` | Resting orders per user, default `50` |
-| `TRADING_MIN_ORDER_NOTIONAL` / `TRADING_MAX_ORDER_NOTIONAL` | Per-order bounds in the quote currency, default `1` / `1000000` |
+| `TRADING_MIN_ORDER_NOTIONAL` / `TRADING_MAX_ORDER_NOTIONAL` | Per-order bounds in the **account** currency, default `1` / `1000000`. Converted first, so they mean the same thing in every market |
 | `TRADING_MAX_DEPOSIT` / `TRADING_MAX_WITHDRAWAL` | Per-movement bounds, default `1000000` each |
+| `TRADING_ACCOUNT_CURRENCY` | The one currency an account holds, default `USDT`. Has to be something `app/trading/fx.py` can price everything against — in practice `USDT` or `USD` |
+| `TRADING_INITIAL_BALANCE` | What a new account opens with, default `1000`. Credited once via `$setOnInsert` and recorded as an `Opening balance` ledger entry |
+| `TRADING_LEVERAGE` | Venue-wide leverage, default `200`, both directions and all three asset classes |
+| `TRADING_SHORT_SELLING_CLASSES` | Where a sell with nothing behind it opens a short, default `crypto,forex`. `stocks` is excluded — no borrow desk |
+| `TRADING_PEGGED_CURRENCIES` | Currencies converting 1:1 with each other, default `USDT,USDC,USD`. There is no licensed source for the peg's deviation, so pretending to one would be worse |
+| `TRADING_FX_TTL_SECONDS` | How long a fetched conversion rate is reused, 1–3600, default `60`. A rate scales a notional; it is not what the order fills at |
 | `TRADING_SWEEP_SECONDS` | How often the matcher expires day orders and re-checks resting ones, 5–300, default `15` |
 | `TRADING_DOMESTIC_SUFFIXES` | Ticker suffixes treated as domestic equity, default `.NS,.BO` |
 | `ADMIN_EMAILS` | Who may resolve a funding request, comma-separated. Matched against the verified token — there is no admin password. Empty means nobody, and every `/admin` route answers `403` |
@@ -170,11 +178,11 @@ the rest of the system can query users without calling Firebase on every request
 | `watchlists` | `_id` = uuid4 hex, unique `(uid, name)` | `uid, name, symbols, version, created_at, updated_at` — one document per streamable crypto instance |
 | `stock_watchlists` | same shape and indexes | the equities equivalent |
 | `forex_watchlists` | same shape and indexes | the forex equivalent. A separate collection on purpose: the two symbol universes come from different providers, so a pair being delisted must not be able to invalidate a crypto watchlist |
-| `wallets` | `_id` = `uid:CURRENCY` | `uid, currency, available, reserved` — cash, one document per currency held. `reserved` is held by open buy orders *and* by pending withdrawal requests. The deterministic key is what makes one wallet per currency a property of the schema rather than a check |
+| `wallets` | `_id` = `uid:CURRENCY` | `uid, currency, available, reserved` — cash. In practice one document per account, in `TRADING_ACCOUNT_CURRENCY`, created at `TRADING_INITIAL_BALANCE` via `$setOnInsert` (which is what makes the opening credit impossible to apply twice however many callers race). `reserved` is held by open orders *and* by pending withdrawal requests. The key stays per-currency so a wallet written by an older build is still readable and withdrawable rather than orphaned |
 | `funding_requests` | `_id` = uuid4 hex, indexed `(uid, created_at desc)` and `(status, created_at desc)` | a deposit or withdrawal awaiting review: `uid, email, kind, status, currency, amount, network, destination, reference, funded, resolved_by, resolution_note, ledger_entry_id`. `email` is denormalised so a queue spanning users costs no per-row lookup |
-| `orders` | `_id` = uuid4 hex, unique `(uid, client_order_id)` where present | the order and its lifecycle: `side, type, time_in_force, status, quantity, limit_price, stop_price, triggered, funded, reserved_amount, reserved_quantity, average_price, fee, expires_at` |
-| `trades` | indexed `(uid, at desc)` and `order_id` | one immutable record per fill: `quantity, price, notional, fee, realized_pnl` |
-| `positions` | `_id` = `uid:asset_class:symbol` | `available_quantity, reserved_quantity, cost_basis, realized_pnl`. The average price is derived from the basis rather than stored, so it cannot drift from it |
+| `orders` | `_id` = uuid4 hex, unique `(uid, client_order_id)` where present | the order and its lifecycle: `side, type, time_in_force, status, quantity, limit_price, stop_price, triggered, funded, reserved_amount, reserved_quantity, average_price, fee, expires_at`, plus `currency` / `account_currency` / `fx_rate` — the rate is stored so the order settles at the same one it was placed at |
+| `trades` | indexed `(uid, at desc)` and `order_id` | one immutable record per fill: `quantity, price, notional, fee, fx_rate, opened, closed, realized_pnl`. `opened` and `closed` split the fill, since only the closing part books P&L |
+| `positions` | `_id` = `uid:asset_class:symbol` | `available_quantity` (**signed** — negative is a short), `reserved_quantity` (never negative; units of a long locked by a resting sell), `cost_basis` (signed, in account currency), `cost_basis_quote` (the same in the instrument's currency), `margin_used`, `realized_pnl`. Two bases rather than one, tracked in parallel rather than derived through a stored rate, so `average_price` stays exact against the price on the screen. The average is derived from the basis rather than stored, so it cannot drift from it |
 | `ledger_entries` | indexed `(uid, at desc)` | every balance movement, with the balances that same operation produced |
 | `idempotency_keys` | `_id` = `uid:scope:key` | claimed before a funding movement, completed after — which is what lets a replay tell "already done" from "died halfway" |
 
@@ -268,20 +276,20 @@ instead; `—` means the request carries nothing but the bearer token.
 | `WS /stocks/watchlists/{id}/stream` | Live quotes for that instance. `?token=<id_token>` | connect `?token=eyJhbGciOi…`, then `{"action": "ping"}` or `{"action": "resync"}` | stream frames |
 | `GET /trading/account` | Balances, the onboarding outcome that gates trading, and what is currently open | — | account |
 | `GET /trading/eligibility` | What you may trade and why not — the order endpoint's gates, answered up front | — | eligibility |
-| `GET /trading/balances` | Cash per currency. `reserved` is locked by open buy orders | — | list of balances |
-| `POST /trading/deposits` | Credit the account. **Simulated** — no payment provider. `403` before onboarding | `{"currency": "USDT", "amount": "10000.00", "idempotency_key": "dep-2026-08-17-001"}` | `201` + ledger entry |
-| `POST /trading/withdrawals` | Debit it. **Simulated**. `409` when `available` is short | `{"currency": "USDT", "amount": "500.00", "idempotency_key": "wd-2026-08-17-001"}` | `201` + ledger entry |
+| `GET /trading/balances` | The account balance. One wallet, in `TRADING_ACCOUNT_CURRENCY`, opened at `TRADING_INITIAL_BALANCE` (1000 USDT) on first read. `reserved` is locked by open orders and pending withdrawals | — | list of balances |
+| `POST /trading/deposits` | Credit the account. **Simulated** — no payment provider. `403` before onboarding. `currency` is optional and only the account currency is accepted | `{"amount": "10000.00", "idempotency_key": "dep-2026-08-17-001"}` | `201` + ledger entry |
+| `POST /trading/withdrawals` | Debit it. **Simulated**. `409` when `available` is short | `{"amount": "500.00", "idempotency_key": "wd-2026-08-17-001"}` | `201` + ledger entry |
 | `GET /trading/ledger` | Every balance movement, newest first. `?currency=`, `?kind=`, `?limit=` 1–200 | `?currency=USDT&kind=trade_debit&limit=50` | list of entries |
-| `POST /trading/orders` | Place an order. `403` product not enabled, `404` unknown instrument, `409` closed market / insufficient funds / duplicate id, `422` price band or stop side | `{"asset_class": "crypto", "symbol": "BTCUSDT", "side": "buy", "type": "limit", "quantity": "0.05", "limit_price": "58000.00", "time_in_force": "gtc", "client_order_id": "ui-7f3a2b91"}` | `201` + order |
+| `POST /trading/orders` | Place an order, long or short. `403` product not enabled, `404` unknown instrument, `409` closed market / insufficient funds / duplicate id / short not allowed on this class / would flip through zero, `422` price band or stop side | `{"asset_class": "crypto", "symbol": "BTCUSDT", "side": "buy", "type": "limit", "quantity": "0.05", "limit_price": "58000.00", "time_in_force": "gtc", "client_order_id": "ui-7f3a2b91"}` | `201` + order |
 | `GET /trading/orders` | Your orders, newest first. Repeat `?status=`, plus `?asset_class=`, `?symbol=`, `?limit=` 1–200 | `?status=open&status=filled&asset_class=crypto` | list of orders |
 | `GET /trading/orders/{id}` | One order | — | order |
 | `DELETE /trading/orders/{id}` | Cancel an open order and release its reservation. `409` if it already filled | — | order |
 | `GET /trading/trades` | Your fills, newest first. `?asset_class=`, `?symbol=`, `?limit=` 1–200 | `?symbol=BTCUSDT&asset_class=crypto` | list of trades |
-| `GET /trading/positions` | What you hold, in base units. `?include_flat=` to show closed ones | `?include_flat=false` | list of positions |
+| `GET /trading/positions` | What you hold, in base units, **signed** — negative is a short, with `direction` saying which. `?include_flat=` to show closed ones | `?include_flat=false` | list of positions |
 | `GET /trading/positions/{asset_class}/{symbol}` | One position | `/trading/positions/crypto/BTCUSDT` | position |
-| `GET /trading/portfolio` | Positions marked to market, cash alongside, totals per currency | — | portfolio |
-| `POST /funding/deposits` | Report a deposit **for review**. Credits nothing — a reviewer does that. `403` before onboarding, `422` if the network cannot carry the currency | `{"currency": "USDT", "amount": "1000.00", "network": "BEP20", "reference": "0xabc123", "idempotency_key": "dep-2026-08-19-001"}` | `201` + request |
-| `POST /funding/withdrawals` | Request a payout. **Locks the amount immediately.** `409` when `available` is short | `{"currency": "USDT", "amount": "400.00", "network": "TRC20", "destination": "TXk9aQ1bV2c3D4e5F6g7H8j9K0l", "idempotency_key": "wd-2026-08-19-001"}` | `201` + request |
+| `GET /trading/portfolio` | Positions marked to market, with a real grand total: `cash`, `margin_used`, `equity`, `market_value` (net signed exposure), `free_margin` | — | portfolio |
+| `POST /funding/deposits` | Report a deposit **for review**. Credits nothing — a reviewer does that. `403` before onboarding, `422` if the network cannot carry the currency or the currency is not the account currency | `{"amount": "1000.00", "network": "BEP20", "reference": "0xabc123", "idempotency_key": "dep-2026-08-19-001"}` | `201` + request |
+| `POST /funding/withdrawals` | Request a payout. **Locks the amount immediately.** `409` when `available` is short | `{"amount": "400.00", "network": "TRC20", "destination": "TXk9aQ1bV2c3D4e5F6g7H8j9K0l", "idempotency_key": "wd-2026-08-19-001"}` | `201` + request |
 | `GET /funding/requests` | Your requests, newest first. `?kind=`, `?status=`, `?currency=`, `?limit=` 1–200 | `?kind=withdrawal&status=pending` | list of requests |
 | `GET /funding/requests/{id}` | One request | — | request |
 | `DELETE /funding/requests/{id}` | Cancel your own pending request; releases a withdrawal's lock. `409` once resolved | — | request |
@@ -562,6 +570,11 @@ For forex, `price` is the **mid** — a headline rate should not favour one side
 follows each feed's own rule, so on a weekend every forex and equity row reads stale; that is
 the market being closed, not a fault.
 
+**Forex ticks also carry `bid` / `ask` / `spread` / `spread_pips`** (`null` for crypto and
+equities). FX has no central order book to publish (see `/forex`'s own docs below), so the
+real quoted spread is the honest analogue — and since it rides the same live tick as `price`,
+it updates in real time on this socket instead of waiting on a REST poll.
+
 **Frames** are the same vocabulary as the authenticated streams — `subscribed`, `snapshot`,
 `quote`, `heartbeat`, `upstream`, `pong`, `error` — but a separate model, because this feed
 spans three upstreams at once and has no watchlist to resync or delete. So `subscribed`
@@ -595,16 +608,66 @@ claim from being real, and the two must not be confused before anyone is asked f
 
 ### The shape
 
-Cash is held **per settlement currency**; positions are held **per instrument**. Buying
-`BTCUSDT` spends USDT and gives a position in `BTCUSDT` measured in BTC; selling it gives
-the USDT back. So a wallet currency is only ever some instrument's quote currency, and an
-instrument settled in something the venue does not hold — a pair quoted in BTC, say — is
-refused rather than quietly creating a balance in an illiquid asset.
+**One balance funds everything.** An account holds a single wallet, in
+**`TRADING_ACCOUNT_CURRENCY`** (`USDT`), and every asset class settles into it. A new
+account opens with **`TRADING_INITIAL_BALANCE`** (`1000`), credited the first time the
+wallet is touched and recorded as an `Opening balance` deposit in the ledger — so the
+balance reconciles against the ledger from its very first row rather than starting from a
+number nothing explains.
 
-It is **long-only spot**. There is no short selling and no margin, so a sell reserves units
-from the position exactly as a buy reserves cash. Derivatives and intraday are in the
-product catalogue because onboarding asks about them; they are not implemented here, and
-an order needing one is refused on the product gate rather than half-supported.
+Positions are still **per instrument**. Buying `BTCUSDT` gives a position in `BTCUSDT`
+measured in BTC. An instrument priced in something other than the account currency —
+`EUR-USD` in USD, `RELIANCE.NS` in INR — has its notional converted by `app/trading/fx.py`,
+so the same USDT funds a Mumbai listing and a Bitcoin position. The rate is fetched once
+when the order is placed and carried on the order as `fx_rate`, for two reasons: the same
+order can then never settle at two different rates, and the matcher — which fills resting
+orders from the quote cache and must never make a network call — can settle without looking
+one up. A currency nothing can price against the account currency is a `409` at placement.
+
+This splits every money field in two, and each one says which it is:
+
+| In the instrument's `currency` | In `account_currency` |
+|---|---|
+| `limit_price`, `stop_price`, `average_price`, `last_price` | `fee`, `filled_notional`, `reserved_amount`, `cost_basis`, `margin_used`, `realized_pnl`, `market_value`, every balance |
+
+**Positions are signed, and both directions are real.** `quantity` is positive for a long
+and negative for a short, one document per instrument either way, with `direction` stating
+which so nothing has to infer it from a minus sign. A sell against a long reduces it and
+reserves the units; a sell with nothing behind it opens a short and reserves cash instead.
+
+Shorting is allowed on the asset classes in **`TRADING_SHORT_SELLING_CLASSES`** — `crypto`
+and `forex`, which are natively two-sided — and refused on **equities**, where a short is a
+stock loan needing a borrow, a locate and a recall that this venue has none of. An order
+that would carry a position *through* zero (selling 6 against a long of 5) is a `409`: one
+fill carries one fee, and splitting it across a close and an open makes both halves
+approximate, so "close it, then open the other way" is two orders that each price honestly.
+
+Both directions are leveraged at a fixed **`TRADING_LEVERAGE`** (200 by default), applied
+the same way across all three asset classes: opening locks only
+`notional / TRADING_LEVERAGE` plus the fee rather than the full notional (see "Leverage and
+margin calls" below) — that is the one place "no margin" stopped being true. Derivatives
+and intraday are in the product catalogue because onboarding asks about them; they are not
+implemented here, and an order needing one is refused on the product gate rather than
+half-supported.
+
+### One settlement path, and the bug that made it necessary
+
+`money.apply_fill` turns one fill into a complete set of deltas — quantity, cost basis,
+margin, realized P&L, and the cash the wallet moves — and `service._settle_fill` applies
+them. There is no branch on side or direction anywhere in it.
+
+That is not tidying. There used to be a `_settle_buy` and a `_settle_sell`, and the split is
+what let a leveraged round trip **mint money**: a buy took only its margin out of the wallet
+while the matching sell credited the *full gross proceeds* back in, so buying and selling at
+one unchanged price left the account richer by almost the whole notional. Closing now
+returns the margin released plus the P&L realized, which is the only pair of numbers that
+conserves. `tests/test_account_lifecycle.py` asserts exactly that, on every lifecycle it
+runs: equity must equal what was paid in plus P&L, and nothing else may appear.
+
+The same rewrite fixed a second one: the margin sweep tested `margin_used < cost_basis` to
+mean "leveraged", and a short's `cost_basis` is negative — so **every short was silently
+exempt from margin calls**, on the one side whose loss is not bounded by the price reaching
+zero. The test is now `margin_used > 0`, which covers both.
 
 ### What an order has to satisfy
 
@@ -613,13 +676,21 @@ The checks run in this order, each cheap one before the expensive one after it:
 | Gate | Failure |
 |---|---|
 | Onboarding submitted and KYC tier reached | `403` |
-| Instrument exists on that feed and settles in a currency the venue holds | `404` / `409` |
+| Instrument exists on that feed | `404` |
+| Its quote currency can be priced against the account currency | `409` |
 | The product it needs is enabled — `crypto_spot`, `forex`, `domestic_equity_delivery` or `foreign_equity` | `403` |
 | Any supplied price is inside `TRADING_PRICE_BAND_PERCENT` of the last trade | `422` |
 | A stop sits on the side it can be reached from | `422` |
-| Notional inside the per-order bounds, and under the open-order cap | `422` / `409` |
+| Quantity is at least `TRADING_MIN_QUANTITY` | `422` |
+| Converted notional inside the per-order bounds, and under the open-order cap | `422` / `409` |
 | For anything that must fill now: the market is open and the price is fresh | `409` |
+| It does not carry the position through zero | `409` |
+| If it opens a short, the asset class permits one | `409` |
 | The cash or the units are actually there | `409` |
+
+The notional bounds are checked on the **converted** figure, which is the first time they
+have meant the same thing across markets — the old per-quote-currency band compared a number
+of rupees against a number of dollars.
 
 The product gate distinguishes **under review** from **never requested**, because the user
 can do something about one of them and not the other. `GET /trading/eligibility` answers
@@ -670,6 +741,57 @@ order placed while the price was already past its trigger has no new tick coming
 crash between closing an order and releasing its reservation strands value. The sweep
 re-reads state rather than trusting anything it remembers.
 
+### Leverage and margin calls
+
+Opening a position — in **either** direction — locks up `notional / TRADING_LEVERAGE` plus
+the fee in cash instead of the full notional. A fixed, venue-wide rule (default 200, all
+three asset classes alike), not a per-order choice, so there is no field for it on
+`OrderRequest`. Crucially, a position's cost basis still carries the **full** notional:
+unrealized P&L is `quantity * mark - cost_basis` either way, so leverage changes what a
+position costs in cash and nothing about what a price move is worth.
+`GET /trading/positions` reports the cash actually posted as `margin_used`, alongside the
+unchanged `cost_basis`.
+
+That is also what makes a margin position risky in a way a 1:1 one is not: it can reach
+zero equity — `margin_used + unrealized P&L <= 0` — long before the price itself reaches
+zero. And a **short** is worse still: its loss is not bounded by the price reaching zero at
+all, which is why it is the side that most needs a liquidator watching. `trading/engine.py`
+watches every margin-backed position's live ticks for exactly that (the same
+subscribe-not-poll mechanism the matcher uses for resting orders) and, on a breach,
+force-closes the position at the current mark through the ordinary order path — selling out
+of a long, buying back a short, decided by the sign of the quantity. The resulting order and
+trade both carry `liquidation: true`, so a margin call is never mistaken for something the
+user placed. The periodic sweep re-checks every one as a backstop, the same way it re-tries
+every resting order.
+
+Because the engine reads FX rates from cache only (it runs per tick and must not touch the
+network), a position in a currency nothing has priced yet is skipped rather than guessed at.
+`fx.cached_rate` deliberately ignores its own TTL here: a rate a few minutes old is a far
+better basis for a margin check than no check at all.
+
+**When the engine is too slow.** A gap or a stale feed can leave a position losing more than
+the account can cover. Closing it is still right — refusing would leave the user holding
+something that only gets worse — so the fill goes through and the balance is allowed to go
+negative, with a `critical` log. It is contained rather than open-ended: every reservation
+and every withdrawal guards on available cash, so nothing can be traded or paid out of a
+negative balance. An **opening** fill that cannot be funded is always rejected instead; this
+venue does not lend to open a position.
+
+Positions opened before this shipped are not retroactively at risk: one-time startup
+backfills set their `margin_used` to their own `cost_basis` (i.e. fully collateralized) and
+seed `cost_basis_quote` from `cost_basis`, since nothing about the price they were bought at
+changed after the fact.
+
+**What migration cannot fix.** A position opened before the balance became universal has its
+`cost_basis` in the instrument's *own* currency, and restating it in USDT would need the rate
+from the day it was opened, which nothing recorded. So it is left alone and **labelled
+honestly**: orders, trades and positions all carry `account_currency`, and where it is absent
+on the stored document the response reports `currency` instead. For anything USDT-quoted —
+which is most crypto — the two are the same and nothing changed. For an old INR equity
+position the figure is in rupees and says so, rather than wearing a USDT label it does not
+deserve. New rows always carry the field explicitly, which is what makes the absence
+meaningful rather than ambiguous.
+
 ### How the money is kept honest
 
 - **`Decimal128`, never a float.** Every amount is quantised to eight places on the way in.
@@ -681,10 +803,17 @@ re-reads state rather than trusting anything it remembers.
   and then decrementing it is the exact shape of a double-spend, and it appears nowhere.
 - **Every balance change writes a ledger entry**, recording the balances that same
   operation produced. The ledger sums to the wallet rather than hoping to agree with it.
-- **Reserve, then settle.** A buy locks cash before the order is visible to the matcher; a
-  sell locks units. A stop buy reserves at its stop price, and if the market gaps through
-  it the difference is topped up from available cash — or the order is rejected, because
-  this venue does not lend.
+- **Reserve, then settle.** An order locks what it actually consumes before it is visible
+  to the matcher: units when it is a sell against a long, cash in every other case
+  including a sell that opens a short. A stop reserves at its stop price, and if the market
+  gaps through it the difference is topped up from available cash — or an opening order is
+  rejected, because this venue does not lend beyond the fixed leverage it already grants.
+  The top-up runs on **every** fill, not only the cash-reserving ones: an order that
+  reserved units can still settle a leveraged loss deeper than the margin behind it, and
+  that difference comes out of the balance.
+- **One conversion per order.** The FX rate is fixed at placement and stored on the order,
+  so an order cannot settle at two different rates and settlement is pure arithmetic with
+  no network call inside the matcher.
 - **Money movements are idempotent by construction.** `idempotency_key` is required on
   deposits and withdrawals, claimed before the balance moves and completed after, so a
   replay can tell "already done, here is the original entry" from "the first attempt died
@@ -719,9 +848,16 @@ disabled is just a broken account page.
 - **No corporate actions.** A split or a dividend will silently misprice an equity
   position, because the feed reports the adjusted price and the stored cost basis is not
   adjusted with it.
-- **No FX conversion.** Totals in `GET /trading/portfolio` are per currency and there is no
-  grand total, because adding INR to USDT needs a rate this API has no licensed source for.
-  A made-up total is worse than none.
+- **FX is a mid, not a tradable rate.** `app/trading/fx.py` converts an instrument's quote
+  currency to the account currency off the forex feed's mid, and the pegged currencies
+  (`USDT`, `USDC`, `USD`) convert 1:1 because this API has no licensed source for the peg's
+  deviation. So a conversion carries no spread of its own. The rate is also fixed at
+  placement, so a GTC order resting for days settles at the rate it was placed at — stored
+  on the order, so the number is explainable rather than merely stale.
+- **No position flips in one order.** Selling 6 against a long of 5 is a `409`, not a close
+  plus a short. One fill carries one fee and splitting it makes both halves approximate.
+- **No equity shorting.** `TRADING_SHORT_SELLING_CLASSES` excludes `stocks`: a short there is
+  a stock loan, needing a borrow, a locate and a recall this venue has none of.
 
 ### Validation
 
@@ -924,9 +1060,38 @@ access list or a paused cluster. Add the current IP under **Network Access**, an
 
 ## Testing
 
-Two browser pages, both served from the API origin so the calls are same-origin and no
-CORS config is needed. Use `localhost`, not `127.0.0.1`, since Firebase only authorizes
-`localhost` by default.
+### Self-checks
+
+Plain `assert`, no framework, no database. Each file runs on its own from `backend/`:
+
+```
+python tests/test_position_math.py       14 checks — the signed-position fill arithmetic
+python tests/test_account_lifecycle.py   26 checks — whole lifecycles over the one balance
+python tests/test_leverage_margin.py      5 checks — leverage leaves P&L unchanged
+python tests/test_email_verification.py   3 checks — the verified-email dependency
+```
+
+The two money files are worth knowing the shape of, because they are what stands between
+this and a wrong balance:
+
+`test_position_math.py` drives `money.apply_fill` directly — one fill, one position, both
+directions, opens, partial closes, flips, and an INR-priced instrument. The load-bearing
+assertion is that `quantity * mark - cost_basis` agrees with what closing at that mark
+actually realizes, since that one identity is what makes unrealized and realized P&L the
+same number measured at two times.
+
+`test_account_lifecycle.py` runs a wallet and a position through complete sessions — deposit,
+open, mark, partially close, close, short, withdraw — and ends every one on **conservation**:
+equity must equal what was paid in plus P&L, with nothing appearing from nowhere. That is the
+invariant the old split settlement violated, and writing it is what surfaced a second hole
+that no unit test would have: a sell reserves *units*, so it looks as though it needs no cash
+— but a leveraged position can lose far more than the margin behind it, and that difference
+has to leave the balance. The funding top-up now runs on every fill because that test failed.
+
+### Browser pages
+
+Both served from the API origin so the calls are same-origin and no CORS config is needed.
+Use `localhost`, not `127.0.0.1`, since Firebase only authorizes `localhost` by default.
 
 The `webfrontend` app calls this API cross-origin, so `.env` now ships
 `CORS_ALLOW_ORIGINS=http://localhost:5173` for its Vite dev server. That value is read at

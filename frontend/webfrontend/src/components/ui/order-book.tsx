@@ -340,13 +340,20 @@ export function MyFills({
             const at = new Date(t.at);
             const pad = (v: number) => String(v).padStart(2, "0");
             return (
-              <div key={t.id} className="flex justify-between px-1 py-[3px]">
+              <div key={t.id} className="flex items-center justify-between gap-1.5 px-1 py-[3px]">
                 <span
                   className={`font-mono text-[11px] ${t.side === "buy" ? "text-up" : "text-down"}`}
                 >
                   {formatPrice(amount(t.price), decimals)}
                 </span>
-                <span className="font-mono text-[11px] text-foreground">{t.quantity}</span>
+                {/* A margin call closes the position, not the user — worth telling apart
+                    from a fill they placed themselves. */}
+                {t.liquidation && (
+                  <span className="rounded bg-down/10 px-1 py-px font-mono text-[9px] font-bold uppercase tracking-wider text-down">
+                    Margin call
+                  </span>
+                )}
+                <span className="ml-auto font-mono text-[11px] text-foreground">{t.quantity}</span>
                 <span className="font-mono text-[11px] text-muted-foreground">
                   {pad(at.getHours())}:{pad(at.getMinutes())}
                 </span>

@@ -239,6 +239,12 @@ function OrderTable({
               <td className="px-2 py-3 text-right text-muted-foreground">{fillPercent(o)}</td>
               <td className="px-2 py-3 text-right">
                 <StatusPill status={o.status} />
+                {/* Force-closed by the engine on a margin breach — not a sell the user placed. */}
+                {o.liquidation && (
+                  <span className="ml-1.5 rounded bg-down/10 px-1 py-px font-mono text-[9px] font-bold uppercase tracking-wider text-down">
+                    Margin call
+                  </span>
+                )}
                 {/* The venue's own words on why — far more useful than a bare "rejected". */}
                 {o.reject_reason && (
                   <div className="mt-1 max-w-[220px] text-right text-[10px] leading-tight text-muted-foreground">

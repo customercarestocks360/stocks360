@@ -1,0 +1,9 @@
+# The simulation core needs only pydantic (domain models) and segno (QR codes).
+pydantic>=2.9
+segno>=1.6
+# Drop these two if you only use the package as a library and never serve the REST API.
+fastapi>=0.115
+uvicorn[standard]>=0.30
+# Tests only: fastapi.testclient uses httpx as its transport. tests/test_api.py skips
+# without it, so a library-only install still runs the rest of the suite.
+httpx>=0.27

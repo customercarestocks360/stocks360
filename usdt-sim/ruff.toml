@@ -1,0 +1,8 @@
+line-length = 100
+
+[lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+# FastAPI's whole dependency system is function calls in argument defaults.
+flake8-bugbear.extend-immutable-calls = [
+    "fastapi.Depends", "fastapi.Path", "fastapi.Query", "fastapi.Body",
+]

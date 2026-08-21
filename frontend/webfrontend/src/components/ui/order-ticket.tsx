@@ -26,6 +26,8 @@ import { decimalsFor, formatPrice, type TradeInstrument } from "@/lib/instrument
 import {
   describeOutcome,
   newClientOrderId,
+  TRADING_LEVERAGE,
+  TRADING_MIN_QUANTITY,
   type Order,
   type OrderType,
   type TimeInForce,
@@ -203,12 +205,17 @@ export function OrderTicket({
   /** The price the order will actually reserve against, matching the server's own choice. */
   const referencePrice = needsLimit && limitValue > 0 ? limitValue : price;
   const notional = referencePrice !== null ? qtyValue * referencePrice : null;
+  // A buy only has to post 1/TRADING_LEVERAGE of the notional in cash — see
+  // `backend/app/trading/money.margin_of`. Fees are ignored here same as before this
+  // feature; the server's own check is still the authority on the exact figure.
+  const marginRequired = notional !== null ? notional / TRADING_LEVERAGE : null;
 
   const availableFunds = currency ? trading.availableIn(currency) : 0;
   const heldUnits = trading.availableUnits(symbol);
 
   const validation = useMemo((): string => {
-    if (qtyValue <= 0) return "Enter a quantity.";
+    if (qtyValue < TRADING_MIN_QUANTITY)
+      return `Minimum order size is ${TRADING_MIN_QUANTITY} ${label}.`;
     if (needsLimit && limitValue <= 0) return "Enter a limit price.";
     if (needsStop && stopValue <= 0) return "Enter a stop price.";
     // The venue enforces stop direction; catching it here saves a round trip.
@@ -218,8 +225,8 @@ export function OrderTicket({
       if (action === "sell" && stopValue >= price)
         return `A sell stop triggers on the way down — set it below ${formatPrice(price, decimals)}.`;
     }
-    if (action === "buy" && notional !== null && currency && notional > availableFunds)
-      return `This order needs ${fmt(notional, 2)} ${currency} and you have ${fmt(availableFunds, 2)} available.`;
+    if (action === "buy" && marginRequired !== null && currency && marginRequired > availableFunds)
+      return `This order needs ${fmt(marginRequired, 2)} ${currency} margin (1:${TRADING_LEVERAGE}) and you have ${fmt(availableFunds, 2)} available.`;
     if (action === "sell" && qtyValue > heldUnits)
       return `You hold ${heldUnits} ${label} free to sell. This venue is long-only spot.`;
     return "";
@@ -232,7 +239,7 @@ export function OrderTicket({
     price,
     action,
     decimals,
-    notional,
+    marginRequired,
     currency,
     availableFunds,
     heldUnits,
@@ -240,7 +247,7 @@ export function OrderTicket({
   ]);
 
   const needsDeposit =
-    action === "buy" && notional !== null && !!currency && notional > availableFunds;
+    action === "buy" && marginRequired !== null && !!currency && marginRequired > availableFunds;
 
   const submit = async () => {
     if (validation || submitting) return;
@@ -529,11 +536,20 @@ export function OrderTicket({
           value={qty}
           onChange={(e) => setQty(e.target.value.replace(/[^0-9.]/g, ""))}
           inputMode="decimal"
-          placeholder="1"
+          placeholder={String(TRADING_MIN_QUANTITY)}
           className="w-full min-w-0 border-none bg-transparent p-0 font-mono text-sm font-bold text-foreground focus-visible:outline-none sm:text-base"
         />
         <span className="shrink-0 font-mono text-xs font-bold text-muted-foreground">{label}</span>
       </div>
+      {/* Only cash a buy actually locks up — the rest is leveraged, not borrowed on paper. */}
+      {action === "buy" && marginRequired !== null && (
+        <div className="mt-1 flex items-center justify-between border-t border-border/60 pt-1 text-[10px] text-muted-foreground">
+          <span>Margin (1:{TRADING_LEVERAGE})</span>
+          <span className="font-mono font-semibold text-foreground">
+            {fmt(marginRequired, 2)} {currency ?? ""}
+          </span>
+        </div>
+      )}
     </div>
   );
 

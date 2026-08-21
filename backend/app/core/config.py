@@ -229,6 +229,18 @@ FOREX_MAX_SYMBOLS_PER_WATCHLIST = _bounded_int("FOREX_MAX_SYMBOLS_PER_WATCHLIST"
 FOREX_MAX_SOCKETS_PER_USER = _bounded_int("FOREX_MAX_SOCKETS_PER_USER", 5, 1, 50)
 FOREX_HEARTBEAT_SECONDS = _bounded_int("FOREX_HEARTBEAT_SECONDS", 20, 5, 300)
 
+# Optional second candle source (https://twelvedata.com), free tier, one API key, no card.
+# AwesomeAPI's own intraday feed is ticks capped at 100 rows (~77 minutes — probed directly;
+# asking for more does not return more) and Yahoo's FX bars are close to flat at the finest
+# intervals (probed: 1-minute EUR/USD came back 100% `open == high == low == close`, 5-minute
+# ~18%), so `forex/upstream.candles()` tries Twelve Data first when a key is set — real OHLC
+# at every interval this app uses — and only falls back to the Yahoo/tick path on a miss.
+# Blank by default (Twelve Data is skipped entirely): get a free key at
+# https://twelvedata.com/pricing. Its own `demo` key is not a substitute — it 401s every
+# pair except EUR/USD and USD/JPY, which is fine for trying the API and not for a watchlist.
+FOREX_TWELVEDATA_API_KEY = os.getenv("FOREX_TWELVEDATA_API_KEY", "").strip()
+FOREX_TWELVEDATA_URL = os.getenv("FOREX_TWELVEDATA_URL", "https://api.twelvedata.com")
+
 # --- Equities / instruments (Yahoo Finance) ---
 # These endpoints are undocumented and unsanctioned: fine for development, not something
 # to put real customers on. Everything is isolated behind stocks/upstream.py so swapping
@@ -295,6 +307,22 @@ OVERVIEW_HEARTBEAT_SECONDS = _bounded_int("OVERVIEW_HEARTBEAT_SECONDS", 20, 5, 3
 # configuration rather than a constant buried in the matching code.
 TRADING_ENABLED = _bool("TRADING_ENABLED", True)
 
+# Whether every authenticated account may trade every instrument, regardless of onboarding
+# status, KYC tier, or which products it asked for during onboarding.
+#
+# On by default, and the reason is what this venue *is*: a simulator holding book money it
+# creates itself, with no broker, no custody and nothing to launder. The gates it used to
+# apply were modelled on a real brokerage's — finish ten onboarding steps, reach the
+# `verified` tier, have the exact product granted — and their only effect here was to refuse
+# a funded account access to its own paper market, per asset class, with "it was not
+# requested during onboarding".
+#
+# Set this to false to put the gates back. Everything that enforced them is still here and
+# still tested; this only decides whether they are asked. What it does **not** touch is
+# authentication: every `/trading/*` route still requires a verified Firebase token, so
+# "open" means open to account holders, not to the internet.
+TRADING_OPEN_ACCESS = _bool("TRADING_OPEN_ACCESS", True)
+
 # Commission in basis points of notional, charged in the instrument's quote currency and
 # rounded up. 10 bps = 0.1%.
 TRADING_FEE_BPS = _bounded_int("TRADING_FEE_BPS", 10, 0, 1000)
@@ -316,9 +344,58 @@ TRADING_MAX_ORDER_NOTIONAL = _bounded_decimal(
     "TRADING_MAX_ORDER_NOTIONAL", "1000000", "1", "1000000000"
 )
 
+# The smallest order this venue accepts, in the instrument's own units (0.1 BTC, 0.1
+# EUR-USD, 0.1 shares) — a floor under the notional band above, not a substitute for it.
+TRADING_MIN_QUANTITY = _bounded_decimal("TRADING_MIN_QUANTITY", "0.1", "0.00000001", "1000000000")
+
+# Venue-wide leverage, applied to every asset class alike: a buy only has to reserve
+# 1/TRADING_LEVERAGE of its notional in cash rather than all of it. This is a fixed rule,
+# not a per-order choice — there is no field on `OrderRequest` for it. It changes nothing
+# about a position's cost basis or its P&L, which stay full-notional (see
+# `service.place_order`'s docstring on why): leverage only shrinks the cash a buy locks up,
+# which is exactly why a position can now go to zero equity before the market reaches zero,
+# and why `TradingEngine` watches every leveraged position for that (see `engine.py`).
+TRADING_LEVERAGE = _bounded_int("TRADING_LEVERAGE", 200, 1, 1000)
+
 # Bounds on a single simulated funding movement.
 TRADING_MAX_DEPOSIT = _bounded_decimal("TRADING_MAX_DEPOSIT", "1000000", "1", "1000000000")
 TRADING_MAX_WITHDRAWAL = _bounded_decimal("TRADING_MAX_WITHDRAWAL", "1000000", "1", "1000000000")
+
+# --- The account balance ---
+# One balance per account, in one currency, funding every asset class. An instrument
+# priced in INR or EUR does not get its own wallet: its notional is converted at the live
+# rate (see `app.trading.fx`) and the cash leg settles here. So a user has one number to
+# reason about, and a Mumbai listing is funded by the same balance as Bitcoin.
+#
+# Overridable, but it has to be a currency `app.trading.fx` can price everything against —
+# in practice USDT or USD. Changing it on a live deployment does not re-denominate the
+# wallets already written; those keep their own currency and stay withdrawable.
+TRADING_ACCOUNT_CURRENCY = (os.getenv("TRADING_ACCOUNT_CURRENCY", "USDT") or "USDT").strip().upper()
+
+# What a new account opens with, credited once, the first time its wallet is touched. It
+# lands as an ordinary `deposit` ledger entry rather than a magic starting number, so the
+# balance still reconciles against the ledger from the first row.
+TRADING_INITIAL_BALANCE = _bounded_decimal("TRADING_INITIAL_BALANCE", "1000", "0", "1000000")
+
+# How many decimal places the USDT/USD peg is worth modelling to. USDT is pegged, not
+# fixed, but this venue has no licensed source for the deviation, so the pegged currencies
+# convert 1:1 and the honest thing is to say so rather than invent a drift.
+TRADING_PEGGED_CURRENCIES = frozenset(
+    s.upper() for s in _csv("TRADING_PEGGED_CURRENCIES")
+) or frozenset({"USDT", "USDC", "USD"})
+
+# Asset classes where a sell with nothing behind it opens a short position instead of
+# being refused. Equities are excluded on purpose: shorting a listed share is a stock
+# loan, which needs a borrow, a locate and a recall process this venue has none of.
+# Crypto perps and FX are natively two-sided, so a sell there is just the other direction.
+TRADING_SHORT_SELLING_CLASSES = frozenset(
+    s.lower() for s in _csv("TRADING_SHORT_SELLING_CLASSES")
+) or frozenset({"crypto", "forex"})
+
+# How long a fetched FX rate is reused before being refreshed. A conversion rate is not a
+# traded price: it scales a notional into account currency, so seconds of staleness are
+# worth far less than a network round trip on every order.
+TRADING_FX_TTL_SECONDS = _bounded_int("TRADING_FX_TTL_SECONDS", 60, 1, 3600)
 
 # How often the matcher re-checks resting orders outside of a tick arriving. Ticks do the
 # real work; this sweep expires day orders and catches conditions that became true while

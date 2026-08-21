@@ -14,8 +14,22 @@
  * longer in a position to make. See `describeSeries` in `chart-window.ts`, which derives
  * everything of that kind from the bars themselves.
  */
+import type { AssetClass } from "@/lib/trading-api";
+
 export const TIMEFRAMES = ["1H", "1D", "1W", "1M", "ALL"] as const;
 export type Timeframe = (typeof TIMEFRAMES)[number];
+
+/**
+ * Which timeframe buttons a class shows. Equities have no `1W`: NSE/BSE close for the
+ * weekend, so a "week" of daily bars is really four or five, and the button's job here is
+ * to pick a candle size — `1H` means 1-minute candles, not "the last hour" — so a size that
+ * only ever half-applies is worse than one that isn't offered.
+ */
+export const TIMEFRAMES_FOR: Record<AssetClass, readonly Timeframe[]> = {
+  crypto: TIMEFRAMES,
+  forex: TIMEFRAMES,
+  stocks: ["1H", "1D", "1M", "ALL"],
+};
 
 export type ChartPoint = {
   /** Unix timestamp in seconds — the time format lightweight-charts expects. */

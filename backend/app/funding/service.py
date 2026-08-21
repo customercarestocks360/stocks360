@@ -192,6 +192,10 @@ async def request_withdrawal(uid: str, payload: WithdrawalRequest) -> dict:
             reference=payload.reference,
             funded=False,
         )
+        # A new account's opening balance arrives with its wallet, so materialise the wallet
+        # before the guard reads it — otherwise the first thing a funded account ever does
+        # would be told it has nothing.
+        await asyncio.to_thread(trading_repository.ensure_wallet, uid, currency)
         entry = await asyncio.to_thread(
             trading_repository.apply_to_wallet,
             uid,

@@ -6,18 +6,68 @@ import {
   CrosshairMode,
   LineStyle,
   LineType,
+  TickMarkType,
   type IChartApi,
   type ISeriesApi,
+  type Time,
   type UTCTimestamp,
 } from "lightweight-charts";
-import { TIMEFRAMES, mergeLiveTick, type ChartPoint, type Timeframe } from "@/lib/chart-data";
+import { TIMEFRAMES, TIMEFRAMES_FOR, mergeLiveTick, type ChartPoint, type Timeframe } from "@/lib/chart-data";
 import { describeSeries } from "@/lib/chart-window";
 import { decimalsFor } from "@/lib/instrument";
+import type { AssetClass } from "@/lib/trading-api";
+
+const IST_TIME_ZONE = "Asia/Kolkata";
+
+/**
+ * NSE/BSE trade in IST, so an equity chart is captioned in IST no matter the viewer's own
+ * timezone — a Nasdaq user with the same instinct still expects to read 9:15 as the NSE
+ * open. Crypto and FX have no single home exchange, so they keep the library's own default.
+ */
+function istTickMarkFormatter(time: Time, tickMarkType: TickMarkType): string {
+  const date = new Date((time as number) * 1000);
+  const opts: Intl.DateTimeFormatOptions = { timeZone: IST_TIME_ZONE };
+  switch (tickMarkType) {
+    case TickMarkType.Year:
+      return new Intl.DateTimeFormat("en-IN", { ...opts, year: "numeric" }).format(date);
+    case TickMarkType.Month:
+      return new Intl.DateTimeFormat("en-IN", { ...opts, month: "short", year: "2-digit" }).format(date);
+    case TickMarkType.DayOfMonth:
+      return new Intl.DateTimeFormat("en-IN", { ...opts, day: "2-digit", month: "short" }).format(date);
+    case TickMarkType.TimeWithSeconds:
+      return new Intl.DateTimeFormat("en-IN", {
+        ...opts, hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+      }).format(date);
+    default:
+      return new Intl.DateTimeFormat("en-IN", { ...opts, hour: "2-digit", minute: "2-digit", hour12: false }).format(date);
+  }
+}
+
+function istTimeFormatter(time: Time): string {
+  const date = new Date((time as number) * 1000);
+  return new Intl.DateTimeFormat("en-IN", {
+    timeZone: IST_TIME_ZONE,
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
+}
 
 const MA_WINDOW = 20;
 const UP = "#26a69a";
 const DOWN = "#ef5350";
 const ACCENT = "#2b6ef2";
+
+/**
+ * Bars shown on first open, anchored to the newest one. Each timeframe button can load up to
+ * 1000 candles now, and `fitContent()` on that many shrinks every candle to a hairline — the
+ * opposite of what opening a chart is for. The reader can still zoom or pan back through the
+ * rest; this only sets where the view starts.
+ */
+const DEFAULT_VISIBLE_BARS = 120;
 
 type ChartType = "candles" | "area" | "line";
 type Tool = "cursor" | "crosshair" | "trendline" | "hline" | "ray" | "rect" | "fib" | "arrow" | "measure";
@@ -156,6 +206,7 @@ export function AssetChart({
   onSelectSymbol,
   marketStatusLabel = "Market Open",
   series,
+  assetClass,
   timeframe: controlledTimeframe,
   onTimeframeChange,
   loadingSeries = false,
@@ -172,6 +223,9 @@ export function AssetChart({
   watchlist?: WatchlistItem[];
   onSelectSymbol?: (item: WatchlistItem) => void;
   marketStatusLabel?: string;
+  /** Which timeframe buttons to show and, for equities, which timezone the axis reads in.
+   *  Omitted callers (the pages not wired to a real feed) still get every button. */
+  assetClass?: AssetClass;
   /**
    * Real candles for the current timeframe. When supplied, the chart renders these and does
    * not synthesise anything; when omitted it falls back to the seeded demo series, which is
@@ -588,7 +642,13 @@ export function AssetChart({
       layout: { background: { type: ColorType.Solid, color: "transparent" }, textColor: "#8b95a1", fontSize: 11 },
       grid: { vertLines: { color: "rgba(128,140,155,.10)" }, horzLines: { color: "rgba(128,140,155,.10)" } },
       rightPriceScale: { borderColor: "rgba(128,140,155,.22)", scaleMargins: { top: 0.08, bottom: 0.26 } },
-      timeScale: { borderColor: "rgba(128,140,155,.22)", rightOffset: 4, rightBarStaysOnScroll: true },
+      timeScale: {
+        borderColor: "rgba(128,140,155,.22)",
+        rightOffset: 4,
+        rightBarStaysOnScroll: true,
+        ...(assetClass === "stocks" ? { tickMarkFormatter: istTickMarkFormatter } : {}),
+      },
+      ...(assetClass === "stocks" ? { localization: { timeFormatter: istTimeFormatter } } : {}),
       crosshair: {
         mode: CrosshairMode.Normal,
         vertLine: { color: "#5b6670", style: LineStyle.Dashed, labelBackgroundColor: "#2b2f36" },
@@ -638,7 +698,7 @@ export function AssetChart({
       volRef.current = null;
       maRef.current = null;
     };
-  }, [isFullscreen, renderOverlay]);
+  }, [isFullscreen, renderOverlay, assetClass]);
 
   /* ---------------- series data ---------------- */
   useEffect(() => {
@@ -708,14 +768,21 @@ export function AssetChart({
     chart.applyOptions({ timeScale: { timeVisible: shape.intraday, secondsVisible: false } });
     /*
       Only frame the series when it is a *different* series. `data` now changes on every poll,
-      and an unconditional `fitContent()` threw away the reader's pan and zoom every time one
-      landed — a 1-minute chart would snap back to the full window mid-inspection. A poll that
-      changed nothing does not even reach here, since `useChartSeries` keeps the old array.
+      and an unconditional re-frame threw away the reader's pan and zoom every time one landed —
+      a 1-minute chart would snap back to the default view mid-inspection. A poll that changed
+      nothing does not even reach here, since `useChartSeries` keeps the old array.
     */
     const view = `${seed}|${timeframe}|${chartType}|${isFullscreen}`;
     if (fittedRef.current !== view) {
       fittedRef.current = view;
-      chart.timeScale().fitContent();
+      const total = data.length;
+      // Opens zoomed to the current time, not fitted to the whole loaded history — see
+      // `DEFAULT_VISIBLE_BARS`. Too few bars to zoom past just fits what there is.
+      if (total > DEFAULT_VISIBLE_BARS) {
+        chart.timeScale().setVisibleLogicalRange({ from: total - DEFAULT_VISIBLE_BARS, to: total - 1 });
+      } else {
+        chart.timeScale().fitContent();
+      }
     } else if (wasAtRightEdge && data.length !== drawnLenRef.current) {
       chart.timeScale().scrollToRealTime();
     }
@@ -1092,6 +1159,9 @@ export function AssetChart({
 
   const selected = drawings.find((d) => d.id === selectedId) ?? null;
 
+  /** Every button when the caller has no class to key off; otherwise that class's own set. */
+  const timeframeOptions = assetClass ? TIMEFRAMES_FOR[assetClass] : TIMEFRAMES;
+
   /**
    * What a timeframe button says: the period it will request, except for the pressed one, which
    * says the period that actually came back.
@@ -1141,8 +1211,8 @@ export function AssetChart({
   const controls = (
     <div className="mb-3 space-y-2">
       {/* Row 1 — timeframes */}
-      <div className={`flex flex-wrap gap-1 ${isFullscreen ? "hidden" : ""}`}>
-        {TIMEFRAMES.map((tf) => (
+      <div className={`flex flex-wrap items-center gap-1 ${isFullscreen ? "hidden" : ""}`}>
+        {timeframeOptions.map((tf) => (
           <button
             key={tf}
             type="button"
@@ -1157,6 +1227,17 @@ export function AssetChart({
             {timeframeLabel(tf)}
           </button>
         ))}
+        {/* What one candle on screen actually is, measured off the bars themselves — not the
+            button pressed. `1H` means "1-minute candles" now, not "the last hour", and this is
+            the one place that says which, in the same breath the buttons are read in. */}
+        {shape.bar > 0 && (
+          <HoverTip label="Candle size — what one bar on this chart represents">
+            <span className="ml-1 flex items-center gap-1 rounded border border-border bg-secondary/40 px-2 py-1 font-mono text-xs text-muted-foreground">
+              <i className="fa-regular fa-clock text-[10px]" />
+              {shape.barLabel}
+            </span>
+          </HoverTip>
+        )}
       </div>
       {/* Row 2 — chart type + indicators */}
       <div className="flex flex-wrap items-center gap-1">
@@ -1492,7 +1573,7 @@ export function AssetChart({
             <span className="shrink-0 rounded border border-border px-1.5 py-0.5 font-mono text-[10px] uppercase text-muted-foreground">{exchange}</span>
             <span className="mx-1 hidden h-4 w-px shrink-0 bg-border sm:block" />
             <div className="hidden shrink-0 gap-1 sm:flex">
-              {TIMEFRAMES.map((tf) => (
+              {timeframeOptions.map((tf) => (
                 <button
                   key={tf}
                   type="button"
@@ -1507,6 +1588,14 @@ export function AssetChart({
                   {timeframeLabel(tf)}
                 </button>
               ))}
+              {shape.bar > 0 && (
+                <HoverTip label="Candle size — what one bar on this chart represents">
+                  <span className="ml-1 flex shrink-0 items-center gap-1 rounded border border-border bg-secondary/40 px-2 py-1 font-mono text-xs text-muted-foreground">
+                    <i className="fa-regular fa-clock text-[10px]" />
+                    {shape.barLabel}
+                  </span>
+                </HoverTip>
+              )}
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
@@ -1536,7 +1625,7 @@ export function AssetChart({
 
         {/* Timeframe row — its own line on mobile, where the title bar has no room for it */}
         <div className="flex shrink-0 gap-1 overflow-x-auto no-scrollbar border-b border-border px-3 py-2 sm:hidden">
-          {TIMEFRAMES.map((tf) => (
+          {timeframeOptions.map((tf) => (
             <button
               key={tf}
               type="button"
@@ -1551,6 +1640,12 @@ export function AssetChart({
               {timeframeLabel(tf)}
             </button>
           ))}
+          {shape.bar > 0 && (
+            <span className="ml-1 flex shrink-0 items-center gap-1 rounded border border-border bg-secondary/40 px-2.5 py-1 font-mono text-xs text-muted-foreground">
+              <i className="fa-regular fa-clock text-[10px]" />
+              {shape.barLabel}
+            </span>
+          )}
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-3 sm:p-5">

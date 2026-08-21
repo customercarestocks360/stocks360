@@ -12,6 +12,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { decimalsFor, formatCompact, formatPrice, type TradeInstrument } from "@/lib/instrument";
+import { useLivelyPrice } from "@/hooks/useLivelyPrice";
 
 /** How long the tick flash lingers. Long enough to catch, short enough not to strobe. */
 const FLASH_MS = 420;
@@ -45,6 +46,24 @@ function Cell({
       </span>
     </div>
   );
+}
+
+/** A `Cell` whose number eases toward each real update rather than snapping — see
+ *  `useLivelyPrice`. No idle drift here: bid/ask are themselves the real bounds, so there is
+ *  nothing further to bound a drift within. */
+function LivelyCell({
+  label,
+  value,
+  decimals,
+  tone,
+}: {
+  label: string;
+  value: number;
+  decimals: number;
+  tone: "up" | "down";
+}) {
+  const shown = useLivelyPrice(value);
+  return <Cell label={label} tone={tone} value={formatPrice(shown, decimals)} />;
 }
 
 /** Where the last price sits between the session low and high, as a track with a marker. */
@@ -87,10 +106,25 @@ function DayRange({
  * feed's own change field, because that field is measured against the session open — a price
  * ticking down inside an up day should still flash red.
  */
-function PriceCell({ price, decimals }: { price: number | null; decimals: number }) {
+function PriceCell({
+  price,
+  decimals,
+  bid = null,
+  ask = null,
+}: {
+  price: number | null;
+  decimals: number;
+  /** Real quoted spread, forex only — see `useLivelyPrice`. Omitted classes just hold or
+   *  tween between real prints, never drift. */
+  bid?: number | null;
+  ask?: number | null;
+}) {
   const [flash, setFlash] = useState<"up" | "down" | null>(null);
   const prev = useRef<number | null>(null);
+  const shown = useLivelyPrice(price, bid, ask);
 
+  // Flashed off the real price, not the animated one: a cosmetic drift within the spread
+  // must never itself read as the market having moved.
   useEffect(() => {
     if (price === null) return;
     const before = prev.current;
@@ -115,7 +149,7 @@ function PriceCell({ price, decimals }: { price: number | null; decimals: number
           flash === "up" ? "text-up" : flash === "down" ? "text-down" : "text-foreground"
         }`}
       >
-        {formatPrice(price, decimals)}
+        {formatPrice(shown, decimals)}
       </span>
     </div>
   );
@@ -166,7 +200,13 @@ export function InstrumentRibbon({
         </div>
       </div>
 
-      <PriceCell price={i.price} decimals={decimals} />
+      <PriceCell
+        price={i.price}
+        decimals={decimals}
+        // Idle drift within the spread is forex-only — see `useLivelyPrice`. Equities and
+        // crypto keep the plain tween-between-real-ticks behaviour.
+        {...(i.assetClass === "forex" ? { bid: i.bid, ask: i.ask } : {})}
+      />
 
       <Cell
         label="Change"
@@ -188,8 +228,8 @@ export function InstrumentRibbon({
       />
 
       {/* Top of book, where the feed publishes one. Equities never do. */}
-      {i.bid !== null && <Cell label="Bid" tone="up" value={formatPrice(i.bid, decimals)} />}
-      {i.ask !== null && <Cell label="Ask" tone="down" value={formatPrice(i.ask, decimals)} />}
+      {i.bid !== null && <LivelyCell label="Bid" tone="up" value={i.bid} decimals={decimals} />}
+      {i.ask !== null && <LivelyCell label="Ask" tone="down" value={i.ask} decimals={decimals} />}
       {i.spreadPips !== null && (
         <Cell label="Spread" tone="muted" value={`${i.spreadPips} pips`} />
       )}

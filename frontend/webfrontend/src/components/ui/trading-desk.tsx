@@ -33,7 +33,7 @@ import { blankInstrument } from "@/lib/quote-to-instrument";
 import { searchUniverse, type SearchHit } from "@/lib/instrument-search";
 import { type AssetClass, type PositionValuation } from "@/lib/trading-api";
 import { fetchForexSession, type SessionInfo } from "@/lib/watchlists-api";
-import type { Timeframe } from "@/lib/chart-data";
+import { TIMEFRAMES_FOR, type Timeframe } from "@/lib/chart-data";
 import { WatchlistPanel } from "@/components/ui/watchlist-panel";
 import { useTrading } from "@/hooks/useTrading";
 import { useTradingBoard } from "@/hooks/useTradingBoard";
@@ -117,6 +117,10 @@ export function TradingDesk({
   // Default to the first streamed instrument, and re-anchor when the class changes.
   useEffect(() => {
     setSelectedSymbol(null);
+    // Equities drop `1W` from their button row — see `TIMEFRAMES_FOR` — so a switch away
+    // from crypto or forex while `1W` is pressed would otherwise leave the desk asking for a
+    // timeframe its own chart no longer offers a button for.
+    setTimeframe((tf) => (TIMEFRAMES_FOR[assetClass].includes(tf) ? tf : "1D"));
   }, [assetClass]);
 
   // Consumed once: a symbol arriving via the URL wins the very first selection, same as a
@@ -455,6 +459,7 @@ export function TradingDesk({
                   basePrice={selected.price ?? 0}
                   symbol={selected.label}
                   name={selected.name}
+                  assetClass={assetClass}
                   exchange={selected.currency ?? CLASS_LABELS[assetClass]}
                   marketStatusLabel={
                     selected.marketState === "closed" ? "Market closed" : "Market open"

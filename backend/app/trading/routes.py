@@ -21,9 +21,14 @@ from starlette import status
 
 from app.auth.dependencies import get_current_user
 from app.core.config import (
+    TRADING_ACCOUNT_CURRENCY,
     TRADING_FEE_BPS,
+    TRADING_INITIAL_BALANCE,
+    TRADING_LEVERAGE,
     TRADING_MAX_OPEN_ORDERS,
+    TRADING_MIN_QUANTITY,
     TRADING_PRICE_BAND_PERCENT,
+    TRADING_SHORT_SELLING_CLASSES,
 )
 from app.schemas.common import NOT_FOUND, UNAUTHORIZED, UNAVAILABLE
 from app.schemas.trading import (
@@ -49,6 +54,10 @@ from app.schemas.trading import (
 from app.trading import repository, service
 
 router = APIRouter(prefix="/trading", tags=["trading"])
+
+# Rendered into the route descriptions below, so the docs name the asset classes that can
+# actually be shorted rather than a list somebody has to remember to update here too.
+SHORT_SELLING_LIST = ", ".join(sorted(TRADING_SHORT_SELLING_CLASSES))
 
 
 def _normalized(asset_class: AssetClass, symbol: str) -> str:
@@ -107,9 +116,21 @@ async def get_eligibility(claims: dict = Depends(get_current_user)):
     "/balances",
     response_model=list[Balance],
     responses={**UNAUTHORIZED, **UNAVAILABLE},
-    summary="Cash by currency",
-    description="`reserved` is locked by open buy orders and by pending withdrawal "
-    "requests, and cannot be spent or withdrawn until whatever holds it closes.",
+    summary="Your cash balance",
+    description=f"""
+One balance, in {TRADING_ACCOUNT_CURRENCY}, and it funds every asset class — an order in an
+INR- or USD-priced instrument is converted at the live rate and settles here. A new account
+opens with {TRADING_INITIAL_BALANCE} {TRADING_ACCOUNT_CURRENCY}, credited the first time
+this is read, and it appears in the ledger as an `Opening balance` deposit so the balance
+reconciles against the ledger from its very first row.
+
+`reserved` is locked by open orders and by pending withdrawal requests, and cannot be spent
+or withdrawn until whatever holds it closes.
+
+The response is a list rather than a single object, and the account currency comes first. A
+deployment that ran an older build may still hold a wallet in another currency; those stay
+readable and withdrawable rather than being orphaned, but nothing new settles into them.
+""",
 )
 async def get_balances(claims: dict = Depends(get_current_user)):
     return await asyncio.to_thread(service.balances, claims["uid"])
@@ -126,12 +147,14 @@ async def get_balances(claims: dict = Depends(get_current_user)):
     status_code=status.HTTP_201_CREATED,
     responses={**UNAUTHORIZED, **NOT_ELIGIBLE, **ORDER_REJECTED, **UNAVAILABLE},
     summary="Credit the account (simulated)",
-    description="**This moves no real money.** There is no payment provider behind it — it "
-    "credits book money so the rest of the system can be exercised. It is gated behind "
-    "completed onboarding anyway, because crediting an unidentified account is the exact "
-    "step the KYC funnel exists to prevent.\n\n"
-    "`idempotency_key` is required. Replaying one returns the original ledger entry "
-    "instead of crediting twice, which is what makes a timed-out request safe to retry.",
+    description=f"**This moves no real money.** There is no payment provider behind it — it "
+    f"credits book money so the rest of the system can be exercised. It is gated behind "
+    f"completed onboarding anyway, because crediting an unidentified account is the exact "
+    f"step the KYC funnel exists to prevent.\n\n"
+    f"`currency` is optional and only {TRADING_ACCOUNT_CURRENCY} is accepted — there is one "
+    f"balance, so there is no second currency to fund.\n\n"
+    f"`idempotency_key` is required. Replaying one returns the original ledger entry "
+    f"instead of crediting twice, which is what makes a timed-out request safe to retry.",
 )
 async def create_deposit(payload: FundsRequest, claims: dict = Depends(get_current_user)):
     return await service.deposit(claims["uid"], payload)
@@ -199,24 +222,49 @@ reached: a market order comes back `filled` or not at all, a limit order that is
 marketable comes back `filled`, and anything else comes back `open` and waits.
 
 **What is checked, in order.** Onboarding complete and KYC tier reached; the instrument
-exists on that feed and settles in a currency this venue holds; the product it needs
-(`crypto_spot`, `forex`, `domestic_equity_delivery` or `foreign_equity`) is enabled on
-your account; any price you supplied is within {TRADING_PRICE_BAND_PERCENT}% of the last
-trade and a stop sits on the side it can be reached from; the notional is inside the
-per-order bounds; and finally the cash or the units are locked, atomically, which is where
-insufficient funds is reported.
+exists on that feed and can be priced against your {TRADING_ACCOUNT_CURRENCY} balance; the
+product it needs (`crypto_spot`, `forex`, `domestic_equity_delivery` or `foreign_equity`)
+is enabled on your account; any price you supplied is within {TRADING_PRICE_BAND_PERCENT}%
+of the last trade and a stop sits on the side it can be reached from; the notional is
+inside the per-order bounds; short selling is permitted on that asset class if the order
+would open a short; and finally the cash or the units are locked, atomically, which is
+where insufficient funds is reported.
+
+**One balance funds everything.** Your account holds a single
+{TRADING_ACCOUNT_CURRENCY} balance. An instrument priced in something else — `EUR-USD` in
+USD, `RELIANCE.NS` in INR — has its notional converted at the live rate, which is fixed
+when the order is placed and returned on the order as `fx_rate` so the same order can never
+settle at two different rates. `limit_price`, `stop_price` and `average_price` are in the
+instrument's own `currency`; `fee`, `filled_notional` and every balance are in
+`account_currency`.
 
 **Execution.** Fills are all-or-nothing at one price — simulating anything else would mean
 inventing depth the feeds do not publish. A buy pays the ask and a sell hits the bid where
 the feed publishes both (crypto and forex); the equity feed publishes only a last traded
-price, so that is what is used. Commission is {TRADING_FEE_BPS} bps of notional, charged
-in the quote currency.
+price, so that is what is used. Commission is {TRADING_FEE_BPS} bps of the converted
+notional.
 
 **Nothing fills against a closed or stale market.** A market order into one is a `409`; a
 resting order simply waits, which is why a limit order may be placed out of hours.
 
-**Selling is bounded by what you hold.** This is long-only spot: there is no short selling
-and no margin, so a sell reserves units from your position exactly as a buy reserves cash.
+**Both directions, where the market allows one.** A position's `quantity` is signed:
+positive long, negative short. A sell against a long reduces it and reserves the units; a
+sell with nothing behind it opens a short and reserves cash instead. Shorting is available
+on **{SHORT_SELLING_LIST}** and refused on anything else — shorting a listed share is a
+stock loan, and this venue has no borrow desk. An order that would carry a position
+*through* zero is a `409`: close what is open, then open the other side, so each fill
+prices one thing.
+
+**Leverage is fixed at {TRADING_LEVERAGE}:1**, every asset class alike and both
+directions. Opening locks `notional / {TRADING_LEVERAGE}` plus the fee as margin rather
+than the full notional; the cost basis and P&L stay full-notional either way. Closing
+returns that margin plus whatever the position realized — never the gross proceeds, which
+is what would let a round trip at an unchanged price come back richer than it went in. A
+margin-backed position can reach zero equity before the price does, and a short's loss is
+not even bounded by the price reaching zero, so the engine watches both and force-closes
+what breaches, tagged `liquidation: true` on the order and the trade.
+
+Quantity must be at least {TRADING_MIN_QUANTITY}.
 
 At most {TRADING_MAX_OPEN_ORDERS} orders may rest at once.
 """,
@@ -310,10 +358,21 @@ async def list_trades(
     response_model=list[Position],
     responses={**UNAUTHORIZED, **UNAVAILABLE},
     summary="What you hold",
-    description="Quantities are in base units — `BTCUSDT` counts BTC, `EUR-USD` counts "
-    "EUR — and `average_price` is the cost basis per unit with the entry commission "
-    "included, so it is the real break-even rather than the price on the ticket. Closed "
-    "positions are hidden unless you ask for them with `?include_flat=true`.",
+    description=f"""
+Quantities are in base units — `BTCUSDT` counts BTC, `EUR-USD` counts EUR — and they are
+**signed**: positive is long, negative is short, with `direction` saying which so nothing
+has to infer it from a minus sign. One row per instrument covers either.
+
+`average_price` is the cost basis per unit with the entry commission included, in the
+instrument's own `currency`, so it is the real break-even and it compares directly against
+the price on the screen. `cost_basis`, `margin_used` and `realized_pnl` are in
+`account_currency` ({TRADING_ACCOUNT_CURRENCY}).
+
+`reserved_quantity` is units of a long locked by your own resting sell, and is never
+negative — a short reserves cash, not stock.
+
+Closed positions are hidden unless you ask for them with `?include_flat=true`.
+""",
 )
 async def list_positions(
     claims: dict = Depends(get_current_user),
@@ -344,12 +403,27 @@ async def get_position(
     response_model=Portfolio,
     responses={**UNAUTHORIZED, **UNAVAILABLE},
     summary="Positions marked to market",
-    description="Everything you hold, valued against the live feeds, with cash alongside. "
-    "A position whose feed is down comes back unpriced rather than failing the request — "
-    "the holding is still real, only the mark is missing.\n\n"
-    "Totals are **per currency**, and there is deliberately no grand total: adding INR to "
-    "USDT needs an FX rate this API has no licensed source for, and a made-up total is "
-    "worse than none.",
+    description=f"""
+Everything you hold, valued against the live feeds, with cash alongside. A position whose
+feed or FX rate is unavailable comes back unpriced rather than failing the request — the
+holding is still real, only the mark is missing, and `unpriced` counts them.
+
+There **is** a grand total now, in {TRADING_ACCOUNT_CURRENCY}. It used not to exist for an
+honest reason — adding INR to USDT needs a rate — and that reason has gone rather than been
+papered over: every position's cash leg is converted when the order is placed, so `equity`
+adds numbers already in one unit. Each row still carries the `fx_rate` that valued it.
+
+* `cash` — available plus reserved.
+* `margin_used` — collateral posted against open positions. Opening a position moves this
+  *out* of `cash`, which is why `equity` adds it back.
+* `equity` — `cash + margin_used + unrealized_pnl`: what the account is actually worth.
+* `market_value` — net signed exposure, longs less shorts. Under {TRADING_LEVERAGE}:1 this
+  is many times the cash committed, so it is **not** part of `equity`.
+* `free_margin` — available cash, which is what a new position can post.
+
+`*_by_currency` is kept for clients written against the old per-currency shape and now has
+a single key.
+""",
 )
 async def get_portfolio(claims: dict = Depends(get_current_user)):
     return await service.portfolio(claims["uid"])

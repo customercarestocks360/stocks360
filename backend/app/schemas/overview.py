@@ -37,6 +37,10 @@ class MarketTick(BaseModel):
         default=None, description="Percent move over the feed's window; null when unavailable"
     )
     currency: str | None = Field(default=None, examples=["INR"])
+    bid: Decimal | None = Field(default=None, description="Forex only — the real quoted bid")
+    ask: Decimal | None = Field(default=None, description="Forex only — the real quoted ask")
+    spread: Decimal | None = Field(default=None, description="Forex only — ask - bid")
+    spread_pips: Decimal | None = Field(default=None, description="Forex only — spread in pips")
     at: datetime = Field(description="Upstream quote time, not receipt time")
     stale: bool = Field(description="Outside this feed's freshness window")
 

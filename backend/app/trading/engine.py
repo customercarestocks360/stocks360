@@ -40,7 +40,7 @@ from app.schemas.streaming import StreamFrameType
 from app.schemas.trading import AssetClass, OrderStatus
 from app.stocks.hub import hub as stocks_hub
 from app.streaming.hub import INTERNAL_PREFIX, BaseHub, Subscriber
-from app.trading import pricing, repository, service
+from app.trading import fx, pricing, repository, service
 
 logger = logging.getLogger(__name__)
 
@@ -119,6 +119,14 @@ class TradingEngine:
                     wanted[AssetClass(asset_class)].add(symbol)
                 except ValueError:
                     logger.warning("Resting order on unknown asset class %r", asset_class)
+            # A margin-backed position needs live prices for the margin check below just as
+            # much as a resting order needs them to fill — same subscription set, same
+            # reasoning. Shorts are included, and are the ones that most need watching.
+            for asset_class, symbol in await asyncio.to_thread(repository.leveraged_instruments):
+                try:
+                    wanted[AssetClass(asset_class)].add(symbol)
+                except ValueError:
+                    logger.warning("Margin position on unknown asset class %r", asset_class)
 
             self._version += 1
             for asset_class, symbols in wanted.items():
@@ -156,6 +164,7 @@ class TradingEngine:
             if order["symbol"] == symbol
         ]
         await self._try_all(orders)
+        await self._check_margin(asset_class, symbol)
 
     async def _try_all(self, orders: list[dict]) -> None:
         """Oldest first, which is the only fair tie-break available without a real book."""
@@ -168,6 +177,52 @@ class TradingEngine:
             filled = await service.execute(order, mark)
             if filled is not None and filled["status"] == OrderStatus.filled.value:
                 logger.info("Matcher filled order %s", order["id"])
+
+    async def _check_margin(self, asset_class: AssetClass, symbol: str) -> None:
+        """Force-close any margin-backed position on this symbol whose collateral has run out.
+
+        Both directions, which matters more than it sounds: a long cannot lose more than the
+        price falling to zero, but a short's loss grows without limit as the price rises, so
+        the short side is the one that genuinely needs a liquidator watching it.
+
+        The equity test is the signed formula from `money.apply_fill` and needs no branch:
+
+            equity = margin_used + (quantity * mark - cost_basis)
+
+        For a long that is collateral plus an ordinary gain or loss. For a short, `quantity`
+        and `cost_basis` are both negative, so a rising mark drives the bracket down and the
+        position runs out of collateral exactly when it should.
+
+        `ponytail: a position still holding `reserved_quantity` (locked by the user's own
+        resting sell) is measured on its whole size but only its free part can be closed —
+        its own order already covers the rest, and this venue does not liquidate through
+        someone else's open order. Upgrade path: cancel the resting order first if that gap
+        ever matters in practice.`
+        """
+        positions = await asyncio.to_thread(
+            repository.leveraged_positions_for_symbol, asset_class.value, symbol
+        )
+        if not positions:
+            return
+        mark = pricing.cached_mark(asset_class, symbol, positions[0]["currency"])
+        if mark is None or not mark.tradable:
+            return
+        for position in positions:
+            # `cost_basis` is in the account currency and the mark is in the instrument's,
+            # so the exposure has to be converted before the two can be subtracted. The rate
+            # comes from the cache only — this runs per tick and must not touch the network.
+            rate = fx.cached_rate(position["currency"])
+            if rate is None:
+                continue
+            net = position["available_quantity"] + position["reserved_quantity"]
+            exposure = fx.convert(net * mark.last, rate)
+            equity = position["margin_used"] + (exposure - position["cost_basis"])
+            if equity <= 0:
+                logger.warning(
+                    "Margin breach on %s %s for %s: equity %s at mark %s",
+                    asset_class.value, symbol, position["uid"], equity, mark.last,
+                )
+                await service.liquidate_position(position["uid"], asset_class, symbol, mark)
 
     # --------------------------------------------------------------- sweep ---
     async def _sweeper(self) -> None:
@@ -208,6 +263,15 @@ class TradingEngine:
         # Finally, re-try everything resting. A tick is the usual trigger, but an order
         # placed while the price was already past its trigger has no tick coming.
         await self._try_all(await asyncio.to_thread(repository.resting_orders))
+
+        # Same backstop for margin: a position opened between two ticks, or one whose
+        # symbol went quiet right after crossing zero equity, still gets checked here.
+        for asset_class, symbol in await asyncio.to_thread(repository.leveraged_instruments):
+            try:
+                await self._check_margin(AssetClass(asset_class), symbol)
+            except ValueError:
+                logger.warning("Leveraged position on unknown asset class %r", asset_class)
+
         await self.refresh()
 
 

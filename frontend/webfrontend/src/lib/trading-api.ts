@@ -53,6 +53,42 @@ export type OrderStatus = (typeof ORDER_STATUSES)[number];
 
 export type MarketState = "open" | "closed" | "unknown";
 
+/**
+ * Mirrors the venue rules in `backend/app/core/config.py` — fixed deployment-wide settings,
+ * not per-order choices, so plain constants here are what "mirrors the server's rules" (see
+ * the file docstring) means for them. The server is still the authority; these exist so the
+ * commonest rejection is caught before a request goes out.
+ *
+ * `TRADING_ACCOUNT_CURRENCY` is the load-bearing one. **The venue holds exactly one wallet
+ * per account, in this currency, and every asset class settles into it** — an instrument
+ * priced in USD or INR has its notional converted at placement (`app/trading/fx.py`) rather
+ * than getting a wallet of its own. Checking an order's cost against a wallet named after
+ * the *instrument's* currency therefore always finds nothing, which is what blocked every
+ * non-USDT order on an account with a funded balance.
+ *
+ * `Portfolio.account_currency` is the server's own answer and wins wherever it is loaded;
+ * this is the value to fall back on before the first read lands.
+ */
+export const TRADING_ACCOUNT_CURRENCY = "USDT";
+export const TRADING_LEVERAGE = 200;
+export const TRADING_MIN_QUANTITY = 0.1;
+export const TRADING_FEE_BPS = 10;
+export const TRADING_MIN_ORDER_NOTIONAL = 1;
+export const TRADING_MAX_ORDER_NOTIONAL = 1_000_000;
+
+/**
+ * Currencies the venue converts 1:1 against each other, because they are all pegged to the
+ * dollar and it has no licensed source for the deviation. Both halves have to be in the set
+ * for the peg to hold — see `fx._pegged`.
+ */
+export const TRADING_PEGGED_CURRENCIES = ["USDT", "USDC", "USD"] as const;
+
+/**
+ * Asset classes where a sell with nothing behind it opens a short instead of being refused.
+ * Equities are excluded: shorting a listed share needs a stock borrow this venue has none of.
+ */
+export const TRADING_SHORT_SELLING_CLASSES = ["crypto", "forex"] as const;
+
 /** The only currencies this venue will hold. An instrument quoted in anything else is a 409. */
 export const SETTLEMENT_CURRENCIES = [
   "USD",
@@ -99,8 +135,12 @@ export type Order = {
   type: OrderType;
   time_in_force: TimeInForce;
   status: OrderStatus;
-  /** Quote currency — what the order settles in. */
+  /** Quote currency — what this order's *prices* are in. */
   currency: string;
+  /** The wallet currency the cash leg settles in. One per account, all classes alike. */
+  account_currency: string;
+  /** `currency` → `account_currency`, fixed at placement and carried on the order. */
+  fx_rate: string;
   quantity: string;
   filled_quantity: string;
   limit_price: string | null;
@@ -113,6 +153,8 @@ export type Order = {
   reserved_amount: string;
   reserved_quantity: string;
   reject_reason: string | null;
+  /** Forced closed by the engine on a margin breach, not placed by the user. */
+  liquidation: boolean;
   created_at: string;
   updated_at: string;
   /** Set on a `day` order — 23:59:59 UTC of the placement day. */
@@ -126,27 +168,50 @@ export type Trade = {
   asset_class: AssetClass;
   symbol: string;
   side: OrderSide;
+  /** Quote currency — what `price` is in. */
   currency: string;
+  /** Wallet currency — what `notional`, `fee` and `realized_pnl` are in. */
+  account_currency: string;
+  fx_rate: string;
   quantity: string;
   price: string;
+  /** quantity × price, converted to `account_currency`. */
   notional: string;
   fee: string;
-  /** Present on sells only. */
+  /** How much of this fill opened new exposure, and how much closed existing exposure. */
+  opened: string;
+  closed: string;
+  /** `null` on a purely opening fill — "nothing realized" and "came out flat" differ. */
   realized_pnl: string | null;
+  /** A forced close from a margin breach, not a user-placed order. */
+  liquidation: boolean;
   at: string;
 };
+
+export type PositionSide = "long" | "short" | "flat";
 
 export type Position = {
   asset_class: AssetClass;
   symbol: string;
+  /** Quote currency — what `average_price` and `last_price` are in. */
   currency: string;
-  /** Total held, including units locked by open sell orders. */
+  /** Wallet currency — what `cost_basis`, `margin_used` and the P&L figures are in. */
+  account_currency: string;
+  direction: PositionSide;
+  /**
+   * **Signed**: positive is long, negative is short. One document per instrument holds
+   * either, so anything comparing a quantity against zero has to respect the sign.
+   */
   quantity: string;
+  /** Signed the same way. A short's is negative; only a long's can be reserved. */
   available_quantity: string;
+  /** Always ≥ 0 — units of a long locked by the owner's own resting sell. */
   reserved_quantity: string;
-  /** Cost basis per unit including entry fee. `null` once flat. */
+  /** Break-even per unit including entry fee, in `currency`. `null` once flat. */
   average_price: string | null;
   cost_basis: string;
+  /** Cash actually posted for this holding — less than `cost_basis` when leveraged. */
+  margin_used: string;
   realized_pnl: string;
   updated_at: string;
 };
@@ -154,8 +219,12 @@ export type Position = {
 /** A `Position` marked to market. A `null` mark means the feed had no usable price — not zero. */
 export type PositionValuation = Position & {
   last_price: string | null;
+  /** The rate that valued this row, so the conversion is visible rather than implied. */
+  fx_rate: string | null;
+  /** Signed, in `account_currency`: a short contributes negative exposure. */
   market_value: string | null;
   unrealized_pnl: string | null;
+  /** Against the cash posted, not the basis — at 200x a 1 % move is a 200 % swing. */
   unrealized_pnl_percent: string | null;
   market_state: MarketState;
   stale: boolean;
@@ -219,17 +288,37 @@ export type Account = {
 };
 
 /**
- * No grand total: adding INR to USDT would need an FX rate this API has no licensed source
- * for, so totals are per currency. The three maps do **not** share key sets — the market
- * value and unrealized maps only carry currencies that had a priced position.
+ * There **is** a grand total now. Every position's cash leg is already converted into
+ * `account_currency`, so these scalars add numbers that share a unit rather than pretending
+ * INR and USDT are interchangeable — each row still reports its own price in the currency
+ * its market quotes, with the `fx_rate` that valued it.
+ *
+ * The three `*_by_currency` maps are therefore only ever keyed by `account_currency`. They
+ * survive for API compatibility; prefer the scalars, and never look one up by an
+ * instrument's quote currency — that always misses.
  */
 export type Portfolio = {
   uid: string;
+  account_currency: string;
   balances: Balance[];
   positions: PositionValuation[];
+  /** Available plus reserved, in `account_currency`. */
+  cash: string;
+  /** Signed net exposure at the mark — under leverage, many times the cash committed. */
+  market_value: string;
+  /** What the account is worth: cash plus margin at risk plus unrealised. */
+  equity: string;
+  unrealized_pnl: string;
+  /** Booked across every position, lifetime. */
+  realized_pnl: string;
+  /** Cash currently posted against open positions. */
+  margin_used: string;
+  /** Available cash — what a new position can post. */
+  free_margin: string;
   market_value_by_currency: Record<string, string>;
   unrealized_pnl_by_currency: Record<string, string>;
   realized_pnl_by_currency: Record<string, string>;
+  /** Positions the feed could mark right now. */
   priced: number;
   unpriced: number;
   at: string;
@@ -343,7 +432,10 @@ export function fetchTrades(
   );
 }
 
-/** `GET /trading/positions` — long-only spot holdings. Flat positions are excluded by default. */
+/**
+ * `GET /trading/positions` — signed holdings, long and short alike. Flat positions are
+ * excluded by default.
+ */
 export function fetchPositions(
   token: string,
   includeFlat = false,

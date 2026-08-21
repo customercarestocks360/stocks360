@@ -144,6 +144,12 @@ def _from_forex(quote) -> MarketTick:
         currency=quote.symbol.split("-")[-1],
         at=quote.quoted_at,
         stale=quote.stale,
+        # FX has no central order book (see order-book.tsx) — the real bid/ask/spread is
+        # the honest analogue, and the hub already ticks these in real time per quote.
+        bid=quote.bid,
+        ask=quote.ask,
+        spread=quote.spread,
+        spread_pips=quote.spread_pips,
     )
 
 

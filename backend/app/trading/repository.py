@@ -32,9 +32,10 @@ from bson.decimal128 import Decimal128
 from pymongo import ASCENDING, DESCENDING, ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
+from app.core.config import TRADING_ACCOUNT_CURRENCY, TRADING_INITIAL_BALANCE
 from app.core.database import get_db
 from app.schemas.trading import LedgerKind, OrderStatus
-from app.trading.money import ZERO, money
+from app.trading.money import ZERO, FillEffect, money
 
 WALLETS = "wallets"
 ORDERS = "orders"
@@ -107,8 +108,30 @@ def ensure_indexes() -> None:
     db[TRADES].create_index([("order_id", ASCENDING)], name="trade_order_idx")
 
     db[POSITIONS].create_index([("uid", ASCENDING)], name="position_uid_idx")
+    # The engine's margin sweep: every leveraged, non-flat position across all users.
+    db[POSITIONS].create_index(
+        [("asset_class", ASCENDING), ("symbol", ASCENDING)], name="position_symbol_idx"
+    )
 
     db[LEDGER].create_index([("uid", ASCENDING), ("at", DESCENDING)], name="ledger_uid_idx")
+
+    # Positions written before leverage shipped have no `margin_used` at all. Backfilling it
+    # to their own `cost_basis` treats them as already fully collateralized, so nothing
+    # already open becomes liquidatable the moment this ships — leverage only applies to
+    # buys placed from here on (see `service._settle_fill`).
+    db[POSITIONS].update_many(
+        {"margin_used": {"$exists": False}},
+        [{"$set": {"margin_used": "$cost_basis"}}],
+    )
+
+    # Positions written before the account balance became a single currency have only one
+    # basis, which was in the instrument's quote currency. Seeding `cost_basis_quote` from
+    # it is exact for anything quoted in the account currency and the best available
+    # estimate for the rest, and it is only ever used to report `average_price`.
+    db[POSITIONS].update_many(
+        {"cost_basis_quote": {"$exists": False}},
+        [{"$set": {"cost_basis_quote": "$cost_basis"}}],
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -160,21 +183,26 @@ def _wallet_id(uid: str, currency: str) -> str:
     return f"{uid}:{currency}"
 
 
-def ensure_wallet(uid: str, currency: str) -> None:
-    """Create the wallet at zero if it does not exist.
+def ensure_wallet(uid: str, currency: str) -> bool:
+    """Create the wallet if it does not exist. True when this call is the one that made it.
 
     Separate from the crediting update on purpose: Mongo refuses an update that both
     `$inc`s and `$setOnInsert`s the same path, so an upsert-and-credit in one call is a
     runtime error waiting for the first deposit into a new currency.
+
+    The opening balance goes in through `$setOnInsert`, which is what makes it impossible
+    to credit twice however many callers race here — only one of them upserts, and the
+    others find the document already at its opening figure rather than incrementing it.
     """
     now = _now()
-    get_db()[WALLETS].update_one(
+    opening = TRADING_INITIAL_BALANCE if currency == TRADING_ACCOUNT_CURRENCY else ZERO
+    result = get_db()[WALLETS].update_one(
         {"_id": _wallet_id(uid, currency)},
         {
             "$setOnInsert": {
                 "uid": uid,
                 "currency": currency,
-                "available": _d128(ZERO),
+                "available": _d128(opening),
                 "reserved": _d128(ZERO),
                 "created_at": now,
                 "updated_at": now,
@@ -182,6 +210,27 @@ def ensure_wallet(uid: str, currency: str) -> None:
         },
         upsert=True,
     )
+    created = result.upserted_id is not None
+    if created and opening > 0:
+        # The opening balance is a ledger row like any other movement, so `available` still
+        # equals the sum of the ledger from the very first entry. A starting number that
+        # only exists on the wallet document is a number nothing can reconcile against.
+        get_db()[LEDGER].insert_one(
+            {
+                "_id": _oid(),
+                "uid": uid,
+                "currency": currency,
+                "kind": LedgerKind.deposit.value,
+                "amount": _d128(opening),
+                "available_after": _d128(opening),
+                "reserved_after": _d128(ZERO),
+                "order_id": None,
+                "trade_id": None,
+                "reference": "Opening balance",
+                "at": now,
+            }
+        )
+    return created
 
 
 def apply_to_wallet(
@@ -315,12 +364,16 @@ def get_position(uid: str, asset_class: str, symbol: str) -> dict | None:
 
 
 def list_positions(uid: str, include_flat: bool = False) -> list[dict]:
-    """A flat position is history, not a holding, so it is hidden unless asked for."""
+    """A flat position is history, not a holding, so it is hidden unless asked for.
+
+    `$ne: 0` rather than `$gt: 0`: `available_quantity` is signed now, and a short is every
+    bit as much a holding as a long.
+    """
     query: dict[str, Any] = {"uid": uid}
     if not include_flat:
         query["$or"] = [
-            {"available_quantity": {"$gt": _d128(ZERO)}},
-            {"reserved_quantity": {"$gt": _d128(ZERO)}},
+            {"available_quantity": {"$ne": _d128(ZERO)}},
+            {"reserved_quantity": {"$ne": _d128(ZERO)}},
         ]
     cursor = get_db()[POSITIONS].find(query).sort("symbol", ASCENDING)
     return [_decimals(doc) for doc in cursor]
@@ -336,9 +389,24 @@ def ensure_position(uid: str, asset_class: str, symbol: str, currency: str) -> N
                 "asset_class": asset_class,
                 "symbol": symbol,
                 "currency": currency,
+                # Written, not assumed: a position opened before the balance became universal
+                # has its `cost_basis` in the instrument's own currency, and the absence of
+                # this field is how a reader tells the two apart instead of putting a USDT
+                # label on a number of rupees.
+                "account_currency": TRADING_ACCOUNT_CURRENCY,
+                # Signed: positive is long, negative is short. One document per instrument
+                # holds either, which is what keeps a sell from needing its own code path.
                 "available_quantity": _d128(ZERO),
+                # Always >= 0, and only ever used by a long: it is units of stock locked by
+                # the owner's own resting sell. A short reserves cash, not units.
                 "reserved_quantity": _d128(ZERO),
+                # Signed, fee-inclusive, in the account currency.
                 "cost_basis": _d128(ZERO),
+                # The same basis in the instrument's own quote currency, tracked alongside
+                # rather than derived by dividing back through an FX rate — that is what
+                # keeps `average_price` exact against the price on the screen.
+                "cost_basis_quote": _d128(ZERO),
+                "margin_used": _d128(ZERO),
                 "realized_pnl": _d128(ZERO),
                 "created_at": now,
                 "updated_at": now,
@@ -346,6 +414,65 @@ def ensure_position(uid: str, asset_class: str, symbol: str, currency: str) -> N
         },
         upsert=True,
     )
+
+
+def apply_fill_to_position(
+    uid: str,
+    asset_class: str,
+    symbol: str,
+    effect: FillEffect,
+    *,
+    require_reserved_quantity: Decimal | None = None,
+) -> dict | None:
+    """Apply one fill's whole effect to a position, atomically.
+
+    Replaces the old `add_to_position` / `reduce_position` pair: with a signed quantity
+    there is one operation, and `app.trading.money.apply_fill` has already worked out every
+    delta including the sign. Splitting it in two only ever meant two places to keep the
+    same arithmetic straight.
+
+    `require_reserved_quantity` is the guard for a sell closing a long — the units must
+    still be the ones this order locked. A fill that reserved cash instead (opening either
+    direction, or closing a short) passes None, because there are no units to check.
+    """
+    query: dict[str, Any] = {"_id": _position_id(uid, asset_class, symbol)}
+    increments: dict[str, Any] = {
+        "available_quantity": _d128(effect.quantity_delta),
+        "cost_basis": _d128(effect.basis_delta),
+        "cost_basis_quote": _d128(effect.basis_quote_delta),
+        "margin_used": _d128(effect.margin_delta),
+        "realized_pnl": _d128(effect.realized),
+    }
+    if require_reserved_quantity is not None:
+        query["reserved_quantity"] = {"$gte": _d128(require_reserved_quantity)}
+        # The units came out of `reserved`, so `available` must not move as well —
+        # `quantity_delta` already accounts for them leaving the position altogether.
+        increments["reserved_quantity"] = _d128(-require_reserved_quantity)
+        increments["available_quantity"] = _d128(effect.quantity_delta + require_reserved_quantity)
+
+    doc = get_db()[POSITIONS].find_one_and_update(
+        query, {"$inc": increments, "$set": {"updated_at": _now()}},
+        return_document=ReturnDocument.AFTER,
+    )
+    if doc is None:
+        return None
+    doc = _decimals(doc)
+    # Closing out should leave nothing behind. Rounding on each partial exit can leave a
+    # few satoshis of basis or margin, which would read as an average price on no position
+    # and as collateral posted against nothing.
+    if doc["available_quantity"] == 0 and doc["reserved_quantity"] == 0:
+        residue = {
+            field: ZERO
+            for field in ("cost_basis", "cost_basis_quote", "margin_used")
+            if doc.get(field, ZERO) != 0
+        }
+        if residue:
+            get_db()[POSITIONS].update_one(
+                {"_id": doc["_id"]},
+                {"$set": {field: _d128(ZERO) for field in residue}},
+            )
+            doc.update(residue)
+    return doc
 
 
 def reserve_quantity(uid: str, asset_class: str, symbol: str, quantity: Decimal) -> dict | None:
@@ -386,58 +513,6 @@ def release_quantity(uid: str, asset_class: str, symbol: str, quantity: Decimal)
     return _decimals(doc) if doc else None
 
 
-def add_to_position(
-    uid: str, asset_class: str, symbol: str, quantity: Decimal, cost: Decimal
-) -> dict:
-    """Credit a buy. `cost` is what was paid including the fee, so the average price this
-    implies is the true break-even rather than the headline traded price."""
-    doc = get_db()[POSITIONS].find_one_and_update(
-        {"_id": _position_id(uid, asset_class, symbol)},
-        {
-            "$inc": {"available_quantity": _d128(quantity), "cost_basis": _d128(cost)},
-            "$set": {"updated_at": _now()},
-        },
-        return_document=ReturnDocument.AFTER,
-    )
-    return _decimals(doc)
-
-
-def reduce_position(
-    uid: str,
-    asset_class: str,
-    symbol: str,
-    quantity: Decimal,
-    basis_sold: Decimal,
-    realized: Decimal,
-) -> dict | None:
-    """Settle a sell against the units this order had reserved."""
-    doc = get_db()[POSITIONS].find_one_and_update(
-        {
-            "_id": _position_id(uid, asset_class, symbol),
-            "reserved_quantity": {"$gte": _d128(quantity)},
-        },
-        {
-            "$inc": {
-                "reserved_quantity": _d128(-quantity),
-                "cost_basis": _d128(-basis_sold),
-                "realized_pnl": _d128(realized),
-            },
-            "$set": {"updated_at": _now()},
-        },
-        return_document=ReturnDocument.AFTER,
-    )
-    if doc is None:
-        return None
-    doc = _decimals(doc)
-    # Selling out should leave no basis behind. Rounding on each partial sale can leave a
-    # few satoshis of dust, which would show up as an average price on nothing.
-    if doc["available_quantity"] == 0 and doc["reserved_quantity"] == 0 and doc["cost_basis"] != 0:
-        get_db()[POSITIONS].update_one(
-            {"_id": doc["_id"]}, {"$set": {"cost_basis": _d128(ZERO)}}
-        )
-        doc["cost_basis"] = ZERO
-    return doc
-
 
 # --------------------------------------------------------------------------- #
 # Orders
@@ -455,6 +530,7 @@ def create_order(doc: dict) -> dict:
         "average_price",
         "filled_notional",
         "fee",
+        "fx_rate",
         "reserved_amount",
         "reserved_quantity",
     ):
@@ -543,6 +619,39 @@ def resting_instruments() -> list[tuple[str, str]]:
         ]
     )
     return [(row["_id"]["asset_class"], row["_id"]["symbol"]) for row in cursor]
+
+
+# Any position holding collateral is one whose collateral can run out, so this is the
+# condition the engine watches. It used to be `margin_used < cost_basis`, which read
+# "genuinely leveraged" — but a short's basis is negative, so that test silently excluded
+# every short from the margin check, which is the one direction with unbounded downside.
+# `margin_used > 0` covers both, and an old fully-collateralized 1:1 holding matching it
+# is harmless: its equity only reaches zero if the price does.
+_MARGIN_BACKED: dict[str, Any] = {
+    "available_quantity": {"$ne": Decimal128(ZERO)},
+    "margin_used": {"$gt": Decimal128(ZERO)},
+}
+
+
+def leveraged_instruments() -> list[tuple[str, str]]:
+    """The distinct (asset class, symbol) pairs the engine has to keep priced for a margin
+    check — every instrument someone holds on collateral, long or short."""
+    cursor = get_db()[POSITIONS].aggregate(
+        [
+            {"$match": dict(_MARGIN_BACKED)},
+            {"$group": {"_id": {"asset_class": "$asset_class", "symbol": "$symbol"}}},
+        ]
+    )
+    return [(row["_id"]["asset_class"], row["_id"]["symbol"]) for row in cursor]
+
+
+def leveraged_positions_for_symbol(asset_class: str, symbol: str) -> list[dict]:
+    """Every user's margin-backed position on this instrument — what the engine checks for
+    a breach on each tick and each sweep. Shorts included, which is the point."""
+    cursor = get_db()[POSITIONS].find(
+        {"asset_class": asset_class, "symbol": symbol, **_MARGIN_BACKED}
+    )
+    return [_decimals(doc) for doc in cursor]
 
 
 def mark_triggered(order_id: str) -> dict | None:
@@ -649,7 +758,9 @@ def expiring_orders(now: datetime) -> list[dict]:
 
 def record_trade(doc: dict) -> dict:
     stored = dict(doc)
-    for field in ("quantity", "price", "notional", "fee", "realized_pnl"):
+    for field in (
+        "quantity", "price", "notional", "fee", "fx_rate", "opened", "closed", "realized_pnl"
+    ):
         if stored.get(field) is not None:
             stored[field] = _d128(stored[field])
     get_db()[TRADES].insert_one(stored)
@@ -673,8 +784,8 @@ def count_positions(uid: str) -> int:
         {
             "uid": uid,
             "$or": [
-                {"available_quantity": {"$gt": _d128(ZERO)}},
-                {"reserved_quantity": {"$gt": _d128(ZERO)}},
+                {"available_quantity": {"$ne": _d128(ZERO)}},
+                {"reserved_quantity": {"$ne": _d128(ZERO)}},
             ],
         }
     )
