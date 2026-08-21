@@ -54,12 +54,12 @@ export function Header() {
 
   return (
     <header className="sticky top-0 z-30 border-b border-border bg-background/85 pt-safe backdrop-blur">
-      <div className="mx-auto flex h-14 max-w-7xl items-center gap-8 px-4 sm:px-6 md:h-16">
+      <div className="mx-auto flex h-16 max-w-7xl items-center gap-4 sm:gap-8 px-3 sm:px-6 md:h-20">
         <Link to="/" className="flex shrink-0 items-center gap-2 pointer-events-none md:pointer-events-auto" onClick={() => setMenuOpen(false)}>
-          <img src="/mianimg.png" alt="Stocks360" className="h-7 w-7 shrink-0 rounded-md object-cover" />
-          <span className="whitespace-nowrap text-[15px] font-bold tracking-tight">Stocks360</span>
+          <img src="/mianimg.png" alt="Stocks360" className="h-9 w-9 shrink-0 rounded-md object-cover" />
+          <span className="whitespace-nowrap text-[18px] font-bold tracking-tight">Stocks360</span>
         </Link>
-        <nav className="hidden items-center gap-6 text-sm text-muted-foreground md:flex">
+        <nav className="hidden items-center gap-6 text-base text-muted-foreground md:flex">
           {NAV_LINKS.map((l) => (
             <Link key={l.n} to={l.t} className="transition-colors hover:text-foreground [&.active]:text-foreground [&.active]:font-medium">
               {l.n}
@@ -69,7 +69,7 @@ export function Header() {
         <div className="ml-auto flex items-center gap-3">
           <button
             onClick={toggleTheme}
-            className="flex h-10 w-10 items-center justify-center rounded-md border border-border bg-secondary text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground hover:border-foreground/20 sm:h-9 sm:w-9"
+            className="flex h-11 w-11 items-center justify-center rounded-md border border-border bg-secondary text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground hover:border-foreground/20 sm:h-10 sm:w-10"
             aria-label="Toggle theme"
           >
             {theme === "dark" ? (
@@ -86,7 +86,7 @@ export function Header() {
             >
               <button
                 onClick={() => setProfileOpen((v) => !v)}
-                className="flex h-10 w-10 items-center justify-center rounded-full sm:h-9 sm:w-9"
+                className="flex h-11 w-11 items-center justify-center rounded-full sm:h-10 sm:w-10"
                 style={{
                   background: kycCompleted
                     ? "var(--primary)"
@@ -200,14 +200,14 @@ export function Header() {
             <>
               <Link
                 to="/login"
-                className="hidden cursor-pointer text-sm text-muted-foreground transition-colors hover:text-foreground sm:block"
+                className="hidden cursor-pointer text-base text-muted-foreground transition-colors hover:text-foreground sm:block"
               >
                 Log in
               </Link>
               <button
                 type="button"
                 onClick={handleGetStarted}
-                className="cursor-pointer whitespace-nowrap rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 sm:px-4"
+                className="cursor-pointer whitespace-nowrap rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 sm:px-5 sm:py-2.5 sm:text-base"
               >
                 Get started
               </button>

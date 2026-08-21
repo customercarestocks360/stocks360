@@ -266,27 +266,6 @@ export function InstrumentRibbon({
         }
       />
 
-      {/*
-        Buy/sell sit just past the last stat rather than pinned to the far edge: a signed-out
-        visitor has most cells dropped for want of a token, and `ml-auto` then stranded the
-        actions across a third of the screen of nothing.
-      */}
-      <div className="flex shrink-0 items-center gap-1.5 border-l border-overlay-border px-3 py-2">
-        <button
-          type="button"
-          onClick={onBuy}
-          className="rounded bg-up/15 px-3.5 py-1.5 text-xs font-bold uppercase tracking-wider text-up transition-colors hover:bg-up/25"
-        >
-          Buy
-        </button>
-        <button
-          type="button"
-          onClick={onSell}
-          className="rounded bg-down/15 px-3.5 py-1.5 text-xs font-bold uppercase tracking-wider text-down transition-colors hover:bg-down/25"
-        >
-          Sell
-        </button>
-      </div>
     </div>
   );
 }
