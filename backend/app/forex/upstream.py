@@ -16,8 +16,12 @@ import httpx
 from fastapi import HTTPException, status
 
 from app.core.config import (
+    FOREX_CANDLE_CACHE_SECONDS,
     FOREX_PAIRS_TTL_SECONDS,
+    FOREX_QUOTE_CACHE_SECONDS,
+    FOREX_RATE_LIMIT_COOLDOWN_SECONDS,
     FOREX_REST_URL,
+    FOREX_STALE_IF_ERROR_SECONDS,
     FOREX_STALE_SECONDS,
     FOREX_TIMEOUT_SECONDS,
 )
@@ -44,6 +48,17 @@ _pairs: dict[str, PairInfo] = {}
 _pairs_fetched_at: float = 0.0
 _pairs_lock = asyncio.Lock()
 
+# All entry points (REST routes, socket warm-ups, the polling hub and trading) converge
+# here. The locks turn a burst of identical cold requests into a single upstream flight.
+_quotes: dict[str, tuple[ForexQuote, float]] = {}
+_quotes_lock = asyncio.Lock()
+_candle_cache: dict[tuple[str, Interval, Range], tuple[list[Candle], float]] = {}
+_candle_locks: dict[tuple[str, Interval, Range], asyncio.Lock] = {}
+
+# One 429 starts a process-wide cooldown so waiting requests do not keep probing the same
+# deployment IP. The provider's Retry-After value wins when it supplies one.
+_rate_limited_until = 0.0
+
 # The provider keys its responses without the separator: EUR-USD comes back as EURUSD.
 def _compact(pair: str) -> str:
     return pair.replace("-", "")
@@ -63,12 +78,16 @@ def start() -> None:
 
 
 async def stop() -> None:
-    global _client, _pairs_fetched_at
+    global _client, _pairs_fetched_at, _rate_limited_until
     if _client is not None:
         await _client.aclose()
         _client = None
     _pairs.clear()
     _pairs_fetched_at = 0.0
+    _quotes.clear()
+    _candle_cache.clear()
+    _candle_locks.clear()
+    _rate_limited_until = 0.0
     await twelvedata.stop()
 
 
@@ -80,8 +99,17 @@ def _dec(value: Any) -> Decimal:
 
 
 async def _get(path: str) -> Any:
+    global _rate_limited_until
     if _client is None:
         raise RuntimeError("Forex upstream is not started — start() runs on app startup")
+    remaining = _rate_limited_until - time.monotonic()
+    if remaining > 0:
+        retry_after = max(1, int(remaining + 0.999))
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Forex data is temporarily using its last cached prices",
+            headers={"Retry-After": str(retry_after)},
+        )
     try:
         res = await _client.get(path)
     except httpx.TimeoutException as exc:
@@ -98,9 +126,15 @@ async def _get(path: str) -> Any:
         # The provider says CoinNotExists for a pair it does not carry.
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unsupported currency pair")
     if res.status_code == 429:
+        try:
+            retry_after = max(1, int(float(res.headers.get("Retry-After", ""))))
+        except (TypeError, ValueError):
+            retry_after = FOREX_RATE_LIMIT_COOLDOWN_SECONDS
+        _rate_limited_until = time.monotonic() + retry_after
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Forex upstream is rate limiting this server — retry shortly",
+            detail="Forex data is temporarily using its last cached prices",
+            headers={"Retry-After": str(retry_after)},
         )
     if res.status_code >= 400:
         logger.warning("Forex upstream %s -> %s %s", path, res.status_code, res.text[:200])
@@ -126,7 +160,16 @@ async def all_pairs(refresh: bool = False) -> dict[str, PairInfo]:
     async with _pairs_lock:
         if _pairs and not refresh and (time.monotonic() - _pairs_fetched_at) < FOREX_PAIRS_TTL_SECONDS:
             return _pairs
-        payload = await _get("/json/available")
+        try:
+            payload = await _get("/json/available")
+        except HTTPException as exc:
+            # A provider outage must not invalidate a universe that changes only rarely.
+            if _pairs and exc.status_code in (429, 502, 504):
+                logger.warning(
+                    "Using stale forex pair universe after upstream failure: %s", exc.detail
+                )
+                return _pairs
+            raise
         parsed: dict[str, PairInfo] = {}
         for symbol, name in payload.items():
             base, _, quote = symbol.partition("-")
@@ -192,22 +235,53 @@ MAX_BATCH = 30
 
 
 async def quotes(pairs: list[str]) -> list[ForexQuote]:
-    """Batch quote lookup — one request covers every pair, which is what lets the hub
-    serve any number of subscribers with a single poll."""
-    out: list[ForexQuote] = []
-    for start_at in range(0, len(pairs), MAX_BATCH):
-        chunk = pairs[start_at:start_at + MAX_BATCH]
-        payload = await _get("/json/last/" + ",".join(chunk))
-        now = datetime.now(timezone.utc)
-        for pair in chunk:
-            row = payload.get(_compact(pair))
-            if not row or "timestamp" not in row:
-                continue  # the provider omits pairs it has no data for
+    """Return shared cached quotes and fetch only gaps.
+
+    The cache is guarded across the network request: 1,000 simultaneous dashboard loads for
+    the same pairs therefore cost one upstream request. During a short 429 or outage, a
+    recently fetched real quote is returned instead of turning a provider quota into an app
+    outage.
+    """
+    wanted = list(dict.fromkeys(pairs))
+    if not wanted:
+        return []
+
+    async with _quotes_lock:
+        now_mono = time.monotonic()
+        missing = [
+            pair
+            for pair in wanted
+            if pair not in _quotes
+            or now_mono - _quotes[pair][1] >= FOREX_QUOTE_CACHE_SECONDS
+        ]
+        if missing:
             try:
-                out.append(quote_from_row(pair, row, now))
-            except (KeyError, ValueError, TypeError) as exc:
-                logger.warning("Malformed forex row for %s: %s", pair, exc)
-    return out
+                for start_at in range(0, len(missing), MAX_BATCH):
+                    chunk = missing[start_at:start_at + MAX_BATCH]
+                    payload = await _get("/json/last/" + ",".join(chunk))
+                    parsed_at = datetime.now(timezone.utc)
+                    fetched_at = time.monotonic()
+                    for pair in chunk:
+                        row = payload.get(_compact(pair))
+                        if not row or "timestamp" not in row:
+                            continue
+                        try:
+                            _quotes[pair] = (quote_from_row(pair, row, parsed_at), fetched_at)
+                        except (KeyError, ValueError, TypeError) as exc:
+                            logger.warning("Malformed forex row for %s: %s", pair, exc)
+            except HTTPException as exc:
+                usable = all(
+                    pair in _quotes
+                    and now_mono - _quotes[pair][1] < FOREX_STALE_IF_ERROR_SECONDS
+                    for pair in wanted
+                )
+                if not usable or exc.status_code not in (429, 502, 504):
+                    raise
+                logger.warning(
+                    "Serving cached forex quotes after upstream failure: %s", exc.detail
+                )
+
+        return [_quotes[pair][0] for pair in wanted if pair in _quotes]
 
 
 def _yahoo_symbol(pair: str) -> str:
@@ -265,7 +339,7 @@ async def _tick_candles(pair: str, bucket: int) -> list[Candle]:
     return out
 
 
-async def candles(pair: str, interval: Interval, span: Range) -> list[Candle]:
+async def _candles_uncached(pair: str, interval: Interval, span: Range) -> list[Candle]:
     """Newest candle last.
 
     **Twelve Data first, when configured.** `FOREX_TWELVEDATA_API_KEY` is blank by default,
@@ -320,3 +394,32 @@ async def candles(pair: str, interval: Interval, span: Range) -> list[Candle]:
             )
         )
     return out
+
+
+async def candles(pair: str, interval: Interval, span: Range) -> list[Candle]:
+    """Cached, single-flight candle lookup for public chart traffic."""
+    key = (pair, interval, span)
+    hit = _candle_cache.get(key)
+    if hit and time.monotonic() - hit[1] < FOREX_CANDLE_CACHE_SECONDS:
+        return hit[0]
+
+    lock = _candle_locks.setdefault(key, asyncio.Lock())
+    async with lock:
+        hit = _candle_cache.get(key)
+        if hit and time.monotonic() - hit[1] < FOREX_CANDLE_CACHE_SECONDS:
+            return hit[0]
+        try:
+            rows = await _candles_uncached(pair, interval, span)
+        except HTTPException as exc:
+            if (
+                hit
+                and time.monotonic() - hit[1] < FOREX_STALE_IF_ERROR_SECONDS
+                and exc.status_code in (429, 502, 504)
+            ):
+                logger.warning(
+                    "Serving cached forex candles after upstream failure: %s", exc.detail
+                )
+                return hit[0]
+            raise
+        _candle_cache[key] = (rows, time.monotonic())
+        return rows

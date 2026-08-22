@@ -50,6 +50,12 @@ export type KycReviewResult = {
   reviewed_at: string;
 };
 
+export type BulkActionResult = {
+  requested: number;
+  succeeded: string[];
+  failed: { uid: string; detail: string }[];
+};
+
 export type AdminAuditEntry = {
   id: string;
   actor_uid: string;
@@ -128,6 +134,27 @@ export function adminSetProductAccess(
     method: "PATCH",
     token,
     body: input,
+  });
+}
+
+export function adminBulkApproveKyc(uids: string[], reason: string, token: string) {
+  return apiFetch<BulkActionResult>("/admin/users/bulk/kyc-approve", {
+    method: "POST",
+    token,
+    body: { uids, reason },
+  });
+}
+
+export function adminBulkSetProductAccess(
+  uids: string[],
+  enabledProducts: Product[],
+  reason: string,
+  token: string,
+) {
+  return apiFetch<BulkActionResult>("/admin/users/bulk/products", {
+    method: "PATCH",
+    token,
+    body: { uids, enabled_products: enabledProducts, reason },
   });
 }
 

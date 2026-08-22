@@ -1,7 +1,7 @@
 from datetime import datetime
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.schemas.onboarding import (
     KycTier,
@@ -52,6 +52,22 @@ class UserProfileUpdate(BaseModel):
     or mirrored from Firebase, not something a client can set directly."""
 
     name: str | None = Field(default=None, min_length=1, max_length=128)
+
+
+class UserProductAccessRequest(BaseModel):
+    """Desired markets. Existing access may be removed immediately; additions wait for staff."""
+
+    model_config = ConfigDict(extra="forbid")
+    # An empty list is intentional: it means the account holder is revoking every
+    # currently enabled/pending market product.
+    products: list[Product] = Field(max_length=len(Product))
+
+    @field_validator("products")
+    @classmethod
+    def products_must_be_unique(cls, value: list[Product]) -> list[Product]:
+        if len(value) != len(set(value)):
+            raise ValueError("products must not repeat")
+        return value
 
 
 class AdminUserDetail(BaseModel):

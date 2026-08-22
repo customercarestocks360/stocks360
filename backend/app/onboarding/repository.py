@@ -177,3 +177,31 @@ def review_application(
         "reviewed_by": reviewer_uid,
         "reviewed_at": now,
     }
+
+
+def update_product_request(
+    uid: str,
+    *,
+    tier: KycTier,
+    enabled_products: list[str],
+    pending_products: list[str],
+) -> bool:
+    """Store a user's post-KYC access request without pretending it was staff-approved."""
+    now = _now()
+    fields = {
+        "kyc_tier": tier.value,
+        "enabled_products": enabled_products,
+        "pending_products": pending_products,
+        "product_request": {
+            "products": [*enabled_products, *pending_products],
+            "requested_at": now,
+        },
+        "updated_at": now,
+    }
+    db = get_db()
+    result = db[KYC_PROFILES].update_one({"_id": uid}, {"$set": fields})
+    if result.matched_count == 0:
+        return False
+    db[ONBOARDING_SESSIONS].update_one({"_id": uid}, {"$set": fields})
+    db[USERS].update_one({"_id": uid}, {"$set": fields})
+    return True

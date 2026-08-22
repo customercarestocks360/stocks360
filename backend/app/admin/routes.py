@@ -14,6 +14,9 @@ from app.schemas.admin import (
     AdminUserList,
     AdminUserOperations,
     BalanceAdjustmentRequest,
+    BulkActionResult,
+    BulkAdminRequest,
+    BulkProductAccessRequest,
     KycReviewRequest,
     KycReviewResult,
     ProductAccessRequest,
@@ -122,6 +125,30 @@ async def admin_user_operations(uid: str, _: dict = Depends(require_admin)):
         ledger=ledger,
         logins=logins,
     )
+
+
+# Static bulk paths must be registered before `/users/{uid}/...`, otherwise `bulk` can be
+# consumed as a uid by the dynamic route.
+@router.post(
+    "/users/bulk/kyc-approve",
+    response_model=BulkActionResult,
+    responses={**UNAUTHORIZED, **UNAVAILABLE},
+)
+async def admin_bulk_approve_kyc(
+    payload: BulkAdminRequest, claims: dict = Depends(require_admin)
+):
+    return await asyncio.to_thread(service.bulk_approve_kyc, payload, claims)
+
+
+@router.patch(
+    "/users/bulk/products",
+    response_model=BulkActionResult,
+    responses={**UNAUTHORIZED, **UNAVAILABLE},
+)
+async def admin_bulk_set_product_access(
+    payload: BulkProductAccessRequest, claims: dict = Depends(require_admin)
+):
+    return await asyncio.to_thread(service.bulk_set_product_access, payload, claims)
 
 
 @router.patch(

@@ -11,6 +11,8 @@ from app.admin import service
 from app.funding import service as funding_service
 from app.schemas.admin import (
     BalanceAdjustmentRequest,
+    BulkAdminRequest,
+    BulkProductAccessRequest,
     KycReviewRequest,
     ProductAccessRequest,
 )
@@ -37,6 +39,9 @@ def test_production_funding_and_admin_routes_are_registered():
     assert "/funding/requests/{request_id}" in paths
     assert "/admin/settings" in paths
     assert "/admin/users/{uid}/products" in paths
+    assert "/admin/users/bulk/kyc-approve" in paths
+    assert "/admin/users/bulk/products" in paths
+    assert "/users/me/products" in paths
     assert "/trading/deposits" not in paths
     assert "/trading/withdrawals" not in paths
 
@@ -175,6 +180,59 @@ def test_product_access_requires_approved_kyc(monkeypatch):
             {"uid": "admin-1"},
         )
     assert caught.value.status_code == 409
+
+
+def test_bulk_kyc_approval_reports_partial_failures(monkeypatch):
+    reviewed: list[str] = []
+
+    monkeypatch.setattr(
+        service.users_repository,
+        "get_profile",
+        lambda uid: None
+        if uid == "missing-user"
+        else {"uid": uid, "onboarding_status": "under_review"},
+    )
+
+    def review(uid, payload, claims):
+        reviewed.append(uid)
+
+    monkeypatch.setattr(service, "review_kyc", review)
+    result = service.bulk_approve_kyc(
+        BulkAdminRequest(
+            uids=["user-1", "missing-user", "user-2"], reason="Batch document review"
+        ),
+        {"uid": "admin-1"},
+    )
+
+    assert reviewed == ["user-1", "user-2"]
+    assert result["succeeded"] == ["user-1", "user-2"]
+    assert result["failed"] == [
+        {"uid": "missing-user", "detail": "No such user"}
+    ]
+
+
+def test_bulk_product_access_applies_one_product_set(monkeypatch):
+    calls: list[tuple[str, list[str]]] = []
+
+    def set_access(uid, payload, claims):
+        calls.append((uid, [product.value for product in payload.enabled_products]))
+
+    monkeypatch.setattr(service, "set_product_access", set_access)
+    result = service.bulk_set_product_access(
+        BulkProductAccessRequest(
+            uids=["user-1", "user-2"],
+            enabled_products=["crypto_spot", "forex"],
+            reason="Enable approved markets",
+        ),
+        {"uid": "admin-1"},
+    )
+
+    assert result["failed"] == []
+    assert result["succeeded"] == ["user-1", "user-2"]
+    assert calls == [
+        ("user-1", ["crypto_spot", "forex"]),
+        ("user-2", ["crypto_spot", "forex"]),
+    ]
 
 
 def test_platform_deposit_rails_are_strict_and_bounded():

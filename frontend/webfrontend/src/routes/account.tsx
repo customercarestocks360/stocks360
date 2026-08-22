@@ -5,6 +5,15 @@ import { useAuth } from "@/components/AuthProvider";
 import { useFavorites } from "@/components/FavoritesProvider";
 import { FavoriteStar } from "@/components/ui/favorite-star";
 import { KycDetails } from "@/components/ui/kyc-recap";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { ApiError } from "@/lib/api";
 import { currentIdToken } from "@/lib/firebase";
 import { useTrading } from "@/hooks/useTrading";
@@ -14,7 +23,13 @@ import type { OverviewMarket } from "@/lib/market-overview";
 import { formatMoney } from "@/lib/instrument";
 import { amount as parseAmount, type LedgerKind, type Order } from "@/lib/trading-api";
 import type { FundingRequest } from "@/lib/funding-api";
-import { fetchOnboardingSession, type OnboardingSession } from "@/lib/onboarding-api";
+import {
+  fetchOnboardingSession,
+  PRODUCTS,
+  type OnboardingSession,
+  type Product,
+} from "@/lib/onboarding-api";
+import { updateMyMarketProducts } from "@/lib/users-api";
 
 const SIDEBAR_ITEMS = [
   { key: "dashboard", label: "Dashboard", icon: "fa-house" },
@@ -24,6 +39,19 @@ const SIDEBAR_ITEMS = [
 ] as const;
 
 type SidebarKey = (typeof SIDEBAR_ITEMS)[number]["key"];
+
+const PRODUCT_LABELS: Record<Product, string> = {
+  domestic_equity_delivery: "Domestic equity (delivery)",
+  domestic_equity_intraday: "Domestic equity (intraday)",
+  domestic_derivatives: "Domestic derivatives",
+  foreign_equity: "Foreign equity",
+  mutual_funds: "Mutual funds",
+  commodities: "Commodities",
+  forex: "Forex",
+  crypto_spot: "Crypto spot",
+  crypto_derivatives: "Crypto derivatives",
+  crypto_staking: "Crypto staking",
+};
 
 type AccountSearch = { tab?: SidebarKey };
 
@@ -239,7 +267,18 @@ function AssetRow({ row }: { row: MarketRow }) {
 function AccountPage() {
   const navigate = useNavigate();
   const { tab } = Route.useSearch();
-  const { isLoggedIn, email, name, kycCompleted, onboardingStatus, logout, setName } = useAuth();
+  const {
+    isLoggedIn,
+    email,
+    name,
+    kycCompleted,
+    onboardingStatus,
+    enabledProducts,
+    pendingProducts,
+    refreshProfile,
+    logout,
+    setName,
+  } = useAuth();
   const { isFavorite } = useFavorites();
   /* The real portfolio and the real price feed — the same two sources /wallet and /markets use. */
   const trading = useTrading();
@@ -251,6 +290,11 @@ function AccountPage() {
   const [nameDraft, setNameDraft] = useState("");
   const [nameSaving, setNameSaving] = useState(false);
   const [nameError, setNameError] = useState("");
+  const [productsOpen, setProductsOpen] = useState(false);
+  const [productDraft, setProductDraft] = useState<Product[]>([]);
+  const [productsSaving, setProductsSaving] = useState(false);
+  const [productsError, setProductsError] = useState("");
+  const [productsNotice, setProductsNotice] = useState("");
 
   const [ordersSubTab, setOrdersSubTab] = useState<"payments" | "assetsHistory">("payments");
   const [ordersQuery, setOrdersQuery] = useState("");
@@ -288,6 +332,29 @@ function AccountPage() {
       setNameError(err instanceof ApiError ? err.message : "Could not save your name.");
     } finally {
       setNameSaving(false);
+    }
+  };
+
+  const openProducts = () => {
+    setProductDraft([...new Set([...enabledProducts, ...pendingProducts])]);
+    setProductsError("");
+    setProductsNotice("");
+    setProductsOpen(true);
+  };
+  const saveProducts = async () => {
+    setProductsSaving(true);
+    setProductsError("");
+    try {
+      await updateMyMarketProducts(productDraft, await currentIdToken());
+      await refreshProfile();
+      setProductsNotice(
+        "Market preferences updated. New access requests are now waiting for administrator approval.",
+      );
+      setProductsOpen(false);
+    } catch (err) {
+      setProductsError(err instanceof ApiError ? err.message : "Could not update market products.");
+    } finally {
+      setProductsSaving(false);
     }
   };
 
@@ -1182,7 +1249,135 @@ function AccountPage() {
                           : "Complete account details"}
                       </Link>
                     )}
+
+                    {kycCompleted && (
+                      <div className="mt-6 border-t border-border pt-5">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <h3 className="text-sm font-bold text-foreground">Market products</h3>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {onboardingStatus === "approved"
+                                ? "Remove access or request additional markets from your account."
+                                : "Update the markets requested in your submitted application."}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={openProducts}
+                            className="rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-xs font-bold text-primary hover:bg-primary/15"
+                          >
+                            <i className="fa-solid fa-pen mr-1.5" /> Update products
+                          </button>
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {enabledProducts.map((product) => (
+                            <span
+                              key={product}
+                              className="rounded-full bg-up/10 px-2.5 py-1 text-[10px] font-semibold text-up"
+                            >
+                              {PRODUCT_LABELS[product]} · Active
+                            </span>
+                          ))}
+                          {pendingProducts.map((product) => (
+                            <span
+                              key={product}
+                              className="rounded-full bg-primary/10 px-2.5 py-1 text-[10px] font-semibold text-primary"
+                            >
+                              {PRODUCT_LABELS[product]} · Pending
+                            </span>
+                          ))}
+                          {enabledProducts.length === 0 && pendingProducts.length === 0 && (
+                            <span className="text-xs text-muted-foreground">
+                              No market products selected.
+                            </span>
+                          )}
+                        </div>
+                        {productsNotice && (
+                          <p className="mt-3 rounded-lg bg-up/10 px-3 py-2 text-xs text-up">
+                            {productsNotice}
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </div>
+
+                  <Dialog
+                    open={productsOpen}
+                    onOpenChange={(open) => !productsSaving && setProductsOpen(open)}
+                  >
+                    <DialogContent className="max-h-[90vh] overflow-y-auto">
+                      <DialogHeader>
+                        <DialogTitle>Update market products</DialogTitle>
+                        <DialogDescription>
+                          Removed products are disabled immediately. Newly selected products require
+                          administrator approval before trading is enabled.
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {PRODUCTS.map((product) => {
+                          const checked = productDraft.includes(product);
+                          const active = enabledProducts.includes(product);
+                          const pending = pendingProducts.includes(product);
+                          return (
+                            <label
+                              key={product}
+                              className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-colors ${checked ? "border-primary/50 bg-primary/5" : "border-border"}`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                disabled={productsSaving}
+                                onChange={(event) =>
+                                  setProductDraft((current) =>
+                                    event.target.checked
+                                      ? [...current, product]
+                                      : current.filter((item) => item !== product),
+                                  )
+                                }
+                                className="mt-0.5 accent-primary"
+                              />
+                              <span className="min-w-0">
+                                <span className="block text-sm font-semibold text-foreground">
+                                  {PRODUCT_LABELS[product]}
+                                </span>
+                                <span className="mt-0.5 block text-[10px] text-muted-foreground">
+                                  {active
+                                    ? "Currently active"
+                                    : pending
+                                      ? "Awaiting approval"
+                                      : "New request"}
+                                </span>
+                              </span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                      {productsError && (
+                        <p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                          {productsError}
+                        </p>
+                      )}
+                      <DialogFooter>
+                        <DialogClose asChild>
+                          <button
+                            type="button"
+                            disabled={productsSaving}
+                            className="rounded-lg border border-border px-4 py-2 text-sm font-semibold"
+                          >
+                            Cancel
+                          </button>
+                        </DialogClose>
+                        <button
+                          type="button"
+                          onClick={() => void saveProducts()}
+                          disabled={productsSaving}
+                          className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+                        >
+                          {productsSaving ? "Saving…" : "Submit changes"}
+                        </button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
 
                   {/*
                     Deliberately just email + the two actions that are actually real:

@@ -54,6 +54,15 @@ export function updateUserProfile(payload: UserProfileUpdate, token: string): Pr
   return apiFetch<UserProfile>("/users/me", { method: "PATCH", token, body: payload });
 }
 
+/** Request a market-access change. Removals are immediate; additions await admin approval. */
+export function updateMyMarketProducts(products: Product[], token: string): Promise<UserProfile> {
+  return apiFetch<UserProfile>("/users/me/products", {
+    method: "PATCH",
+    token,
+    body: { products },
+  });
+}
+
 // --------------------------------------------------------------------------------------- //
 // Admin — the only surface here that reads or edits across users.
 // --------------------------------------------------------------------------------------- //

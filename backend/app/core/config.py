@@ -239,6 +239,22 @@ FOREX_PAIRS_TTL_SECONDS = _bounded_int("FOREX_PAIRS_TTL_SECONDS", 21600, 60, 864
 # the provider is a courtesy service, so polling harder buys nothing.
 FOREX_POLL_SECONDS = _bounded_int("FOREX_POLL_SECONDS", 3, 1, 60)
 
+# REST callers share this cache with the polling hub. Without it, a dashboard refresh from
+# every connected browser turns into one provider call per user even though all users ask for
+# the same public prices. The stale window keeps the last real quote available during a short
+# provider throttle; it never fabricates a price.
+FOREX_QUOTE_CACHE_SECONDS = _bounded_int("FOREX_QUOTE_CACHE_SECONDS", 5, 1, 60)
+FOREX_STALE_IF_ERROR_SECONDS = _bounded_int(
+    "FOREX_STALE_IF_ERROR_SECONDS", 900, 30, 86400
+)
+FOREX_RATE_LIMIT_COOLDOWN_SECONDS = _bounded_int(
+    "FOREX_RATE_LIMIT_COOLDOWN_SECONDS", 30, 1, 300
+)
+
+# Candle requests are public and every open chart polls them. Cache identical series long
+# enough to collapse those polls, while still refreshing faster than the smallest bar.
+FOREX_CANDLE_CACHE_SECONDS = _bounded_int("FOREX_CANDLE_CACHE_SECONDS", 30, 5, 300)
+
 # A quote older than this is reported as stale. FX is 24/5, so on a weekend every pair
 # goes stale and the market reads as closed — that is correct, not a fault.
 FOREX_STALE_SECONDS = _bounded_int("FOREX_STALE_SECONDS", 180, 30, 86400)

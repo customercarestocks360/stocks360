@@ -7,7 +7,7 @@ from firebase_admin import auth as firebase_auth
 from app.admin import repository
 from app.core.config import TRADING_ACCOUNT_CURRENCY
 from app.onboarding import repository as onboarding_repository
-from app.schemas.admin import KycDecision
+from app.schemas.admin import KycDecision, KycReviewRequest, ProductAccessRequest
 from app.schemas.onboarding import (
     REVIEW_GATED_PRODUCTS,
     KycTier,
@@ -118,6 +118,45 @@ def set_product_access(uid: str, payload, claims: dict) -> dict:
         metadata={"enabled_products": [product.value for product in enabled]},
     )
     return result
+
+
+def bulk_approve_kyc(payload, claims: dict) -> dict:
+    """Approve each eligible application independently and report partial failures."""
+    succeeded: list[str] = []
+    failed: list[dict] = []
+    review = KycReviewRequest(decision=KycDecision.approve, reason=payload.reason)
+    for uid in payload.uids:
+        try:
+            profile = users_repository.get_profile(uid)
+            if profile is None:
+                raise _not_found()
+            if profile.get("onboarding_status") != OnboardingStatus.under_review.value:
+                raise _conflict("KYC is not under review")
+            review_kyc(uid, review, claims)
+            succeeded.append(uid)
+        except HTTPException as exc:
+            failed.append({"uid": uid, "detail": str(exc.detail)})
+        except Exception:
+            failed.append({"uid": uid, "detail": "Unexpected storage failure"})
+    return {"requested": len(payload.uids), "succeeded": succeeded, "failed": failed}
+
+
+def bulk_set_product_access(payload, claims: dict) -> dict:
+    """Apply one product set to each approved account, preserving per-user audits."""
+    succeeded: list[str] = []
+    failed: list[dict] = []
+    access = ProductAccessRequest(
+        enabled_products=payload.enabled_products, reason=payload.reason
+    )
+    for uid in payload.uids:
+        try:
+            set_product_access(uid, access, claims)
+            succeeded.append(uid)
+        except HTTPException as exc:
+            failed.append({"uid": uid, "detail": str(exc.detail)})
+        except Exception:
+            failed.append({"uid": uid, "detail": "Unexpected storage failure"})
+    return {"requested": len(payload.uids), "succeeded": succeeded, "failed": failed}
 
 
 async def set_account_control(uid: str, payload, claims: dict) -> dict:

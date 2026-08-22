@@ -10,6 +10,7 @@ from app.schemas.user import (
     AdminUserDetail,
     LoginLogEntry,
     UserProfile,
+    UserProductAccessRequest,
     UserProfileUpdate,
 )
 from app.users import repository
@@ -69,6 +70,29 @@ def update_my_profile(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No stored profile yet — call POST /auth/login once",
         )
+    return profile
+
+
+@router.patch(
+    "/me/products",
+    response_model=UserProfile,
+    responses={**UNAUTHORIZED, **NOT_FOUND, **STEP_CONFLICT, **UNAVAILABLE},
+    summary="Request a change to your market products",
+    description="Existing products can be removed immediately. Newly selected products remain "
+    "pending until an administrator approves them.",
+)
+def update_my_products(
+    payload: UserProductAccessRequest, claims: dict = Depends(get_current_user)
+):
+    profile = onboarding_service.request_product_access(claims["uid"], payload.products)
+    admin_repository.record_audit(
+        actor_uid=claims["uid"],
+        actor_email=claims.get("email"),
+        action="products.access.request",
+        target_uid=claims["uid"],
+        reason="Requested by account holder",
+        metadata={"products": [product.value for product in payload.products]},
+    )
     return profile
 
 

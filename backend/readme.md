@@ -50,6 +50,10 @@ All Firebase config lives in `.env` — nothing is hardcoded in the app or the t
 | `FOREX_TIMEOUT_SECONDS` | Upstream REST timeout, 1–60, default `10` |
 | `FOREX_PAIRS_TTL_SECONDS` | How long the pair universe is cached, default `21600` (6h) |
 | `FOREX_POLL_SECONDS` | How often the hub polls for subscribed pairs, 1–60, default `3` |
+| `FOREX_QUOTE_CACHE_SECONDS` | Shared REST quote cache, default `5`; collapses identical requests from many users |
+| `FOREX_STALE_IF_ERROR_SECONDS` | Maximum age of a real cached quote served during a 429/timeout, default `900` |
+| `FOREX_RATE_LIMIT_COOLDOWN_SECONDS` | Pause after an upstream 429 when it sends no `Retry-After`, default `30` |
+| `FOREX_CANDLE_CACHE_SECONDS` | Shared cache for identical public chart requests, default `30` |
 | `FOREX_STALE_SECONDS` | Quote age before it is flagged stale, default `180` |
 | `FOREX_MAX_WATCHLISTS` / `FOREX_MAX_SYMBOLS_PER_WATCHLIST` / `FOREX_MAX_SOCKETS_PER_USER` | Per-user caps, default `20` / `30` / `5` |
 | `FOREX_HEARTBEAT_SECONDS` | Silence before a heartbeat frame, 5–300, default `20` |
@@ -303,10 +307,13 @@ instead; `—` means the request carries nothing but the bearer token.
 | `GET /admin/overview` | **Admin.** User, KYC, order, position and pending-funding totals | — | overview |
 | `GET/PATCH /admin/settings` | **Admin.** Control the announcement, support email and QR deposit rails | see `PlatformSettingsUpdate` in OpenAPI | settings |
 | `GET /admin/users/directory` | **Admin.** Search and paginate every account | `?search=ada&limit=50&offset=0` | paginated users |
+| `PATCH /users/me/products` | Request a post-KYC market-access change. Removals apply immediately; additions await admin approval | `{"products":["crypto_spot","forex"]}` | updated profile |
 | `GET /admin/users/{uid}/operations` | **Admin.** Balances, orders, fills, positions, ledger and login history | — | operational detail |
 | `PATCH /admin/users/{uid}/control` | **Admin.** Suspend/restore an account; suspension also cancels open orders | `{"status":"suspended","reason":"Compliance review"}` | profile |
 | `POST /admin/users/{uid}/kyc-review` | **Admin.** Approve or reject submitted KYC | `{"decision":"approve","reason":"Documents verified"}` | review result |
 | `PATCH /admin/users/{uid}/products` | **Admin.** Replace an approved account's enabled product set | `{"enabled_products":["crypto_spot"],"reason":"Access review"}` | review result |
+| `POST /admin/users/bulk/kyc-approve` | **Admin.** Approve up to 200 submitted KYC applications with per-user audit records | `{"uids":["uid-1","uid-2"],"reason":"Batch review"}` | successes and per-user failures |
+| `PATCH /admin/users/bulk/products` | **Admin.** Replace product access for up to 200 approved accounts | `{"uids":["uid-1"],"enabled_products":["crypto_spot","forex"],"reason":"Access rollout"}` | successes and per-user failures |
 | `POST /admin/users/{uid}/balance-adjustments` | **Admin.** Audited signed ledger adjustment with idempotency | see OpenAPI | ledger entry |
 | `POST /admin/users/{uid}/revoke-sessions` | **Admin.** Revoke all Firebase refresh tokens for a user | `{"reason":"Compromised device"}` | revocation result |
 | `DELETE /admin/users/{uid}/orders/{order_id}` | **Admin.** Cancel an open order and release reservations | — | order |

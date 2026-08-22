@@ -2,9 +2,20 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { KycDetails } from "@/components/ui/kyc-recap";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { ApiError } from "@/lib/api";
 import {
   adminAdjustBalance,
+  adminBulkApproveKyc,
+  adminBulkSetProductAccess,
   adminCancelUserOrder,
   adminFetchOverview,
   adminFetchUserOperations,
@@ -17,6 +28,7 @@ import {
   type AdminAuditEntry,
   type AdminOverview,
   type AdminUserOperations,
+  type BulkActionResult,
 } from "@/lib/admin-api";
 import { currentIdToken } from "@/lib/firebase";
 import {
@@ -514,6 +526,7 @@ function PlatformSettingsPanel() {
   const [settings, setSettings] = useState<PlatformSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [saveModalOpen, setSaveModalOpen] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
@@ -578,6 +591,7 @@ function PlatformSettingsPanel() {
       );
       setSettings(updated);
       setMessage("Platform settings saved. Deposit pages now use this configuration.");
+      setSaveModalOpen(false);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not save platform settings.");
     } finally {
@@ -786,7 +800,10 @@ function PlatformSettingsPanel() {
         <button
           type="button"
           disabled={saving}
-          onClick={() => void save()}
+          onClick={() => {
+            setError("");
+            setSaveModalOpen(true);
+          }}
           className="rounded-lg bg-primary px-5 py-2.5 text-xs font-bold text-primary-foreground disabled:opacity-40"
         >
           {saving ? "Savingâ€¦" : "Save platform settings"}
@@ -797,6 +814,49 @@ function PlatformSettingsPanel() {
           Last updated {stamp(settings.updated_at)} by {settings.updated_by ?? "administrator"}
         </p>
       )}
+
+      <Dialog open={saveModalOpen} onOpenChange={(open) => !saving && setSaveModalOpen(open)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Publish platform settings</DialogTitle>
+            <DialogDescription>
+              These changes affect public messaging and deposit destinations immediately.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-lg border border-border bg-secondary/20 p-3 text-sm">
+            <div className="font-semibold">Configuration summary</div>
+            <div className="mt-2 text-xs text-muted-foreground">
+              {settings.deposit_rails.filter((rail) => rail.enabled).length} enabled deposit rails ·{" "}
+              {settings.deposit_rails.length} total · support email{" "}
+              {settings.support_email || "not configured"}
+            </div>
+          </div>
+          {error && (
+            <p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              {error}
+            </p>
+          )}
+          <DialogFooter>
+            <DialogClose asChild>
+              <button
+                type="button"
+                disabled={saving}
+                className="rounded-lg border border-border px-4 py-2 text-sm font-semibold"
+              >
+                Keep editing
+              </button>
+            </DialogClose>
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => void save()}
+              className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+            >
+              {saving ? "Publishing…" : "Publish changes"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -953,6 +1013,17 @@ function UserLookupPanel() {
   const [detail, setDetail] = useState<AdminUserDetail | null>(null);
   const [operations, setOperations] = useState<AdminUserOperations | null>(null);
   const [selectedUid, setSelectedUid] = useState<string | null>(null);
+  const [userModalOpen, setUserModalOpen] = useState(false);
+  const [selectedLoading, setSelectedLoading] = useState(false);
+  const [selectedError, setSelectedError] = useState("");
+  const [selectedUsers, setSelectedUsers] = useState<Set<string>>(() => new Set());
+  const [bulkAction, setBulkAction] = useState<"kyc" | "products" | null>(null);
+  const [bulkTargets, setBulkTargets] = useState<string[]>([]);
+  const [bulkReason, setBulkReason] = useState("");
+  const [bulkPreparing, setBulkPreparing] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkError, setBulkError] = useState("");
+  const [bulkResult, setBulkResult] = useState<BulkActionResult | null>(null);
   const [offset, setOffset] = useState(0);
 
   const search = useCallback(async () => {
@@ -980,13 +1051,21 @@ function UserLookupPanel() {
   }, [query, statusFilter]);
 
   useEffect(() => {
+    setSelectedUsers(new Set());
+  }, [offset, query, statusFilter]);
+
+  useEffect(() => {
     const timer = window.setTimeout(() => void search(), 250);
     return () => window.clearTimeout(timer);
   }, [search]);
 
   const selectUser = async (uid: string) => {
     setSelectedUid(uid);
-    setError("");
+    setUserModalOpen(true);
+    setSelectedLoading(true);
+    setSelectedError("");
+    setDetail(null);
+    setOperations(null);
     try {
       const token = await currentIdToken();
       const [nextDetail, nextOperations] = await Promise.all([
@@ -996,13 +1075,104 @@ function UserLookupPanel() {
       setDetail(nextDetail);
       setOperations(nextOperations);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not load this account.");
+      setSelectedError(err instanceof ApiError ? err.message : "Could not load this account.");
+    } finally {
+      setSelectedLoading(false);
     }
   };
 
   const refreshSelected = async () => {
     if (!selectedUid) return;
     await Promise.all([search(), selectUser(selectedUid)]);
+  };
+
+  const pageUids = users.map((user) => user.uid);
+  const pageSelected = pageUids.length > 0 && pageUids.every((uid) => selectedUsers.has(uid));
+  const toggleUser = (uid: string) => {
+    setSelectedUsers((current) => {
+      const next = new Set(current);
+      if (next.has(uid)) next.delete(uid);
+      else next.add(uid);
+      return next;
+    });
+  };
+  const selectEligible = (kind: "kyc" | "products") => {
+    setSelectedUsers(
+      new Set(
+        users
+          .filter((user) =>
+            kind === "kyc"
+              ? user.onboarding_status === "under_review"
+              : user.onboarding_status === "approved",
+          )
+          .map((user) => user.uid),
+      ),
+    );
+  };
+  const openBulk = async (kind: "kyc" | "products") => {
+    let eligible = users
+      .filter(
+        (user) =>
+          selectedUsers.has(user.uid) &&
+          (kind === "kyc"
+            ? user.onboarding_status === "under_review"
+            : user.onboarding_status === "approved"),
+      )
+      .map((user) => user.uid);
+    if (!eligible.length) {
+      setBulkPreparing(true);
+      setError("");
+      try {
+        const result = await adminListUsers(await currentIdToken(), {
+          onboardingStatus: kind === "kyc" ? "under_review" : "approved",
+          limit: 200,
+          offset: 0,
+        });
+        eligible = result.items.map((user) => user.uid);
+        setSelectedUsers(new Set(eligible));
+      } catch (err) {
+        setError(err instanceof ApiError ? err.message : "Could not prepare the bulk action.");
+        return;
+      } finally {
+        setBulkPreparing(false);
+      }
+    }
+    if (!eligible.length) {
+      setError(
+        kind === "kyc"
+          ? "There are no KYC applications waiting for approval."
+          : "There are no approved accounts eligible for product access.",
+      );
+      return;
+    }
+    setBulkTargets(eligible);
+    setBulkReason("");
+    setBulkError("");
+    setBulkResult(null);
+    setBulkAction(kind);
+  };
+  const submitBulk = async () => {
+    if (!bulkAction || bulkReason.trim().length < 3) return;
+    setBulkBusy(true);
+    setBulkError("");
+    try {
+      const token = await currentIdToken();
+      const result =
+        bulkAction === "kyc"
+          ? await adminBulkApproveKyc(bulkTargets, bulkReason.trim(), token)
+          : await adminBulkSetProductAccess(bulkTargets, [...PRODUCTS], bulkReason.trim(), token);
+      setBulkResult(result);
+      setSelectedUsers((current) => {
+        const next = new Set(current);
+        result.succeeded.forEach((uid) => next.delete(uid));
+        return next;
+      });
+      await search();
+    } catch (err) {
+      setBulkError(err instanceof ApiError ? err.message : "The bulk update failed.");
+    } finally {
+      setBulkBusy(false);
+    }
   };
 
   return (
@@ -1036,11 +1206,75 @@ function UserLookupPanel() {
         </button>
         <span className="text-xs text-muted-foreground">{total} accounts</span>
       </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card/60 p-3">
+        <span className="mr-1 text-xs font-semibold text-foreground">
+          {selectedUsers.size} selected
+        </span>
+        <button
+          type="button"
+          onClick={() => selectEligible("kyc")}
+          className="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold hover:bg-secondary"
+        >
+          Select pending KYC
+        </button>
+        <button
+          type="button"
+          onClick={() => selectEligible("products")}
+          className="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold hover:bg-secondary"
+        >
+          Select approved users
+        </button>
+        <button
+          type="button"
+          disabled={bulkPreparing}
+          onClick={() => void openBulk("kyc")}
+          className="ml-auto rounded-lg bg-primary px-3 py-1.5 text-xs font-bold text-primary-foreground disabled:opacity-40"
+        >
+          <i
+            className={`fa-solid ${bulkPreparing ? "fa-circle-notch fa-spin" : "fa-user-check"} mr-1.5`}
+          />{" "}
+          Bulk approve KYC
+        </button>
+        <button
+          type="button"
+          disabled={bulkPreparing}
+          onClick={() => void openBulk("products")}
+          className="rounded-lg border border-primary/40 bg-primary/10 px-3 py-1.5 text-xs font-bold text-primary disabled:opacity-40"
+        >
+          <i className="fa-solid fa-layer-group mr-1.5" /> Grant all products
+        </button>
+        {selectedUsers.size > 0 && (
+          <button
+            type="button"
+            onClick={() => setSelectedUsers(new Set())}
+            className="rounded-lg px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground"
+          >
+            Clear
+          </button>
+        )}
+      </div>
       {error && <p className="mt-3 text-xs font-medium text-destructive">{error}</p>}
       <div className="mt-4 overflow-x-auto rounded-2xl border border-border bg-card">
         <table className="w-full min-w-[760px] text-sm">
           <thead>
             <tr className="border-b border-border text-left text-[10px] uppercase tracking-wider text-muted-foreground">
+              <th className="w-10 px-4 py-3">
+                <input
+                  type="checkbox"
+                  aria-label="Select every user on this page"
+                  checked={pageSelected}
+                  onChange={(event) =>
+                    setSelectedUsers((current) => {
+                      const next = new Set(current);
+                      pageUids.forEach((uid) =>
+                        event.target.checked ? next.add(uid) : next.delete(uid),
+                      );
+                      return next;
+                    })
+                  }
+                  className="accent-primary"
+                />
+              </th>
               <th className="px-4 py-3">User</th>
               <th className="px-4 py-3">Account</th>
               <th className="px-4 py-3">KYC</th>
@@ -1055,6 +1289,15 @@ function UserLookupPanel() {
                 key={user.uid}
                 className={`border-b border-border/70 last:border-0 ${selectedUid === user.uid ? "bg-primary/5" : "hover:bg-secondary/30"}`}
               >
+                <td className="px-4 py-3">
+                  <input
+                    type="checkbox"
+                    aria-label={`Select ${user.email ?? user.uid}`}
+                    checked={selectedUsers.has(user.uid)}
+                    onChange={() => toggleUser(user.uid)}
+                    className="accent-primary"
+                  />
+                </td>
                 <td className="px-4 py-3">
                   <div className="font-semibold">{user.name ?? "Unnamed user"}</div>
                   <div className="text-xs text-muted-foreground">{user.email ?? user.uid}</div>
@@ -1119,16 +1362,148 @@ function UserLookupPanel() {
           </div>
         </div>
       )}
-      {detail && operations && (
-        <>
-          <UserDetailCard detail={detail} onChanged={setDetail} />
-          <AdminOperationsPanel
-            detail={detail}
-            operations={operations}
-            onChanged={() => void refreshSelected()}
-          />
-        </>
-      )}
+      <Dialog
+        open={bulkAction !== null}
+        onOpenChange={(open) => {
+          if (!open && !bulkBusy) setBulkAction(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {bulkAction === "kyc" ? "Bulk approve KYC" : "Grant all products"}
+            </DialogTitle>
+            <DialogDescription>
+              {bulkAction === "kyc"
+                ? `Approve ${bulkTargets.length} selected applications and enable each user’s requested products.`
+                : `Grant all ${PRODUCTS.length} trading products to ${bulkTargets.length} selected approved accounts.`}
+            </DialogDescription>
+          </DialogHeader>
+
+          {!bulkResult ? (
+            <>
+              <div className="rounded-lg border border-border bg-secondary/20 p-3 text-xs text-muted-foreground">
+                Only eligible users are included, with up to 200 accounts per batch. Every
+                successful user receives an individual audit entry.
+              </div>
+              {bulkAction === "products" && (
+                <div className="flex flex-wrap gap-1.5">
+                  {PRODUCTS.map((product) => (
+                    <span
+                      key={product}
+                      className="rounded-full bg-primary/10 px-2 py-1 text-[10px] font-semibold capitalize text-primary"
+                    >
+                      {product.replaceAll("_", " ")}
+                    </span>
+                  ))}
+                </div>
+              )}
+              <label className="space-y-2 text-sm font-medium">
+                Audit reason
+                <textarea
+                  autoFocus
+                  value={bulkReason}
+                  onChange={(event) => setBulkReason(event.target.value)}
+                  maxLength={256}
+                  placeholder="Explain why this bulk change is required"
+                  className="min-h-24 w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-foreground"
+                />
+                <span className="block text-right text-[10px] font-normal text-muted-foreground">
+                  {bulkReason.trim().length}/256 · minimum 3 characters
+                </span>
+              </label>
+            </>
+          ) : (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-lg bg-up/10 p-4 text-center">
+                  <div className="font-mono text-2xl font-bold text-up">
+                    {bulkResult.succeeded.length}
+                  </div>
+                  <div className="text-xs text-up">Updated</div>
+                </div>
+                <div className="rounded-lg bg-destructive/10 p-4 text-center">
+                  <div className="font-mono text-2xl font-bold text-destructive">
+                    {bulkResult.failed.length}
+                  </div>
+                  <div className="text-xs text-destructive">Skipped</div>
+                </div>
+              </div>
+              {bulkResult.failed.length > 0 && (
+                <div className="max-h-40 overflow-y-auto rounded-lg border border-border">
+                  {bulkResult.failed.map((failure) => (
+                    <div
+                      key={failure.uid}
+                      className="border-b border-border px-3 py-2 text-xs last:border-0"
+                    >
+                      <div className="font-mono font-semibold">{failure.uid}</div>
+                      <div className="mt-0.5 text-destructive">{failure.detail}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {bulkError && (
+            <p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              {bulkError}
+            </p>
+          )}
+          <DialogFooter>
+            <DialogClose asChild>
+              <button
+                type="button"
+                disabled={bulkBusy}
+                className="rounded-lg border border-border px-4 py-2 text-sm font-semibold"
+              >
+                {bulkResult ? "Done" : "Cancel"}
+              </button>
+            </DialogClose>
+            {!bulkResult && (
+              <button
+                type="button"
+                disabled={bulkBusy || bulkReason.trim().length < 3}
+                onClick={() => void submitBulk()}
+                className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+              >
+                {bulkBusy ? "Applying…" : `Apply to ${bulkTargets.length} users`}
+              </button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={userModalOpen} onOpenChange={setUserModalOpen}>
+        <DialogContent className="flex max-h-[92vh] w-[min(96vw,1180px)] max-w-none flex-col gap-0 overflow-hidden p-0">
+          <DialogHeader className="shrink-0 border-b border-border px-6 py-5 pr-14">
+            <DialogTitle>Manage user</DialogTitle>
+            <DialogDescription>
+              Review identity, account activity, access, balances, orders, and security in one
+              workspace.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6">
+            {selectedLoading ? (
+              <div className="flex min-h-64 items-center justify-center gap-2 text-sm text-muted-foreground">
+                <i className="fa-solid fa-circle-notch fa-spin" /> Loading account…
+              </div>
+            ) : selectedError ? (
+              <div className="my-6 rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
+                {selectedError}
+              </div>
+            ) : detail && operations ? (
+              <>
+                <UserDetailCard detail={detail} onChanged={setDetail} />
+                <AdminOperationsPanel
+                  detail={detail}
+                  operations={operations}
+                  onChanged={() => void refreshSelected()}
+                />
+              </>
+            ) : null}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -1172,58 +1547,17 @@ function UserDetailCard({
     <div className="mt-5 rounded sm:rounded-2xl border border-border bg-card p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          {editingName ? (
-            <div>
-              <div className="flex items-center gap-2">
-                <input
-                  autoFocus
-                  value={nameDraft}
-                  disabled={savingName}
-                  onChange={(e) => setNameDraft(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") void saveName();
-                    if (e.key === "Escape") setEditingName(false);
-                  }}
-                  className="rounded-lg border border-border bg-background/60 px-2.5 py-1.5 text-base font-bold text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40 disabled:opacity-60"
-                />
-                <button
-                  type="button"
-                  onClick={() => void saveName()}
-                  disabled={savingName}
-                  className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-60"
-                  aria-label="Save name"
-                >
-                  <i
-                    className={`fa-solid ${savingName ? "fa-circle-notch fa-spin" : "fa-check"} text-xs`}
-                  />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setEditingName(false)}
-                  disabled={savingName}
-                  className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-60"
-                  aria-label="Cancel"
-                >
-                  <i className="fa-solid fa-xmark text-xs" />
-                </button>
-              </div>
-              {nameError && <p className="mt-1 text-xs text-destructive">{nameError}</p>}
-            </div>
-          ) : (
-            <div className="flex items-center gap-2">
-              <div className="text-base font-bold text-foreground">
-                {detail.profile.name ?? "—"}
-              </div>
-              <button
-                type="button"
-                onClick={startEditingName}
-                className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-              >
-                <i className="fa-solid fa-pen text-[10px]" />
-                Edit
-              </button>
-            </div>
-          )}
+          <div className="flex items-center gap-2">
+            <div className="text-base font-bold text-foreground">{detail.profile.name ?? "—"}</div>
+            <button
+              type="button"
+              onClick={startEditingName}
+              className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+            >
+              <i className="fa-solid fa-pen text-[10px]" />
+              Edit profile
+            </button>
+          </div>
           <div className="mt-1 text-sm text-muted-foreground">{detail.profile.email ?? "—"}</div>
           <div className="mt-0.5 font-mono text-xs text-muted-foreground/70">
             {detail.profile.uid}
@@ -1241,6 +1575,50 @@ function UserDetailCard({
           {detail.profile.onboarding_status.replace("_", " ")}
         </span>
       </div>
+
+      <Dialog open={editingName} onOpenChange={(open) => !savingName && setEditingName(open)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Update user profile</DialogTitle>
+            <DialogDescription>
+              Change the display name for {detail.profile.email ?? detail.profile.uid}.
+            </DialogDescription>
+          </DialogHeader>
+          <label className="space-y-2 text-sm font-medium">
+            Display name
+            <input
+              autoFocus
+              value={nameDraft}
+              disabled={savingName}
+              onChange={(event) => setNameDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void saveName();
+              }}
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40 disabled:opacity-60"
+            />
+          </label>
+          {nameError && <p className="text-xs font-medium text-destructive">{nameError}</p>}
+          <DialogFooter>
+            <DialogClose asChild>
+              <button
+                type="button"
+                disabled={savingName}
+                className="rounded-lg border border-border px-4 py-2 text-sm font-semibold"
+              >
+                Cancel
+              </button>
+            </DialogClose>
+            <button
+              type="button"
+              onClick={() => void saveName()}
+              disabled={savingName || !nameDraft.trim()}
+              className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+            >
+              {savingName ? "Saving…" : "Save changes"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {detail.kyc.completed_steps.length > 0 ? (
         <KycDetails
@@ -1272,6 +1650,10 @@ function AdminOperationsPanel({
   >("account");
   const [reason, setReason] = useState("");
   const [adjustment, setAdjustment] = useState("");
+  const [actionModal, setActionModal] = useState<
+    "status" | "kyc-approve" | "kyc-reject" | "balance" | "products" | "sessions" | null
+  >(null);
+  const [cancelOrder, setCancelOrder] = useState<{ id: string; symbol: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -1301,6 +1683,8 @@ function AdminOperationsPanel({
       setNotice(success);
       setReason("");
       setAdjustment("");
+      setActionModal(null);
+      setCancelOrder(null);
       onChanged();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "The administrative action failed.");
@@ -1311,6 +1695,76 @@ function AdminOperationsPanel({
 
   const accountStatus = operations.profile.account_status ?? "active";
   const balanceCurrency = operations.account.balances[0]?.currency ?? "USDT";
+  const openAction = (action: NonNullable<typeof actionModal>) => {
+    setReason("");
+    setAdjustment("");
+    setError("");
+    setNotice("");
+    setActionModal(action);
+  };
+  const submitAction = () => {
+    if (actionModal === "status") {
+      return run(
+        (token) =>
+          adminSetAccountStatus(
+            uid,
+            {
+              status: accountStatus === "suspended" ? "active" : "suspended",
+              reason: reason.trim(),
+            },
+            token,
+          ),
+        accountStatus === "suspended"
+          ? "Account restored."
+          : "Account suspended and open orders cancelled.",
+      );
+    }
+    if (actionModal === "kyc-approve" || actionModal === "kyc-reject") {
+      const approve = actionModal === "kyc-approve";
+      return run(
+        (token) =>
+          adminReviewKyc(
+            uid,
+            { decision: approve ? "approve" : "reject", reason: reason.trim() },
+            token,
+          ),
+        approve ? "KYC approved and requested products enabled." : "KYC application rejected.",
+      );
+    }
+    if (actionModal === "balance") {
+      return run(
+        (token) =>
+          adminAdjustBalance(
+            uid,
+            {
+              currency: balanceCurrency,
+              amount: adjustment,
+              reason: reason.trim(),
+              idempotency_key: `admin-${Date.now().toString(36)}-${uid.slice(0, 8)}`,
+            },
+            token,
+          ),
+        "Balance adjustment posted to the ledger.",
+      );
+    }
+    if (actionModal === "products") {
+      return run(
+        (token) =>
+          adminSetProductAccess(
+            uid,
+            { enabled_products: productAccess, reason: reason.trim() },
+            token,
+          ),
+        "Product access updated.",
+      );
+    }
+    if (actionModal === "sessions") {
+      return run(
+        (token) => adminRevokeUserSessions(uid, reason.trim(), token),
+        "All user sessions were revoked.",
+      );
+    }
+  };
   const tabs = [
     { key: "account" as const, label: "Account", count: operations.account.balances.length },
     { key: "orders" as const, label: "Orders", count: operations.orders.length },
@@ -1388,22 +1842,7 @@ function AdminOperationsPanel({
               <button
                 type="button"
                 disabled={busy}
-                onClick={() =>
-                  void run(
-                    (token) =>
-                      adminSetAccountStatus(
-                        uid,
-                        {
-                          status: accountStatus === "suspended" ? "active" : "suspended",
-                          reason: reason.trim(),
-                        },
-                        token,
-                      ),
-                    accountStatus === "suspended"
-                      ? "Account restored."
-                      : "Account suspended and open orders cancelled.",
-                  )
-                }
+                onClick={() => openAction("status")}
                 className={`mt-4 w-full rounded-lg px-3 py-2 text-xs font-bold ${accountStatus === "suspended" ? "bg-up text-white" : "bg-destructive text-destructive-foreground"}`}
               >
                 {accountStatus === "suspended" ? "Restore account" : "Suspend account"}
@@ -1422,13 +1861,7 @@ function AdminOperationsPanel({
                 <button
                   type="button"
                   disabled={busy || detail.profile.onboarding_status !== "under_review"}
-                  onClick={() =>
-                    void run(
-                      (token) =>
-                        adminReviewKyc(uid, { decision: "reject", reason: reason.trim() }, token),
-                      "KYC application rejected.",
-                    )
-                  }
+                  onClick={() => openAction("kyc-reject")}
                   className="flex-1 rounded-lg border border-destructive/30 px-3 py-2 text-xs font-bold text-destructive disabled:opacity-40"
                 >
                   Reject
@@ -1436,13 +1869,7 @@ function AdminOperationsPanel({
                 <button
                   type="button"
                   disabled={busy || detail.profile.onboarding_status !== "under_review"}
-                  onClick={() =>
-                    void run(
-                      (token) =>
-                        adminReviewKyc(uid, { decision: "approve", reason: reason.trim() }, token),
-                      "KYC approved and requested products enabled.",
-                    )
-                  }
+                  onClick={() => openAction("kyc-approve")}
                   className="flex-1 rounded-lg bg-primary px-3 py-2 text-xs font-bold text-primary-foreground disabled:opacity-40"
                 >
                   Approve
@@ -1455,43 +1882,14 @@ function AdminOperationsPanel({
               <p className="mt-1 text-xs text-muted-foreground">
                 Signed {balanceCurrency} amount. Negative values debit available funds.
               </p>
-              <div className="mt-3 flex gap-2">
-                <input
-                  value={adjustment}
-                  onChange={(e) => setAdjustment(e.target.value)}
-                  inputMode="decimal"
-                  placeholder="e.g. 250 or -50"
-                  className="min-w-0 flex-1 rounded-lg border border-border bg-background px-3 py-2 font-mono text-xs"
-                />
-                <button
-                  type="button"
-                  disabled={
-                    busy ||
-                    !adjustment ||
-                    !Number.isFinite(Number(adjustment)) ||
-                    Number(adjustment) === 0
-                  }
-                  onClick={() =>
-                    void run(
-                      (token) =>
-                        adminAdjustBalance(
-                          uid,
-                          {
-                            currency: balanceCurrency,
-                            amount: adjustment,
-                            reason: reason.trim(),
-                            idempotency_key: `admin-${Date.now().toString(36)}-${uid.slice(0, 8)}`,
-                          },
-                          token,
-                        ),
-                      "Balance adjustment posted to the ledger.",
-                    )
-                  }
-                  className="rounded-lg bg-primary px-3 py-2 text-xs font-bold text-primary-foreground disabled:opacity-40"
-                >
-                  Post
-                </button>
-              </div>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => openAction("balance")}
+                className="mt-4 w-full rounded-lg bg-primary px-3 py-2 text-xs font-bold text-primary-foreground disabled:opacity-40"
+              >
+                Adjust balance
+              </button>
             </div>
           </div>
 
@@ -1500,23 +1898,13 @@ function AdminOperationsPanel({
               <div>
                 <div className="text-sm font-bold">Product access</div>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Explicitly grant or revoke the products this approved account can trade.
+                  Grant or revoke products. “Requested” marks access the user is waiting for.
                 </p>
               </div>
               <button
                 type="button"
                 disabled={busy || detail.profile.onboarding_status !== "approved"}
-                onClick={() =>
-                  void run(
-                    (token) =>
-                      adminSetProductAccess(
-                        uid,
-                        { enabled_products: productAccess, reason: reason.trim() },
-                        token,
-                      ),
-                    "Product access updated.",
-                  )
-                }
+                onClick={() => openAction("products")}
                 className="rounded-lg bg-primary px-3 py-2 text-xs font-bold text-primary-foreground disabled:opacity-40"
               >
                 Save product access
@@ -1542,22 +1930,14 @@ function AdminOperationsPanel({
                     className="accent-primary"
                   />
                   <span className="capitalize">{product.replaceAll("_", " ")}</span>
+                  {operations.profile.pending_products.includes(product) && (
+                    <span className="ml-auto rounded bg-primary/10 px-1.5 py-0.5 text-[9px] font-bold uppercase text-primary">
+                      Requested
+                    </span>
+                  )}
                 </label>
               ))}
             </div>
-          </div>
-
-          <div>
-            <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Required audit reason
-            </label>
-            <textarea
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              maxLength={256}
-              placeholder="Explain why this administrative action is necessary"
-              className="mt-2 min-h-20 w-full rounded-lg border border-border bg-background/60 px-3 py-2 text-sm"
-            />
           </div>
         </div>
       )}
@@ -1601,14 +1981,7 @@ function AdminOperationsPanel({
                       <button
                         type="button"
                         disabled={busy}
-                        onClick={() => {
-                          if (window.confirm(`Cancel ${order.symbol} order ${order.id}?`))
-                            void run(
-                              (token) => adminCancelUserOrder(uid, order.id, token),
-                              "Open order cancelled and reservations released.",
-                              false,
-                            );
-                        }}
+                        onClick={() => setCancelOrder({ id: order.id, symbol: order.symbol })}
                         className="rounded border border-destructive/30 px-2 py-1 font-semibold text-destructive"
                       >
                         Cancel
@@ -1776,29 +2149,11 @@ function AdminOperationsPanel({
             <button
               type="button"
               disabled={busy}
-              onClick={() => {
-                if (window.confirm("Sign this user out from all devices?"))
-                  void run(
-                    (token) => adminRevokeUserSessions(uid, reason.trim(), token),
-                    "All user sessions were revoked.",
-                  );
-              }}
+              onClick={() => openAction("sessions")}
               className="rounded-lg border border-destructive/30 px-3 py-2 text-xs font-bold text-destructive disabled:opacity-40"
             >
               Revoke all sessions
             </button>
-          </div>
-          <div className="border-b border-border p-4">
-            <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Required audit reason
-            </label>
-            <input
-              value={reason}
-              onChange={(event) => setReason(event.target.value)}
-              maxLength={256}
-              placeholder="Reason for revoking this user's sessions"
-              className="mt-2 w-full rounded-lg border border-border bg-background/60 px-3 py-2 text-sm"
-            />
           </div>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[720px] text-xs">
@@ -1832,6 +2187,156 @@ function AdminOperationsPanel({
           </div>
         </div>
       )}
+
+      <Dialog
+        open={actionModal !== null}
+        onOpenChange={(open) => {
+          if (!open && !busy) setActionModal(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {actionModal === "status"
+                ? accountStatus === "suspended"
+                  ? "Restore account"
+                  : "Suspend account"
+                : actionModal === "kyc-approve"
+                  ? "Approve KYC"
+                  : actionModal === "kyc-reject"
+                    ? "Reject KYC"
+                    : actionModal === "balance"
+                      ? "Adjust balance"
+                      : actionModal === "products"
+                        ? "Update product access"
+                        : "Revoke all sessions"}
+            </DialogTitle>
+            <DialogDescription>
+              {actionModal === "status" && accountStatus !== "suspended"
+                ? "This blocks trading and funding and cancels every open order."
+                : actionModal === "sessions"
+                  ? "The user will be signed out from every device. Existing ID tokens expire shortly."
+                  : `Apply this change to ${detail.profile.email ?? uid}.`}
+            </DialogDescription>
+          </DialogHeader>
+
+          {actionModal === "balance" && (
+            <label className="space-y-2 text-sm font-medium">
+              Signed amount ({balanceCurrency})
+              <input
+                autoFocus
+                value={adjustment}
+                onChange={(event) => setAdjustment(event.target.value)}
+                inputMode="decimal"
+                placeholder="250 to credit, -50 to debit"
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
+              />
+            </label>
+          )}
+
+          {actionModal === "products" && (
+            <div className="rounded-lg border border-border bg-secondary/30 p-3 text-xs text-muted-foreground">
+              <span className="font-semibold text-foreground">New access: </span>
+              {productAccess.length
+                ? productAccess.map((product) => product.replaceAll("_", " ")).join(", ")
+                : "No trading products"}
+            </div>
+          )}
+
+          <label className="space-y-2 text-sm font-medium">
+            Audit reason
+            <textarea
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+              maxLength={256}
+              placeholder="Explain why this change is necessary"
+              className="min-h-24 w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
+            />
+            <span className="block text-right text-[10px] font-normal text-muted-foreground">
+              {reason.trim().length}/256 · minimum 3 characters
+            </span>
+          </label>
+
+          {error && (
+            <p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              {error}
+            </p>
+          )}
+
+          <DialogFooter>
+            <DialogClose asChild>
+              <button
+                type="button"
+                disabled={busy}
+                className="rounded-lg border border-border px-4 py-2 text-sm font-semibold"
+              >
+                Cancel
+              </button>
+            </DialogClose>
+            <button
+              type="button"
+              onClick={() => void submitAction()}
+              disabled={
+                busy ||
+                reason.trim().length < 3 ||
+                (actionModal === "balance" &&
+                  (!Number.isFinite(Number(adjustment)) || Number(adjustment) === 0))
+              }
+              className={`rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 ${
+                (actionModal === "status" && accountStatus !== "suspended") ||
+                actionModal === "kyc-reject" ||
+                actionModal === "sessions"
+                  ? "bg-destructive"
+                  : "bg-primary"
+              }`}
+            >
+              {busy ? "Applying…" : "Confirm change"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={cancelOrder !== null}
+        onOpenChange={(open) => {
+          if (!open && !busy) setCancelOrder(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Cancel open order</DialogTitle>
+            <DialogDescription>
+              Cancel {cancelOrder?.symbol} order {cancelOrder?.id}? Reserved funds will be released.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose asChild>
+              <button
+                type="button"
+                disabled={busy}
+                className="rounded-lg border border-border px-4 py-2 text-sm font-semibold"
+              >
+                Keep order
+              </button>
+            </DialogClose>
+            <button
+              type="button"
+              disabled={busy || !cancelOrder}
+              onClick={() => {
+                if (!cancelOrder) return;
+                void run(
+                  (token) => adminCancelUserOrder(uid, cancelOrder.id, token),
+                  "Open order cancelled and reservations released.",
+                  false,
+                );
+              }}
+              className="rounded-lg bg-destructive px-4 py-2 text-sm font-semibold text-destructive-foreground disabled:opacity-50"
+            >
+              {busy ? "Cancelling…" : "Cancel order"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -1900,7 +2405,7 @@ function RequestRow({
   showDestination: boolean;
   onDecided: () => void;
 }) {
-  const [declining, setDeclining] = useState(false);
+  const [decision, setDecision] = useState<"approve" | "decline" | null>(null);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [rowError, setRowError] = useState("");
@@ -1910,12 +2415,12 @@ function RequestRow({
       setRowError("Enter the payout transaction reference before approving a withdrawal.");
       return;
     }
-    if (!window.confirm(`Approve this ${row.kind} of ${row.amount} ${row.currency}?`)) return;
     setBusy(true);
     setRowError("");
     try {
       const token = await currentIdToken();
       await adminApproveFundingRequest(row.id, note.trim() ? { note: note.trim() } : {}, token);
+      setDecision(null);
       onDecided();
     } catch (err) {
       setRowError(err instanceof ApiError ? err.message : "Could not approve this request.");
@@ -1933,6 +2438,7 @@ function RequestRow({
     try {
       const token = await currentIdToken();
       await adminDeclineFundingRequest(row.id, note.trim() ? { note: note.trim() } : {}, token);
+      setDecision(null);
       onDecided();
     } catch (err) {
       setRowError(err instanceof ApiError ? err.message : "Could not decline this request.");
@@ -1983,71 +2489,115 @@ function RequestRow({
       </td>
       <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-right">
         {row.status === "pending" && (
-          <div className="flex flex-col items-end gap-2">
-            {declining ? (
-              <div className="w-56 text-left">
-                <input
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                  placeholder="Reason (shown to the user)"
-                  disabled={busy}
-                  className="w-full rounded-md border border-border bg-background/60 px-2 py-1 text-xs text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
-                />
-                <div className="mt-1.5 flex justify-end gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => setDeclining(false)}
-                    disabled={busy}
-                    className="rounded-md border border-border px-2 py-1 text-[11px] font-semibold text-foreground transition-colors hover:bg-secondary"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void decline()}
-                    disabled={busy}
-                    className="rounded-md bg-destructive px-2 py-1 text-[11px] font-semibold text-destructive-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
-                  >
-                    Confirm decline
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="w-64 text-left">
-                <input
-                  value={note}
-                  onChange={(event) => setNote(event.target.value)}
-                  placeholder={
-                    row.kind === "withdrawal"
-                      ? "Required payout transaction reference"
-                      : "Optional review note"
-                  }
-                  disabled={busy}
-                  className="w-full rounded-md border border-border bg-background/60 px-2 py-1 text-xs text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
-                />
-                <div className="mt-1.5 flex justify-end gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => setDeclining(true)}
-                    disabled={busy}
-                    className="rounded-md border border-border px-2 py-1 text-[11px] font-semibold text-foreground transition-colors hover:bg-secondary disabled:opacity-50"
-                  >
-                    Decline
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void approve()}
-                    disabled={busy}
-                    className="rounded-md bg-primary px-2 py-1 text-[11px] font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
-                  >
-                    {busy ? "Approving…" : "Approve"}
-                  </button>
-                </div>
-              </div>
-            )}
-            {rowError && <p className="text-[11px] text-destructive">{rowError}</p>}
+          <div className="flex justify-end gap-1.5">
+            <button
+              type="button"
+              onClick={() => {
+                setNote("");
+                setRowError("");
+                setDecision("decline");
+              }}
+              className="rounded-md border border-border px-2.5 py-1.5 text-[11px] font-semibold hover:border-destructive/40 hover:text-destructive"
+            >
+              Decline
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setNote("");
+                setRowError("");
+                setDecision("approve");
+              }}
+              className="rounded-md bg-primary px-2.5 py-1.5 text-[11px] font-semibold text-primary-foreground"
+            >
+              Review
+            </button>
           </div>
         )}
+        <Dialog
+          open={decision !== null}
+          onOpenChange={(open) => {
+            if (!open && !busy) setDecision(null);
+          }}
+        >
+          <DialogContent className="text-left">
+            <DialogHeader>
+              <DialogTitle>
+                {decision === "decline" ? "Decline" : "Approve"} {row.kind}
+              </DialogTitle>
+              <DialogDescription>
+                {row.email ?? row.uid} · {row.amount} {row.currency} on {row.network}
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="grid grid-cols-2 gap-3 rounded-lg border border-border bg-secondary/20 p-3 text-xs">
+              <div>
+                <div className="text-muted-foreground">Reference</div>
+                <div className="mt-1 break-all font-mono">{row.reference ?? "—"}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Destination</div>
+                <div className="mt-1 break-all font-mono">
+                  {row.destination ?? row.deposit_address ?? "—"}
+                </div>
+              </div>
+            </div>
+
+            <label className="space-y-2 text-sm font-medium">
+              {decision === "decline"
+                ? "Reason shown to the user"
+                : row.kind === "withdrawal"
+                  ? "Payout transaction reference"
+                  : "Review note (optional)"}
+              <textarea
+                autoFocus
+                value={note}
+                onChange={(event) => setNote(event.target.value)}
+                disabled={busy}
+                placeholder={
+                  decision === "decline"
+                    ? "Why is this request being declined?"
+                    : row.kind === "withdrawal"
+                      ? "Enter the completed payout transaction ID"
+                      : "Add an internal review note"
+                }
+                className="min-h-24 w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-foreground"
+              />
+            </label>
+            {rowError && (
+              <p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                {rowError}
+              </p>
+            )}
+            <DialogFooter>
+              <DialogClose asChild>
+                <button
+                  type="button"
+                  disabled={busy}
+                  className="rounded-lg border border-border px-4 py-2 text-sm font-semibold"
+                >
+                  Cancel
+                </button>
+              </DialogClose>
+              <button
+                type="button"
+                onClick={() => void (decision === "decline" ? decline() : approve())}
+                disabled={
+                  busy ||
+                  (decision === "decline" && note.trim().length < 3) ||
+                  (decision === "approve" && row.kind === "withdrawal" && note.trim().length < 4)
+                }
+                className={`rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 ${decision === "decline" ? "bg-destructive" : "bg-primary"}`}
+              >
+                {busy
+                  ? "Applying…"
+                  : decision === "decline"
+                    ? "Confirm decline"
+                    : "Confirm approval"}
+              </button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </td>
     </tr>
   );

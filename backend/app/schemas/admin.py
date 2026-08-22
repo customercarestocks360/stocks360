@@ -9,7 +9,13 @@ from decimal import Decimal
 from enum import Enum
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+)
 
 from app.schemas.onboarding import KycTier, OnboardingStatus, Product
 from app.schemas.trading import (
@@ -92,6 +98,40 @@ class KycReviewResult(BaseModel):
     review_note: str
     reviewed_by: str
     reviewed_at: datetime
+
+
+BulkUid = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=128)
+]
+
+
+class BulkAdminRequest(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+
+    uids: list[BulkUid] = Field(min_length=1, max_length=200)
+    reason: Reason
+
+    @field_validator("uids")
+    @classmethod
+    def uids_must_be_unique(cls, value: list[str]) -> list[str]:
+        if len(value) != len(set(value)):
+            raise ValueError("uids must not repeat")
+        return value
+
+
+class BulkProductAccessRequest(BulkAdminRequest):
+    enabled_products: list[Product] = Field(max_length=len(Product))
+
+
+class BulkActionFailure(BaseModel):
+    uid: str
+    detail: str
+
+
+class BulkActionResult(BaseModel):
+    requested: int
+    succeeded: list[str]
+    failed: list[BulkActionFailure]
 
 
 class BalanceAdjustmentRequest(BaseModel):

@@ -23,6 +23,7 @@ from app.schemas.onboarding import (
     OnboardingSubmitResponse,
     Product,
 )
+from app.users import repository as users_repository
 
 # Field paths that never travel back out in full once stored.
 _MASKED_PATHS: dict[OnboardingStep, tuple[str, ...]] = {
@@ -43,6 +44,44 @@ AMENDABLE_STEPS: frozenset[OnboardingStep] = frozenset(STEP_ORDER) - {
 
 def _conflict(detail: str) -> HTTPException:
     return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
+
+
+def request_product_access(uid: str, products: list[Product]) -> dict:
+    """Apply removals now and hold every newly requested product for staff approval."""
+    profile = users_repository.get_profile(uid)
+    if profile is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No such user")
+    onboarding_status = profile.get("onboarding_status")
+    if onboarding_status == OnboardingStatus.not_started.value:
+        raise _conflict("Submit account verification before changing market products")
+
+    desired = list(dict.fromkeys(products))
+    # Only an approved account can retain live access. Under-review/rejected users may
+    # still correct their requested selection, but every selection remains pending.
+    live = (
+        [Product(value) for value in profile.get("enabled_products", [])]
+        if onboarding_status == OnboardingStatus.approved.value
+        else []
+    )
+    enabled = [product for product in desired if product in live]
+    pending = [product for product in desired if product not in enabled]
+    tier = (
+        KycTier.pro
+        if any(product in REVIEW_GATED_PRODUCTS for product in enabled)
+        else KycTier.verified
+    )
+    saved = repository.update_product_request(
+        uid,
+        tier=tier,
+        enabled_products=[product.value for product in enabled],
+        pending_products=[product.value for product in pending],
+    )
+    if not saved:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No submitted KYC application for this user",
+        )
+    return users_repository.get_profile(uid)
 
 
 # --------------------------------------------------------------------------- #
