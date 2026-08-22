@@ -2,6 +2,7 @@ from fastapi import Depends, Header, HTTPException, status
 
 from app.auth.service import verify_token
 from app.core.config import ADMIN_EMAILS
+from app.users.repository import get_profile
 
 
 def require_verified_email(claims: dict) -> None:
@@ -27,9 +28,18 @@ def get_current_user(authorization: str | None = Header(default=None)) -> dict:
     request carries `email_verified: true` with no further work here.
     """
     if not authorization or not authorization.lower().startswith("bearer "):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token"
+        )
     claims = verify_token(authorization.split(" ", 1)[1], check_revoked=True)
     require_verified_email(claims)
+    profile = get_profile(claims["uid"])
+    if profile and profile.get("account_status") == "suspended":
+        reason = profile.get("account_status_reason") or "Contact support for details"
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"This account is suspended: {reason}",
+        )
     return claims
 
 

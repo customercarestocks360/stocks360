@@ -35,6 +35,7 @@ import { useWatchlists, type WatchlistsState } from "@/hooks/useWatchlists";
 
 /** Volume and the session range drift; the price itself comes from a socket. */
 const REFRESH_INTERVAL_MS = 30_000;
+const EMPTY_SYMBOLS: string[] = [];
 
 async function fetchQuotes(
   assetClass: AssetClass,
@@ -58,6 +59,12 @@ async function fetchQuotes(
 export type TradingBoardState = {
   /** The board: the selected watchlist when there is one, else the streamed headline set. */
   instruments: TradeInstrument[];
+  /**
+   * The headline set plus anything search resolved — always, regardless of whether a
+   * watchlist is selected. For browsing the wider market (the dock's "Instruments" tab)
+   * rather than the user's own shortlist, which `instruments` narrows to on purpose.
+   */
+  marketInstruments: TradeInstrument[];
   /** True when the rows come from the user's own watchlist rather than the public set. */
   fromWatchlist: boolean;
   /** The public price socket is connected. */
@@ -84,18 +91,18 @@ export function useTradingBoard(assetClass: AssetClass): TradingBoardState {
   const [error, setError] = useState("");
 
   const usingWatchlist = watchlists.selected !== null;
-  const streamed = symbols[assetClass as OverviewMarket] ?? [];
+  const streamed = symbols[assetClass as OverviewMarket] ?? EMPTY_SYMBOLS;
+  const watchlistSymbols = watchlists.selected?.symbols ?? EMPTY_SYMBOLS;
 
   /**
-   * Which symbols need a REST quote. When a watchlist is selected its own socket supplies
-   * prices, but not volume, the 52-week range or the instrument name — so those rows still
-   * need enriching. Keyed on the joined string rather than the arrays: the overview feed
-   * re-sends an identical list on every `subscribed` frame, and depending on array identity
-   * would refetch every quote each time.
+   * Which symbols need a REST quote: the headline set, the selected watchlist's own symbols
+   * (its socket supplies prices but not volume, the 52-week range or the instrument name),
+   * and anything search pulled in. Always includes the headline set even while a watchlist
+   * is selected, so `marketInstruments` below stays enriched. Keyed on the joined string
+   * rather than the arrays: the overview feed re-sends an identical list on every
+   * `subscribed` frame, and depending on array identity would refetch every quote each time.
    */
-  const universeKey = [
-    ...new Set([...(usingWatchlist ? (watchlists.selected?.symbols ?? []) : streamed), ...extra]),
-  ].join(",");
+  const universeKey = [...new Set([...streamed, ...watchlistSymbols, ...extra])].join(",");
   const universe = useMemo(() => (universeKey === "" ? [] : universeKey.split(",")), [universeKey]);
 
   const wantedRef = useRef<string[]>([]);
@@ -175,7 +182,8 @@ export function useTradingBoard(assetClass: AssetClass): TradingBoardState {
     // REST fills the columns neither socket carries.
     if (usingWatchlist) {
       const streamed = new Map(watchlists.instruments.map((i) => [i.symbol, i]));
-      return universe.map((symbol) => {
+      const watchlistUniverse = [...new Set([...watchlistSymbols, ...extra])];
+      return watchlistUniverse.map((symbol) => {
         const live = streamed.get(symbol);
         const rest = quotes.get(symbol);
         if (!rest) return live ?? blankInstrument(assetClass, symbol);
@@ -202,10 +210,41 @@ export function useTradingBoard(assetClass: AssetClass): TradingBoardState {
         tickByKey.get(symbol),
       ),
     );
-  }, [usingWatchlist, watchlists.instruments, ticks, assetClass, universe, quotes]);
+  }, [
+    usingWatchlist,
+    watchlistSymbols,
+    extra,
+    watchlists.instruments,
+    ticks,
+    assetClass,
+    universe,
+    quotes,
+  ]);
+
+  /**
+   * The always-on browse list for the dock's "Instruments" tab: the headline set plus
+   * anything search resolved, independent of whichever watchlist is selected above.
+   * `instruments` deliberately narrows to a selected watchlist so the rail reflects it —
+   * but that same narrowing was leaking into the browse table too, which left it showing
+   * only the one or two symbols a personal watchlist happened to hold instead of the wider
+   * market there was to trade.
+   */
+  const marketInstruments = useMemo(() => {
+    const tickByKey = new Map(
+      ticks.filter((t) => t.market === (assetClass as OverviewMarket)).map((t) => [t.symbol, t]),
+    );
+    const marketUniverse = [...new Set([...streamed, ...extra])];
+    return marketUniverse.map((symbol) =>
+      withOverviewTick(
+        quotes.get(symbol) ?? blankInstrument(assetClass, symbol),
+        tickByKey.get(symbol),
+      ),
+    );
+  }, [ticks, assetClass, streamed, extra, quotes]);
 
   return {
     instruments,
+    marketInstruments,
     fromWatchlist: usingWatchlist,
     connected,
     streaming: watchlists.streaming,

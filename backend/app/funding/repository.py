@@ -62,14 +62,18 @@ def ensure_indexes() -> None:
     """Called from core.database alongside the rest. Safe to re-run."""
     db = get_db()
     # A user's own history, newest first.
-    db[REQUESTS].create_index([("uid", ASCENDING), ("created_at", DESCENDING)], name="funding_uid_idx")
+    db[REQUESTS].create_index(
+        [("uid", ASCENDING), ("created_at", DESCENDING)], name="funding_uid_idx"
+    )
     # The review queue: every user's pending requests, newest first. This is the one query
     # that is not scoped by uid, and it is the reason the index exists separately.
     db[REQUESTS].create_index(
         [("status", ASCENDING), ("created_at", DESCENDING)], name="funding_queue_idx"
     )
     # Counting a user's open requests against the per-user cap.
-    db[REQUESTS].create_index([("uid", ASCENDING), ("status", ASCENDING)], name="funding_uid_status_idx")
+    db[REQUESTS].create_index(
+        [("uid", ASCENDING), ("status", ASCENDING)], name="funding_uid_status_idx"
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -86,6 +90,7 @@ def create(
     amount: Decimal,
     network: str,
     destination: str | None,
+    deposit_address: str | None,
     reference: str | None,
     funded: bool,
 ) -> dict:
@@ -107,6 +112,7 @@ def create(
         "amount": _d128(amount),
         "network": network,
         "destination": destination,
+        "deposit_address": deposit_address,
         "reference": reference,
         "funded": funded,
         "resolution_note": None,
@@ -132,7 +138,9 @@ def delete_pending(request_id: str) -> None:
     Only ever called on the synchronous failure path, and guarded on `pending` so it can
     never remove something a reviewer has already acted on.
     """
-    get_db()[REQUESTS].delete_one({"_id": request_id, "status": FundingStatus.pending.value})
+    get_db()[REQUESTS].delete_one(
+        {"_id": request_id, "status": FundingStatus.pending.value}
+    )
 
 
 def resolve(
@@ -192,7 +200,8 @@ def revert_to_pending(request_id: str) -> None:
 
 def attach_ledger_entry(request_id: str, entry_id: str) -> None:
     get_db()[REQUESTS].update_one(
-        {"_id": request_id}, {"$set": {"ledger_entry_id": entry_id, "updated_at": _now()}}
+        {"_id": request_id},
+        {"$set": {"ledger_entry_id": entry_id, "updated_at": _now()}},
     )
 
 

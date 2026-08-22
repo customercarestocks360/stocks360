@@ -70,9 +70,13 @@ export function formatCompact(value: number | null): string {
 /**
  * A money amount with its currency named rather than glyphed — "1,204.50 USDT".
  *
- * Named because a glyph is ambiguous: `$` is both USD and a dozen other dollars, and this
- * app holds INR, USD and USDT side by side. Amounts are per currency everywhere for the same
- * reason — there is no licensed FX rate here to add them up with.
+ * Named because a glyph is ambiguous — `$` is both USD and a dozen other dollars — and
+ * because this app shows two genuinely different currencies side by side on one position: a
+ * price is quoted in the instrument's own currency (₹ for an NSE listing), while its market
+ * value, cost basis and P&L are already converted into the one balance the account actually
+ * holds (`account_currency`, USDT). Naming each amount is what stops those two from being
+ * read as the same number — pass whichever currency the specific field you have is really in,
+ * never the instrument's by default.
  */
 export function formatMoney(value: number | null, currency: string): string {
   if (value === null || !Number.isFinite(value)) return "—";

@@ -2,9 +2,8 @@
  * Typed wrappers over the backend's `/funding/*` and `/admin/funding/*` routes — the
  * reviewed money rail.
  *
- * This is deliberately not `POST /trading/deposits` / `/trading/withdrawals`, which the
- * backend documents as "simulated" — instant book-money moves with no rail behind them.
- * A request placed here settles only once a human on the `ADMIN_EMAILS` allowlist
+ * These are the only user-facing money-movement calls; there is no direct endpoint that
+ * mints or removes book money without review. A request settles only once a human on the `ADMIN_EMAILS` allowlist
  * approves it: a deposit credits nothing until then, and a withdrawal locks its amount
  * into `reserved` the moment it is placed. See `backend/app/schemas/funding.py`.
  *
@@ -57,6 +56,8 @@ export type FundingRequest = {
   network: FundingNetwork;
   /** Withdrawals only. */
   destination: string | null;
+  /** Deposit only: receiving address captured when the claim was created. */
+  deposit_address: string | null;
   reference: string | null;
   /** Withdrawals only: whether the amount actually locked. `false` means it cannot be approved. */
   funded: boolean;
@@ -100,7 +101,7 @@ type FundingBase = {
   reference?: string;
 };
 
-export type DepositRequestInput = FundingBase;
+export type DepositRequestInput = FundingBase & { reference: string };
 
 export type WithdrawalRequestInput = FundingBase & {
   /** The user's own account or wallet address — where the payout should go. */

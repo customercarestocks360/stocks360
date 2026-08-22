@@ -2,6 +2,8 @@ import { useRef, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useTheme } from "@/components/ThemeProvider";
 import { useAuth } from "@/components/AuthProvider";
+import { useTrading } from "@/hooks/useTrading";
+import { money2 } from "@/lib/trading-api";
 
 // No Forex entry: FX is a class on the one desk at /trade, not a separate destination.
 const NAV_LINKS = [
@@ -15,7 +17,9 @@ export function Header() {
   const { theme, toggleTheme } = useTheme();
   const [menuOpen, setMenuOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
-  const { isLoggedIn, email, kycCompleted, balances, logout } = useAuth();
+  const { isLoggedIn, email, kycCompleted, logout } = useAuth();
+  const trading = useTrading();
+  const cash = trading.balances[0];
   const navigate = useNavigate();
   const initial = email ? email.trim()[0]?.toUpperCase() : "U";
   const profilePercent = kycCompleted ? 100 : 30;
@@ -55,13 +59,25 @@ export function Header() {
   return (
     <header className="sticky top-0 z-30 border-b border-border bg-background/85 pt-safe backdrop-blur">
       <div className="mx-auto flex h-14 max-w-7xl items-center gap-8 px-4 sm:px-6 md:h-16">
-        <Link to="/" className="flex shrink-0 items-center gap-2 pointer-events-none md:pointer-events-auto" onClick={() => setMenuOpen(false)}>
-          <img src="/mianimg.png" alt="Stocks360" className="h-7 w-7 shrink-0 rounded-md object-cover" />
+        <Link
+          to="/"
+          className="flex shrink-0 items-center gap-2 pointer-events-none md:pointer-events-auto"
+          onClick={() => setMenuOpen(false)}
+        >
+          <img
+            src="/mianimg.png"
+            alt="Stocks360"
+            className="h-7 w-7 shrink-0 rounded-md object-cover"
+          />
           <span className="whitespace-nowrap text-[15px] font-bold tracking-tight">Stocks360</span>
         </Link>
         <nav className="hidden items-center gap-6 text-sm text-muted-foreground md:flex">
           {NAV_LINKS.map((l) => (
-            <Link key={l.n} to={l.t} className="transition-colors hover:text-foreground [&.active]:text-foreground [&.active]:font-medium">
+            <Link
+              key={l.n}
+              to={l.t}
+              className="transition-colors hover:text-foreground [&.active]:text-foreground [&.active]:font-medium"
+            >
               {l.n}
             </Link>
           ))}
@@ -111,7 +127,13 @@ export function Header() {
                       <div className="mb-1 h-1 w-10 rounded-full bg-border mx-auto md:hidden" />
                       <div className="truncate text-xs text-muted-foreground">{email}</div>
                       <div className="mt-1.5 flex items-center font-mono text-xs text-foreground">
-                        <span>{balances.USDT.toLocaleString()} USDT</span>
+                        <span>
+                          {cash
+                            ? `${money2(cash.total)} ${cash.currency}`
+                            : trading.loading
+                              ? "Loading…"
+                              : "Wallet"}
+                        </span>
                       </div>
                       {!kycCompleted && (
                         <div className="mt-1.5 flex items-center gap-2">
@@ -128,70 +150,70 @@ export function Header() {
                       )}
                     </div>
 
-                  <div className="mt-1">
-                    <Link
-                      to="/account"
-                      search={{ tab: "dashboard" }}
-                      onClick={() => setProfileOpen(false)}
-                      className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                    >
-                      <i className="fa-solid fa-house w-4" />
-                      Dashboard
-                    </Link>
-                    <Link
-                      to="/wallet"
-                      onClick={() => setProfileOpen(false)}
-                      className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                    >
-                      <i className="fa-solid fa-wallet w-4" />
-                      Wallet
-                    </Link>
-                    <Link
-                      to="/account"
-                      search={{ tab: "assets" }}
-                      onClick={() => setProfileOpen(false)}
-                      className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                    >
-                      <i className="fa-solid fa-layer-group w-4" />
-                      Assets
-                    </Link>
-                    <Link
-                      to="/account"
-                      search={{ tab: "orders" }}
-                      onClick={() => setProfileOpen(false)}
-                      className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                    >
-                      <i className="fa-solid fa-receipt w-4" />
-                      Orders
-                    </Link>
-                    <Link
-                      to="/account"
-                      search={{ tab: "account" }}
-                      onClick={() => setProfileOpen(false)}
-                      className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                    >
-                      <i className="fa-solid fa-user w-4" />
-                      Account
-                    </Link>
-                    {!kycCompleted && (
+                    <div className="mt-1">
+                      <Link
+                        to="/account"
+                        search={{ tab: "dashboard" }}
+                        onClick={() => setProfileOpen(false)}
+                        className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                      >
+                        <i className="fa-solid fa-house w-4" />
+                        Dashboard
+                      </Link>
+                      <Link
+                        to="/wallet"
+                        onClick={() => setProfileOpen(false)}
+                        className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                      >
+                        <i className="fa-solid fa-wallet w-4" />
+                        Wallet
+                      </Link>
+                      <Link
+                        to="/account"
+                        search={{ tab: "assets" }}
+                        onClick={() => setProfileOpen(false)}
+                        className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                      >
+                        <i className="fa-solid fa-layer-group w-4" />
+                        Assets
+                      </Link>
+                      <Link
+                        to="/account"
+                        search={{ tab: "orders" }}
+                        onClick={() => setProfileOpen(false)}
+                        className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                      >
+                        <i className="fa-solid fa-receipt w-4" />
+                        Orders
+                      </Link>
                       <Link
                         to="/account"
                         search={{ tab: "account" }}
                         onClick={() => setProfileOpen(false)}
                         className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                       >
-                        <i className="fa-solid fa-id-card w-4 text-primary" />
-                        Complete your account details
+                        <i className="fa-solid fa-user w-4" />
+                        Account
                       </Link>
-                    )}
-                  </div>
-                  <button
-                    onClick={() => void handleLogout()}
-                    className="mt-1 flex w-full items-center gap-2 rounded-md border-t border-border px-2.5 py-2 pt-2.5 text-left text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                  >
-                    <i className="fa-solid fa-arrow-right-from-bracket w-4" />
-                    Log out
-                  </button>
+                      {!kycCompleted && (
+                        <Link
+                          to="/account"
+                          search={{ tab: "account" }}
+                          onClick={() => setProfileOpen(false)}
+                          className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                        >
+                          <i className="fa-solid fa-id-card w-4 text-primary" />
+                          Complete your account details
+                        </Link>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => void handleLogout()}
+                      className="mt-1 flex w-full items-center gap-2 rounded-md border-t border-border px-2.5 py-2 pt-2.5 text-left text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                    >
+                      <i className="fa-solid fa-arrow-right-from-bracket w-4" />
+                      Log out
+                    </button>
                   </div>
                 </>
               )}

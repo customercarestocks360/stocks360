@@ -32,15 +32,24 @@ class MarketTick(BaseModel):
     market: Market
     symbol: str = Field(examples=["BTCUSDT"])
     price: Decimal = Field(description="Last traded price; the mid rate for forex")
-    change: Decimal | None = Field(default=None, description="Absolute move over the feed's window")
+    change: Decimal | None = Field(
+        default=None, description="Absolute move over the feed's window"
+    )
     change_percent: Decimal | None = Field(
-        default=None, description="Percent move over the feed's window; null when unavailable"
+        default=None,
+        description="Percent move over the feed's window; null when unavailable",
     )
     currency: str | None = Field(default=None, examples=["INR"])
-    bid: Decimal | None = Field(default=None, description="Forex only — the real quoted bid")
-    ask: Decimal | None = Field(default=None, description="Forex only — the real quoted ask")
+    bid: Decimal | None = Field(
+        default=None, description="Forex only — the real quoted bid"
+    )
+    ask: Decimal | None = Field(
+        default=None, description="Forex only — the real quoted ask"
+    )
     spread: Decimal | None = Field(default=None, description="Forex only — ask - bid")
-    spread_pips: Decimal | None = Field(default=None, description="Forex only — spread in pips")
+    spread_pips: Decimal | None = Field(
+        default=None, description="Forex only — spread in pips"
+    )
     at: datetime = Field(description="Upstream quote time, not receipt time")
     stale: bool = Field(description="Outside this feed's freshness window")
 
@@ -56,17 +65,24 @@ class OverviewFrame(BaseModel):
     type: StreamFrameType
     at: datetime
     symbols: dict[Market, list[str]] | None = Field(
-        default=None, description="The streamed symbols per market, sent on the handshake"
+        default=None,
+        description="The streamed symbols per market, sent on the handshake",
     )
     markets: dict[Market, bool] | None = Field(
-        default=None, description="Upstream connectivity per market, sent on the handshake"
+        default=None,
+        description="Upstream connectivity per market, sent on the handshake",
     )
-    market: Market | None = Field(default=None, description="Which feed an `upstream` frame refers to")
+    market: Market | None = Field(
+        default=None, description="Which feed an `upstream` frame refers to"
+    )
     state: Literal["connected", "disconnected", "reconnected"] | None = None
     tick: MarketTick | None = Field(default=None, description="Set on a `quote` frame")
-    ticks: list[MarketTick] | None = Field(default=None, description="Set on a `snapshot` frame")
+    ticks: list[MarketTick] | None = Field(
+        default=None, description="Set on a `snapshot` frame"
+    )
     dropped: int | None = Field(
-        default=None, description="Ticks shed for this socket because the client fell behind"
+        default=None,
+        description="Ticks shed for this socket because the client fell behind",
     )
     detail: str | None = None
 

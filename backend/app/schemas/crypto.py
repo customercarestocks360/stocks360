@@ -39,7 +39,9 @@ Symbol = Annotated[
 ]
 
 WatchlistId = Annotated[
-    str, StringConstraints(pattern=r"^[0-9a-f]{32}$"), Field(examples=["9f2c1e7b4a8d4f1e9c3b5a7d2e6f0b14"])
+    str,
+    StringConstraints(pattern=r"^[0-9a-f]{32}$"),
+    Field(examples=["9f2c1e7b4a8d4f1e9c3b5a7d2e6f0b14"]),
 ]
 
 
@@ -177,7 +179,9 @@ def _unique(symbols: list[str], field: str = "symbols") -> list[str]:
 
 class WatchlistCreate(_Strict):
     name: str = Field(min_length=1, max_length=64, examples=["Majors"])
-    symbols: list[Symbol] = Field(min_length=1, max_length=CRYPTO_MAX_SYMBOLS_PER_WATCHLIST)
+    symbols: list[Symbol] = Field(
+        min_length=1, max_length=CRYPTO_MAX_SYMBOLS_PER_WATCHLIST
+    )
 
     @model_validator(mode="after")
     def _no_duplicates(self) -> "WatchlistCreate":
@@ -203,7 +207,9 @@ class WatchlistUpdate(_Strict):
 
 
 class WatchlistSymbolsAdd(_Strict):
-    symbols: list[Symbol] = Field(min_length=1, max_length=CRYPTO_MAX_SYMBOLS_PER_WATCHLIST)
+    symbols: list[Symbol] = Field(
+        min_length=1, max_length=CRYPTO_MAX_SYMBOLS_PER_WATCHLIST
+    )
 
     @model_validator(mode="after")
     def _no_duplicates(self) -> "WatchlistSymbolsAdd":
@@ -243,13 +249,24 @@ CryptoFrame = StreamFrame[Quote]
 
 # Reusable OpenAPI blocks for this feature's failure modes.
 UPSTREAM_ERROR = {
-    502: {"model": ErrorResponse, "description": "Upstream market data rejected or failed the request"},
+    502: {
+        "model": ErrorResponse,
+        "description": "Upstream market data rejected or failed the request",
+    },
     504: {"model": ErrorResponse, "description": "Upstream market data timed out"},
 }
 RATE_LIMITED = {
-    429: {"model": ErrorResponse, "description": "Rate limited — by this API's per-user caps or by the upstream"}
+    429: {
+        "model": ErrorResponse,
+        "description": "Rate limited — by this API's per-user caps or by the upstream",
+    }
 }
-UNKNOWN_SYMBOL = {404: {"model": ErrorResponse, "description": "Unknown or non-tradable symbol"}}
+UNKNOWN_SYMBOL = {
+    404: {"model": ErrorResponse, "description": "Unknown or non-tradable symbol"}
+}
 WATCHLIST_CONFLICT = {
-    409: {"model": ErrorResponse, "description": "Duplicate watchlist name, or the per-user watchlist cap is reached"}
+    409: {
+        "model": ErrorResponse,
+        "description": "Duplicate watchlist name, or the per-user watchlist cap is reached",
+    }
 }

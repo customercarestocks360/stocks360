@@ -11,7 +11,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { ApiError } from "@/lib/api";
 import { currentIdToken } from "@/lib/firebase";
-import { listFundingRequests, type FundingKind, type FundingRequest } from "@/lib/funding-api";
+import {
+  cancelFundingRequest,
+  listFundingRequests,
+  type FundingKind,
+  type FundingRequest,
+} from "@/lib/funding-api";
 
 const POLL_INTERVAL_MS = 15_000;
 
@@ -20,6 +25,7 @@ export function useFundingRequests(kind?: FundingKind) {
   const [requests, setRequests] = useState<FundingRequest[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
 
   const aliveRef = useRef(true);
   useEffect(() => {
@@ -50,6 +56,27 @@ export function useFundingRequests(kind?: FundingKind) {
       setError(err instanceof ApiError ? err.message : "Could not load your funding requests.");
     }
   }, [isLoggedIn, load]);
+
+  const cancelRequest = useCallback(
+    async (requestId: string) => {
+      if (!isLoggedIn || cancellingId) return false;
+      setCancellingId(requestId);
+      try {
+        const token = await currentIdToken();
+        await cancelFundingRequest(requestId, token);
+        await refresh();
+        return true;
+      } catch (err) {
+        if (aliveRef.current) {
+          setError(err instanceof ApiError ? err.message : "Could not cancel the funding request.");
+        }
+        return false;
+      } finally {
+        if (aliveRef.current) setCancellingId(null);
+      }
+    },
+    [cancellingId, isLoggedIn, refresh],
+  );
 
   useEffect(() => {
     if (!authReady) return;
@@ -93,5 +120,5 @@ export function useFundingRequests(kind?: FundingKind) {
     };
   }, [authReady, isLoggedIn, load]);
 
-  return { requests, loading, error, refresh };
+  return { requests, loading, error, cancellingId, cancelRequest, refresh };
 }

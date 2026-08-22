@@ -89,8 +89,12 @@ def ensure_indexes() -> None:
     # wallet per currency — enforced by the key rather than by a uniqueness check.
     db[WALLETS].create_index([("uid", ASCENDING)], name="wallet_uid_idx")
 
-    db[ORDERS].create_index([("uid", ASCENDING), ("created_at", DESCENDING)], name="order_uid_idx")
-    db[ORDERS].create_index([("uid", ASCENDING), ("status", ASCENDING)], name="order_uid_status_idx")
+    db[ORDERS].create_index(
+        [("uid", ASCENDING), ("created_at", DESCENDING)], name="order_uid_idx"
+    )
+    db[ORDERS].create_index(
+        [("uid", ASCENDING), ("status", ASCENDING)], name="order_uid_status_idx"
+    )
     # The matcher's query: every resting order, across all users.
     db[ORDERS].create_index(
         [("status", ASCENDING), ("asset_class", ASCENDING)], name="order_resting_idx"
@@ -104,7 +108,9 @@ def ensure_indexes() -> None:
         partialFilterExpression={"client_order_id": {"$type": "string"}},
     )
 
-    db[TRADES].create_index([("uid", ASCENDING), ("at", DESCENDING)], name="trade_uid_idx")
+    db[TRADES].create_index(
+        [("uid", ASCENDING), ("at", DESCENDING)], name="trade_uid_idx"
+    )
     db[TRADES].create_index([("order_id", ASCENDING)], name="trade_order_idx")
 
     db[POSITIONS].create_index([("uid", ASCENDING)], name="position_uid_idx")
@@ -113,7 +119,9 @@ def ensure_indexes() -> None:
         [("asset_class", ASCENDING), ("symbol", ASCENDING)], name="position_symbol_idx"
     )
 
-    db[LEDGER].create_index([("uid", ASCENDING), ("at", DESCENDING)], name="ledger_uid_idx")
+    db[LEDGER].create_index(
+        [("uid", ASCENDING), ("at", DESCENDING)], name="ledger_uid_idx"
+    )
 
     # Positions written before leverage shipped have no `margin_used` at all. Backfilling it
     # to their own `cost_basis` treats them as already fully collateralized, so nothing
@@ -354,12 +362,19 @@ def get_ledger_entry(uid: str, entry_id: str) -> dict | None:
 # --------------------------------------------------------------------------- #
 
 
-def _position_id(uid: str, asset_class: str, symbol: str) -> str:
-    return f"{uid}:{asset_class}:{symbol}"
+def _position_id(
+    uid: str, asset_class: str, symbol: str, position_side: str | None = None
+) -> str:
+    base = f"{uid}:{asset_class}:{symbol}"
+    return f"{base}:{position_side}" if position_side else base
 
 
-def get_position(uid: str, asset_class: str, symbol: str) -> dict | None:
-    doc = get_db()[POSITIONS].find_one({"_id": _position_id(uid, asset_class, symbol)})
+def get_position(
+    uid: str, asset_class: str, symbol: str, position_side: str | None = None
+) -> dict | None:
+    doc = get_db()[POSITIONS].find_one(
+        {"_id": _position_id(uid, asset_class, symbol, position_side)}
+    )
     return _decimals(doc) if doc else None
 
 
@@ -379,16 +394,23 @@ def list_positions(uid: str, include_flat: bool = False) -> list[dict]:
     return [_decimals(doc) for doc in cursor]
 
 
-def ensure_position(uid: str, asset_class: str, symbol: str, currency: str) -> None:
+def ensure_position(
+    uid: str,
+    asset_class: str,
+    symbol: str,
+    currency: str,
+    position_side: str | None = None,
+) -> None:
     now = _now()
     get_db()[POSITIONS].update_one(
-        {"_id": _position_id(uid, asset_class, symbol)},
+        {"_id": _position_id(uid, asset_class, symbol, position_side)},
         {
             "$setOnInsert": {
                 "uid": uid,
                 "asset_class": asset_class,
                 "symbol": symbol,
                 "currency": currency,
+                "position_side": position_side,
                 # Written, not assumed: a position opened before the balance became universal
                 # has its `cost_basis` in the instrument's own currency, and the absence of
                 # this field is how a reader tells the two apart instead of putting a USDT
@@ -422,6 +444,7 @@ def apply_fill_to_position(
     symbol: str,
     effect: FillEffect,
     *,
+    position_side: str | None = None,
     require_reserved_quantity: Decimal | None = None,
 ) -> dict | None:
     """Apply one fill's whole effect to a position, atomically.
@@ -435,7 +458,9 @@ def apply_fill_to_position(
     still be the ones this order locked. A fill that reserved cash instead (opening either
     direction, or closing a short) passes None, because there are no units to check.
     """
-    query: dict[str, Any] = {"_id": _position_id(uid, asset_class, symbol)}
+    query: dict[str, Any] = {
+        "_id": _position_id(uid, asset_class, symbol, position_side)
+    }
     increments: dict[str, Any] = {
         "available_quantity": _d128(effect.quantity_delta),
         "cost_basis": _d128(effect.basis_delta),
@@ -448,10 +473,13 @@ def apply_fill_to_position(
         # The units came out of `reserved`, so `available` must not move as well —
         # `quantity_delta` already accounts for them leaving the position altogether.
         increments["reserved_quantity"] = _d128(-require_reserved_quantity)
-        increments["available_quantity"] = _d128(effect.quantity_delta + require_reserved_quantity)
+        increments["available_quantity"] = _d128(
+            effect.quantity_delta + require_reserved_quantity
+        )
 
     doc = get_db()[POSITIONS].find_one_and_update(
-        query, {"$inc": increments, "$set": {"updated_at": _now()}},
+        query,
+        {"$inc": increments, "$set": {"updated_at": _now()}},
         return_document=ReturnDocument.AFTER,
     )
     if doc is None:
@@ -475,12 +503,18 @@ def apply_fill_to_position(
     return doc
 
 
-def reserve_quantity(uid: str, asset_class: str, symbol: str, quantity: Decimal) -> dict | None:
+def reserve_quantity(
+    uid: str,
+    asset_class: str,
+    symbol: str,
+    quantity: Decimal,
+    position_side: str | None = None,
+) -> dict | None:
     """Lock units for an open sell. None means the position does not hold enough free
     units — the same guard as cash, expressed the same way."""
     doc = get_db()[POSITIONS].find_one_and_update(
         {
-            "_id": _position_id(uid, asset_class, symbol),
+            "_id": _position_id(uid, asset_class, symbol, position_side),
             "available_quantity": {"$gte": _d128(quantity)},
         },
         {
@@ -495,10 +529,16 @@ def reserve_quantity(uid: str, asset_class: str, symbol: str, quantity: Decimal)
     return _decimals(doc) if doc else None
 
 
-def release_quantity(uid: str, asset_class: str, symbol: str, quantity: Decimal) -> dict | None:
+def release_quantity(
+    uid: str,
+    asset_class: str,
+    symbol: str,
+    quantity: Decimal,
+    position_side: str | None = None,
+) -> dict | None:
     doc = get_db()[POSITIONS].find_one_and_update(
         {
-            "_id": _position_id(uid, asset_class, symbol),
+            "_id": _position_id(uid, asset_class, symbol, position_side),
             "reserved_quantity": {"$gte": _d128(quantity)},
         },
         {
@@ -511,7 +551,6 @@ def release_quantity(uid: str, asset_class: str, symbol: str, quantity: Decimal)
         return_document=ReturnDocument.AFTER,
     )
     return _decimals(doc) if doc else None
-
 
 
 # --------------------------------------------------------------------------- #
@@ -571,7 +610,9 @@ def list_orders(
 
 
 def count_open_orders(uid: str) -> int:
-    return get_db()[ORDERS].count_documents({"uid": uid, "status": OrderStatus.open.value})
+    return get_db()[ORDERS].count_documents(
+        {"uid": uid, "status": OrderStatus.open.value}
+    )
 
 
 def mark_funded(order_id: str) -> None:
@@ -587,14 +628,23 @@ def mark_funded(order_id: str) -> None:
 
 def add_reservation(order_id: str, amount: Decimal) -> None:
     get_db()[ORDERS].update_one(
-        {"_id": order_id}, {"$inc": {"reserved_amount": _d128(amount)}, "$set": {"updated_at": _now()}}
+        {"_id": order_id},
+        {"$inc": {"reserved_amount": _d128(amount)}, "$set": {"updated_at": _now()}},
     )
 
 
 def unfunded_orders(before: datetime) -> list[dict]:
-    cursor = get_db()[ORDERS].find(
-        {"status": OrderStatus.open.value, "funded": False, "created_at": {"$lt": before}}
-    ).limit(200)
+    cursor = (
+        get_db()[ORDERS]
+        .find(
+            {
+                "status": OrderStatus.open.value,
+                "funded": False,
+                "created_at": {"$lt": before},
+            }
+        )
+        .limit(200)
+    )
     return [_shape(doc) for doc in cursor]
 
 
@@ -697,7 +747,10 @@ def claim_fill(
 
 
 def claim_close(
-    order_id: str, status: OrderStatus, uid: str | None = None, reason: str | None = None
+    order_id: str,
+    status: OrderStatus,
+    uid: str | None = None,
+    reason: str | None = None,
 ) -> dict | None:
     """Take an open order to cancelled, expired or rejected, atomically.
 
@@ -708,7 +761,11 @@ def claim_close(
     if uid is not None:
         query["uid"] = uid
     now = _now()
-    changes: dict[str, Any] = {"status": status.value, "updated_at": now, "closed_at": now}
+    changes: dict[str, Any] = {
+        "status": status.value,
+        "updated_at": now,
+        "closed_at": now,
+    }
     if reason is not None:
         changes["reject_reason"] = reason
     doc = get_db()[ORDERS].find_one_and_update(
@@ -732,22 +789,28 @@ def stranded_reservations() -> list[dict]:
     follow does not happen because the process died in between. The sweep re-runs the
     release, which is safe because it is guarded by the reserved balance itself.
     """
-    cursor = get_db()[ORDERS].find(
-        {
-            "status": {"$nin": [OrderStatus.open.value]},
-            "$or": [
-                {"reserved_amount": {"$gt": _d128(ZERO)}},
-                {"reserved_quantity": {"$gt": _d128(ZERO)}},
-            ],
-        }
-    ).limit(200)
+    cursor = (
+        get_db()[ORDERS]
+        .find(
+            {
+                "status": {"$nin": [OrderStatus.open.value]},
+                "$or": [
+                    {"reserved_amount": {"$gt": _d128(ZERO)}},
+                    {"reserved_quantity": {"$gt": _d128(ZERO)}},
+                ],
+            }
+        )
+        .limit(200)
+    )
     return [_shape(doc) for doc in cursor]
 
 
 def expiring_orders(now: datetime) -> list[dict]:
-    cursor = get_db()[ORDERS].find(
-        {"status": OrderStatus.open.value, "expires_at": {"$lte": now}}
-    ).limit(500)
+    cursor = (
+        get_db()[ORDERS]
+        .find({"status": OrderStatus.open.value, "expires_at": {"$lte": now}})
+        .limit(500)
+    )
     return [_shape(doc) for doc in cursor]
 
 
@@ -759,7 +822,14 @@ def expiring_orders(now: datetime) -> list[dict]:
 def record_trade(doc: dict) -> dict:
     stored = dict(doc)
     for field in (
-        "quantity", "price", "notional", "fee", "fx_rate", "opened", "closed", "realized_pnl"
+        "quantity",
+        "price",
+        "notional",
+        "fee",
+        "fx_rate",
+        "opened",
+        "closed",
+        "realized_pnl",
     ):
         if stored.get(field) is not None:
             stored[field] = _d128(stored[field])

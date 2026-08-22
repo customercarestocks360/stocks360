@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useFavorites } from "@/components/FavoritesProvider";
 import { FavoriteStar } from "@/components/ui/favorite-star";
 
@@ -50,7 +50,7 @@ export function MarketWatchlist({
     return ["ALL", ...Array.from(seen)];
   }, [items]);
 
-  const favId = (sym: string) => `${favoriteScope}:${sym}`;
+  const favId = useCallback((sym: string) => `${favoriteScope}:${sym}`, [favoriteScope]);
 
   const rows = useMemo(() => {
     let list = items;
@@ -60,14 +60,18 @@ export function MarketWatchlist({
     if (subTab === "favorites") list = list.filter((it) => isFavorite(favId(it.symbol)));
     if (subTab === "recent") list = list.filter((it) => recent.includes(it.symbol));
     const q = query.trim().toLowerCase();
-    if (q) list = list.filter((it) => it.symbol.toLowerCase().includes(q) || (it.name ?? "").toLowerCase().includes(q));
+    if (q)
+      list = list.filter(
+        (it) => it.symbol.toLowerCase().includes(q) || (it.name ?? "").toLowerCase().includes(q),
+      );
 
     const sorted = [...list].sort((a, b) => {
       const cmp =
         sortKey === "name"
           ? a.symbol.localeCompare(b.symbol)
           : sortKey === "price"
-            ? parseFloat(a.price.replace(/[^0-9.-]/g, "")) - parseFloat(b.price.replace(/[^0-9.-]/g, ""))
+            ? parseFloat(a.price.replace(/[^0-9.-]/g, "")) -
+              parseFloat(b.price.replace(/[^0-9.-]/g, ""))
             : a.changePct - b.changePct;
       return sortAsc ? cmp : -cmp;
     });
@@ -76,7 +80,7 @@ export function MarketWatchlist({
       sorted.sort((a, b) => recent.indexOf(a.symbol) - recent.indexOf(b.symbol));
     }
     return sorted;
-  }, [items, quoteTab, movement, subTab, query, isFavorite, favoriteScope, sortKey, sortAsc, recent]);
+  }, [items, quoteTab, movement, subTab, query, isFavorite, favId, sortKey, sortAsc, recent]);
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) setSortAsc((a) => !a);
@@ -99,7 +103,9 @@ export function MarketWatchlist({
   };
 
   return (
-    <div className={`rounded sm:rounded-xl border border-overlay-border bg-surface p-1.5 sm:p-3 flex flex-col ${className}`}>
+    <div
+      className={`rounded sm:rounded-xl border border-overlay-border bg-surface p-1.5 sm:p-3 flex flex-col ${className}`}
+    >
       {/* Quote-asset tabs */}
       <div className="flex items-center gap-1 overflow-x-auto border-b border-border pb-2 shrink-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {quoteTabs.map((q) => (
@@ -108,7 +114,9 @@ export function MarketWatchlist({
             type="button"
             onClick={() => setQuoteTab(q)}
             className={`shrink-0 rounded-md px-2.5 py-1 text-xs font-semibold transition-colors ${
-              quoteTab === q ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground"
+              quoteTab === q
+                ? "bg-primary/10 text-primary"
+                : "text-muted-foreground hover:text-foreground"
             }`}
           >
             {q}
@@ -133,7 +141,9 @@ export function MarketWatchlist({
             type="button"
             onClick={() => setMovement(m)}
             className={`flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-semibold capitalize transition-colors ${
-              movement === m ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground"
+              movement === m
+                ? "bg-secondary text-foreground"
+                : "text-muted-foreground hover:text-foreground"
             }`}
           >
             {m === "gainers" && <i className="fa-solid fa-arrow-trend-up text-up" />}
@@ -160,21 +170,29 @@ export function MarketWatchlist({
           type="button"
           onClick={() => setSubTab("favorites")}
           aria-label="Favorites"
-          className={subTab === "favorites" ? "text-amber-400" : "text-muted-foreground hover:text-foreground"}
+          className={
+            subTab === "favorites"
+              ? "text-amber-400"
+              : "text-muted-foreground hover:text-foreground"
+          }
         >
           <i className={`${subTab === "favorites" ? "fa-solid" : "fa-regular"} fa-star`} />
         </button>
         <button
           type="button"
           onClick={() => setSubTab("all")}
-          className={subTab === "all" ? "text-foreground" : "text-muted-foreground hover:text-foreground"}
+          className={
+            subTab === "all" ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+          }
         >
           All
         </button>
         <button
           type="button"
           onClick={() => setSubTab("recent")}
-          className={subTab === "recent" ? "text-foreground" : "text-muted-foreground hover:text-foreground"}
+          className={
+            subTab === "recent" ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+          }
         >
           Recent
         </button>
@@ -182,18 +200,34 @@ export function MarketWatchlist({
 
       {/* Column headers */}
       <div className="mt-2 flex items-center justify-between text-[10px] sm:text-[11px] text-muted-foreground shrink-0">
-        <button type="button" onClick={() => toggleSort("name")} className="flex items-center gap-1 hover:text-foreground">
+        <button
+          type="button"
+          onClick={() => toggleSort("name")}
+          className="flex items-center gap-1 hover:text-foreground"
+        >
           Name
           {sortKey === "name" && <i className={`fa-solid fa-caret-${sortAsc ? "up" : "down"}`} />}
         </button>
         <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
-          <button type="button" onClick={() => toggleSort("price")} className="flex items-center gap-0.5 sm:gap-1 hover:text-foreground">
+          <button
+            type="button"
+            onClick={() => toggleSort("price")}
+            className="flex items-center gap-0.5 sm:gap-1 hover:text-foreground"
+          >
             Last Price
-            {sortKey === "price" && <i className={`fa-solid fa-caret-${sortAsc ? "up" : "down"}`} />}
+            {sortKey === "price" && (
+              <i className={`fa-solid fa-caret-${sortAsc ? "up" : "down"}`} />
+            )}
           </button>
-          <button type="button" onClick={() => toggleSort("change")} className="flex items-center gap-0.5 sm:gap-1 hover:text-foreground">
+          <button
+            type="button"
+            onClick={() => toggleSort("change")}
+            className="flex items-center gap-0.5 sm:gap-1 hover:text-foreground"
+          >
             24h Chg
-            {sortKey === "change" && <i className={`fa-solid fa-caret-${sortAsc ? "up" : "down"}`} />}
+            {sortKey === "change" && (
+              <i className={`fa-solid fa-caret-${sortAsc ? "up" : "down"}`} />
+            )}
           </button>
         </div>
       </div>
@@ -227,7 +261,9 @@ export function MarketWatchlist({
               </span>
               <span className="text-right shrink-0">
                 <div className="font-mono text-xs sm:text-sm text-foreground">{it.price}</div>
-                <div className={`font-mono text-[10px] sm:text-xs ${it.changePct >= 0 ? "text-up" : "text-down"}`}>
+                <div
+                  className={`font-mono text-[10px] sm:text-xs ${it.changePct >= 0 ? "text-up" : "text-down"}`}
+                >
                   {it.changePct >= 0 ? "+" : ""}
                   {it.changePct.toFixed(2)}%
                 </div>

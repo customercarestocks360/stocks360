@@ -8,6 +8,7 @@ import { ApiError } from "@/lib/api";
 import { currentIdToken } from "@/lib/firebase";
 import { reportDeposit, newIdempotencyKey, type FundingNetwork } from "@/lib/funding-api";
 import { amount as parseAmount, type SettlementCurrency } from "@/lib/trading-api";
+import { fetchPlatformSettings } from "@/lib/platform-api";
 
 type DepositMethod = SettlementCurrency;
 
@@ -26,8 +27,6 @@ type Network = {
   name: string;
   address: string;
   addressLabel: string;
-  /** What the QR encodes — for UPI a payment intent, for chains the raw address. */
-  payload: (address: string) => string;
   minimum: string;
   arrival: string;
   fee: string;
@@ -42,28 +41,13 @@ type AssetOption = {
   networks: Network[];
 };
 
-/** Deposit rails — USDT is the only asset the platform accepts. */
-const ASSET_OPTIONS: AssetOption[] = [
-  {
-    code: "USDT",
-    name: "TetherUS",
-    symbol: "",
-    color: "#26a17b",
-    networks: [
-      {
-        code: "BEP20",
-        name: "BNB Smart Chain (BEP20)",
-        address: "0x8cfa8b2fff6d4cec11dd6b53b68793fb4f81ffe3",
-        addressLabel: "Wallet Address (BEP20)",
-        payload: (a) => a,
-        minimum: "More than 0.000002 USDT",
-        arrival: "About 1 minute after network confirmation",
-        fee: "0 USDT",
-        confirmations: "15 network confirmations",
-      },
-    ],
-  },
-];
+const EMPTY_ASSET: AssetOption = {
+  code: "USDT",
+  name: "TetherUS",
+  symbol: "",
+  color: "#26a17b",
+  networks: [],
+};
 
 const FAQS = [
   {
@@ -150,7 +134,9 @@ function Dropdown<T>({
         className="flex w-full items-center justify-between gap-3 rounded sm:rounded-xl border border-border bg-card px-4 py-3.5 text-left transition-colors hover:border-foreground/25"
       >
         {render(selected)}
-        <i className={`fa-solid fa-chevron-down text-xs text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`} />
+        <i
+          className={`fa-solid fa-chevron-down text-xs text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
+        />
       </button>
       {open && (
         <ul
@@ -184,7 +170,9 @@ function Dropdown<T>({
 /** Diamond marker for a completed step, numbered circle for the one in progress. */
 function StepMarker({ done, n }: { done: boolean; n: number }) {
   return (
-    <span className={`flex h-5 w-5 items-center justify-center rounded-full border-2 text-[10px] font-bold ${done ? "border-primary text-primary" : "border-foreground/70 text-foreground/70"}`}>
+    <span
+      className={`flex h-5 w-5 items-center justify-center rounded-full border-2 text-[10px] font-bold ${done ? "border-primary text-primary" : "border-foreground/70 text-foreground/70"}`}
+    >
       {n}
     </span>
   );
@@ -224,28 +212,67 @@ function DepositPage() {
   const { isLoggedIn, kycCompleted } = useAuth();
   const deposits = useFundingRequests("deposit");
 
-  const asset = ASSET_OPTIONS[0]!;
-  const [network, setNetwork] = useState<Network>(asset.networks[0]!);
+  const [asset, setAsset] = useState<AssetOption>(EMPTY_ASSET);
+  const [network, setNetwork] = useState<Network | null>(null);
+  const [railsLoading, setRailsLoading] = useState(true);
   const [copied, setCopied] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
   const [openFaq, setOpenFaq] = useState<number | null>(null);
   const [amount, setAmount] = useState("");
+  const [reference, setReference] = useState("");
   const [stage, setStage] = useState<"idle" | "submitting" | "requested">("idle");
   const [error, setError] = useState("");
 
   const recentDeposits = deposits.requests.slice(0, 5);
 
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetchPlatformSettings(controller.signal)
+      .then((settings) => {
+        const networks: Network[] = settings.deposit_rails
+          .filter((rail) => rail.enabled && rail.currency === "USDT")
+          .map((rail) => ({
+            code: rail.network,
+            name: rail.name,
+            address: rail.address,
+            addressLabel: rail.address_label,
+            minimum: rail.minimum,
+            arrival: rail.arrival,
+            fee: rail.fee,
+            confirmations: rail.confirmations,
+          }));
+        setAsset({ ...EMPTY_ASSET, networks });
+        setNetwork(networks[0] ?? null);
+        if (networks.length === 0) {
+          setError("Deposits are temporarily unavailable because no QR rail is enabled.");
+        }
+      })
+      .catch((err) =>
+        setError(
+          err instanceof ApiError ? err.message : "Could not load the deposit QR configuration.",
+        ),
+      )
+      .finally(() => setRailsLoading(false));
+    return () => controller.abort();
+  }, []);
+
   const handleCopy = () => {
+    if (!network) return;
     navigator.clipboard?.writeText(network.address).catch(() => {});
     setCopied(true);
     setTimeout(() => setCopied(false), 1600);
   };
 
   const value = parseFloat(amount);
-  const canSubmit = Number.isFinite(value) && value > 0 && stage === "idle";
+  const canSubmit =
+    network !== null &&
+    Number.isFinite(value) &&
+    value > 0 &&
+    reference.trim().length >= 4 &&
+    stage === "idle";
 
   const handleSubmit = async () => {
-    if (!canSubmit) return;
+    if (!canSubmit || !network) return;
     setStage("submitting");
     setError("");
     try {
@@ -255,11 +282,13 @@ function DepositPage() {
           currency: asset.code,
           amount: String(value),
           network: network.code,
+          reference: reference.trim(),
           idempotency_key: newIdempotencyKey(),
         },
         token,
       );
       setAmount("");
+      setReference("");
       setStage("requested");
       void deposits.refresh();
     } catch (err) {
@@ -303,6 +332,26 @@ function DepositPage() {
           >
             {locked.cta}
           </Link>
+        </section>
+      </AppLayout>
+    );
+  }
+
+  if (railsLoading || network === null) {
+    return (
+      <AppLayout>
+        <section className="mx-auto max-w-lg px-6 py-20 text-center">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+            <i className={`fa-solid ${railsLoading ? "fa-circle-notch fa-spin" : "fa-qrcode"}`} />
+          </div>
+          <h1 className="mt-4 text-xl font-bold">
+            {railsLoading ? "Loading deposit QR" : "Deposits temporarily unavailable"}
+          </h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {railsLoading
+              ? "Fetching the currently approved receiving address."
+              : error || "No deposit rail is enabled. Please contact support."}
+          </p>
         </section>
       </AppLayout>
     );
@@ -352,17 +401,12 @@ function DepositPage() {
               </div>
             </Step>
 
-            <Step
-              n={3}
-              done={false}
-              last
-              title="Deposit Address"
-            >
+            <Step n={3} done={false} last title="Deposit Address">
               <div className="max-w-lg">
                 <div className="flex flex-col sm:flex-row items-center sm:items-start gap-5 rounded sm:rounded-xl border border-border bg-card p-4">
                   <div className="rounded-lg bg-white p-2 shrink-0">
                     <QrCode
-                      value={network.payload(network.address)}
+                      value={network.address}
                       size={124}
                       title={`${asset.code} deposit address on ${network.code}`}
                     />
@@ -378,7 +422,9 @@ function DepositPage() {
                           aria-label="Copy deposit address"
                           className="shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                         >
-                          <i className={`fa-${copied ? "solid fa-check text-up" : "regular fa-copy"} text-sm`} />
+                          <i
+                            className={`fa-${copied ? "solid fa-check text-up" : "regular fa-copy"} text-sm`}
+                          />
                         </button>
                         <button
                           type="button"
@@ -387,11 +433,15 @@ function DepositPage() {
                           aria-expanded={showDetails}
                           className="shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                         >
-                          <i className={`fa-solid fa-chevron-down text-xs transition-transform ${showDetails ? "rotate-180" : ""}`} />
+                          <i
+                            className={`fa-solid fa-chevron-down text-xs transition-transform ${showDetails ? "rotate-180" : ""}`}
+                          />
                         </button>
                       </div>
                     </div>
-                    <div className="mt-1 text-[11px] text-muted-foreground/70">{network.addressLabel}</div>
+                    <div className="mt-1 text-[11px] text-muted-foreground/70">
+                      {network.addressLabel}
+                    </div>
                   </div>
                 </div>
 
@@ -429,7 +479,9 @@ function DepositPage() {
                   className="mx-auto mt-4 flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
                 >
                   {showDetails ? "Less Details" : "More Details"}
-                  <i className={`fa-solid fa-chevron-down text-[10px] transition-transform ${showDetails ? "rotate-180" : ""}`} />
+                  <i
+                    className={`fa-solid fa-chevron-down text-[10px] transition-transform ${showDetails ? "rotate-180" : ""}`}
+                  />
                 </button>
 
                 {/* Reporting the amount only records the claim — an admin credits the balance once they've verified it landed. */}
@@ -441,8 +493,8 @@ function DepositPage() {
                       </div>
                       <p className="mt-3 text-sm font-semibold text-foreground">Deposit reported</p>
                       <p className="mt-1 text-xs text-muted-foreground">
-                        It's pending admin confirmation — you'll see it settle under Recent Deposits once
-                        verified.
+                        It's pending admin confirmation — you'll see it settle under Recent Deposits
+                        once verified.
                       </p>
                       <button
                         type="button"
@@ -464,6 +516,17 @@ function DepositPage() {
                           className="mt-2 w-full rounded sm:rounded-xl border border-border bg-background/60 px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
                         />
                       </label>
+                      <label className="mt-4 block text-sm font-medium text-foreground">
+                        Transaction hash
+                        <input
+                          value={reference}
+                          onChange={(event) => setReference(event.target.value)}
+                          maxLength={128}
+                          placeholder="Paste the blockchain transaction hash"
+                          autoComplete="off"
+                          className="mt-2 w-full rounded sm:rounded-xl border border-border bg-background/60 px-3 py-2.5 font-mono text-sm text-foreground placeholder:font-sans placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
+                        />
+                      </label>
                       {error && (
                         <p className="mt-3 text-xs text-destructive" role="alert">
                           {error}
@@ -478,7 +541,8 @@ function DepositPage() {
                         {stage === "submitting" ? "Reporting…" : "I've sent this amount"}
                       </button>
                       <p className="mt-3 text-center text-[11px] text-muted-foreground/70">
-                        An admin verifies the transfer and credits your balance — it won't apply instantly.
+                        An admin verifies the transfer and credits your balance — it won't apply
+                        instantly.
                       </p>
                     </>
                   )}
@@ -500,7 +564,9 @@ function DepositPage() {
                     className="flex w-full items-start justify-between gap-3 py-3 text-left text-sm text-foreground transition-colors hover:text-primary"
                   >
                     <span>{f.q}</span>
-                    <i className={`fa-solid fa-chevron-down mt-1 shrink-0 text-[10px] text-muted-foreground transition-transform ${openFaq === i ? "rotate-180" : ""}`} />
+                    <i
+                      className={`fa-solid fa-chevron-down mt-1 shrink-0 text-[10px] text-muted-foreground transition-transform ${openFaq === i ? "rotate-180" : ""}`}
+                    />
                   </button>
                   {openFaq === i && (
                     <p className="pb-4 text-xs leading-5 text-muted-foreground">{f.a}</p>
@@ -545,9 +611,15 @@ function DepositPage() {
                     const status = t.status;
                     return (
                       <tr key={t.id} className="border-b border-border last:border-b-0">
-                        <td className="px-1 sm:px-2 py-2.5 sm:py-4 font-mono text-xs text-muted-foreground">{stamp(t.created_at)}</td>
-                        <td className="px-1 sm:px-2 py-2.5 sm:py-4 font-medium text-foreground">{t.currency}</td>
-                        <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-muted-foreground">{t.network}</td>
+                        <td className="px-1 sm:px-2 py-2.5 sm:py-4 font-mono text-xs text-muted-foreground">
+                          {stamp(t.created_at)}
+                        </td>
+                        <td className="px-1 sm:px-2 py-2.5 sm:py-4 font-medium text-foreground">
+                          {t.currency}
+                        </td>
+                        <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-muted-foreground">
+                          {t.network}
+                        </td>
                         <td
                           className={`px-1 sm:px-2 py-2.5 sm:py-4 text-right font-mono font-semibold ${
                             status === "cancelled" ? "text-muted-foreground" : "text-up"
@@ -567,7 +639,11 @@ function DepositPage() {
                             }`}
                           >
                             <span className="h-1.5 w-1.5 rounded-full bg-current" />
-                            {status === "pending" ? "Pending" : status === "cancelled" ? "Cancelled" : "Completed"}
+                            {status === "pending"
+                              ? "Pending"
+                              : status === "cancelled"
+                                ? "Cancelled"
+                                : "Completed"}
                           </span>
                         </td>
                       </tr>

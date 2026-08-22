@@ -1,21 +1,20 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
-import { useAuth, type Order, type Transaction } from "@/components/AuthProvider";
+import { useAuth } from "@/components/AuthProvider";
 import { useFavorites } from "@/components/FavoritesProvider";
 import { FavoriteStar } from "@/components/ui/favorite-star";
+import { KycDetails } from "@/components/ui/kyc-recap";
+import { ApiError } from "@/lib/api";
 import { currentIdToken } from "@/lib/firebase";
 import { useTrading } from "@/hooks/useTrading";
+import { useFundingRequests } from "@/hooks/useFundingRequests";
 import { useMarketTable, type MarketRow } from "@/hooks/useMarketTable";
 import type { OverviewMarket } from "@/lib/market-overview";
 import { formatMoney } from "@/lib/instrument";
-import { amount as parseAmount } from "@/lib/trading-api";
-import {
-  ONBOARDING_STEPS,
-  ONBOARDING_STEP_LABELS,
-  fetchOnboardingSession,
-  type OnboardingSession,
-} from "@/lib/onboarding-api";
+import { amount as parseAmount, type LedgerKind, type Order } from "@/lib/trading-api";
+import type { FundingRequest } from "@/lib/funding-api";
+import { fetchOnboardingSession, type OnboardingSession } from "@/lib/onboarding-api";
 
 const SIDEBAR_ITEMS = [
   { key: "dashboard", label: "Dashboard", icon: "fa-house" },
@@ -64,145 +63,19 @@ const TIME_FILTERS = [
 ] as const;
 type TimeFilterValue = (typeof TIME_FILTERS)[number]["value"];
 
-function DetailRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between gap-4 py-2.5 text-sm">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="text-right font-medium text-foreground">{value}</span>
-    </div>
-  );
-}
-
-function DetailGroup({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-        {title}
-      </h3>
-      <div className="mt-1 divide-y divide-border/60">{children}</div>
-    </div>
-  );
-}
-
-/**
- * Words that read wrong under plain Title Case, for both field names (`pep_status`) and
- * enum-like values (`ifsc`, `upi`). One list serves both, since a key and a value go
- * through the same word-by-word titling below.
- */
-const ACRONYMS = new Set([
-  "pan",
-  "pep",
-  "us",
-  "tin",
-  "id",
-  "ip",
-  "ifsc",
-  "swift",
-  "iban",
-  "aba",
-  "upi",
-  "bsc",
-]);
-
-const LABEL_OVERRIDES: Record<string, string> = {
-  is_us_person: "US person",
-  no_tin_reason: "Reason for no tax ID",
-  accepted_from: "Consent recorded from",
-  user_agent: "Browser",
-};
-
-function titleWord(word: string): string {
-  return ACRONYMS.has(word) ? word.toUpperCase() : word.charAt(0).toUpperCase() + word.slice(1);
-}
-
-/** `document_number` -> "Document Number", with a few overrides for anything that reads oddly. */
-function humanizeKey(key: string): string {
-  return LABEL_OVERRIDES[key] ?? key.split("_").map(titleWord).join(" ");
-}
-
-/** A masked value (`"******3210"`) contains characters outside this shape, so it always passes through untouched. */
-const ENUM_LIKE = /^[a-z0-9]+(_[a-z0-9]+)*$/;
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function summarizeObject(obj: Record<string, unknown>): string {
-  return Object.entries(obj)
-    .map(([key, value]) => `${humanizeKey(key)}: ${formatValue(value)}`)
-    .join(", ");
-}
-
-/** Renders any one captured value as a display string — the same rule for a top-level field and a nested one. */
-function formatValue(value: unknown): string {
-  if (value === null || value === undefined || value === "") return "—";
-  if (typeof value === "boolean") return value ? "Yes" : "No";
-  if (Array.isArray(value)) {
-    if (value.length === 0) return "—";
-    return value.map((v) => (isPlainObject(v) ? summarizeObject(v) : formatValue(v))).join(", ");
-  }
-  if (isPlainObject(value)) return summarizeObject(value);
-  if (typeof value === "string") return ENUM_LIKE.test(value) ? humanizeKey(value) : value;
-  return String(value);
-}
-
-/** One step's captured fields, recursing into nested objects (address, bank account) as sub-groups. */
-function StepFields({ data }: { data: Record<string, unknown> }) {
-  return (
-    <div className="mt-1 divide-y divide-border/60">
-      {Object.entries(data).map(([key, value]) =>
-        isPlainObject(value) ? (
-          <div key={key} className="py-2.5">
-            <div className="text-sm text-muted-foreground">{humanizeKey(key)}</div>
-            <div className="mt-1.5 rounded-lg bg-background/40 px-3">
-              <StepFields data={value} />
-            </div>
-          </div>
-        ) : (
-          <DetailRow key={key} label={humanizeKey(key)} value={formatValue(value)} />
-        ),
-      )}
-    </div>
-  );
-}
-
-/**
- * Read-only recap of the submitted KYC application, straight from `GET /onboarding/session`.
- * The backend has already masked the sensitive leaf fields (mobile number, document number,
- * tax ID, bank account number) before this ever sees them, so nothing here re-masks anything
- * — it only turns the raw captured data into readable groups, one per onboarding step.
- */
-function KycDetails({ session }: { session: OnboardingSession }) {
-  return (
-    <div className="mt-5 space-y-5">
-      {ONBOARDING_STEPS.map((step) => {
-        const captured = session.steps[step];
-        if (!captured) return null;
-        return (
-          <DetailGroup key={step} title={ONBOARDING_STEP_LABELS[step]}>
-            <StepFields data={captured.data} />
-          </DetailGroup>
-        );
-      })}
-      <p className="text-xs text-muted-foreground/70">
-        These details were submitted with your application and can't be edited here. Contact support
-        if anything needs correcting.
-      </p>
-    </div>
-  );
-}
-
-function filterTransactions(list: Transaction[], query: string, time: TimeFilterValue) {
+function filterFunding(list: FundingRequest[], query: string, time: TimeFilterValue) {
   const cutoffDays = time === "7d" ? 7 : time === "30d" ? 30 : time === "90d" ? 90 : null;
   const now = Date.now();
   return list.filter((t) => {
     if (cutoffDays !== null) {
-      const ageDays = (now - new Date(t.date).getTime()) / (24 * 3600 * 1000);
+      const ageDays = (now - new Date(t.created_at).getTime()) / (24 * 3600 * 1000);
       if (ageDays > cutoffDays) return false;
     }
     if (query) {
       const q = query.toLowerCase();
-      if (!t.method.toLowerCase().includes(q) && !String(t.amount).includes(q)) return false;
+      const haystack =
+        `${t.kind} ${t.currency} ${t.network} ${t.status} ${t.amount} ${t.reference ?? ""}`.toLowerCase();
+      if (!haystack.includes(q)) return false;
     }
     return true;
   });
@@ -213,12 +86,13 @@ function filterOrders(list: Order[], query: string, time: TimeFilterValue) {
   const now = Date.now();
   return list.filter((o) => {
     if (cutoffDays !== null) {
-      const ageDays = (now - new Date(o.date).getTime()) / (24 * 3600 * 1000);
+      const ageDays = (now - new Date(o.created_at).getTime()) / (24 * 3600 * 1000);
       if (ageDays > cutoffDays) return false;
     }
     if (query) {
       const q = query.toLowerCase();
-      if (!o.symbol.toLowerCase().includes(q) && !o.action.includes(q)) return false;
+      const haystack = `${o.symbol} ${o.asset_class} ${o.side} ${o.type} ${o.status}`.toLowerCase();
+      if (!haystack.includes(q)) return false;
     }
     return true;
   });
@@ -297,6 +171,29 @@ function ChangeBadge({ value }: { value: number | null }) {
   );
 }
 
+const LEDGER_LABELS: Record<LedgerKind, string> = {
+  deposit: "Deposit",
+  withdrawal: "Withdrawal",
+  reserve: "Order margin held",
+  release: "Order margin released",
+  trade_debit: "Trade settlement",
+  trade_credit: "Trade settlement",
+  fee: "Trading fee",
+  adjustment: "Administrative adjustment",
+};
+
+function SignedMoney({ value, currency }: { value: string; currency: string }) {
+  const amount = parseAmount(value) ?? 0;
+  return (
+    <span
+      className={`font-mono font-semibold ${amount > 0 ? "text-up" : amount < 0 ? "text-down" : "text-muted-foreground"}`}
+    >
+      {amount > 0 ? "+" : ""}
+      {formatMoney(amount, currency)}
+    </span>
+  );
+}
+
 /**
  * Favorites are keyed "<market>:<symbol>", the scheme `/markets` already uses, so a star set on
  * one page is the same star on the other. They used to be keyed off this page own hardcoded
@@ -342,25 +239,18 @@ function AssetRow({ row }: { row: MarketRow }) {
 function AccountPage() {
   const navigate = useNavigate();
   const { tab } = Route.useSearch();
-  const {
-    isLoggedIn,
-    email,
-    name,
-    kycCompleted,
-    onboardingStatus,
-    transactions,
-    orders,
-    logout,
-    setName,
-  } = useAuth();
+  const { isLoggedIn, email, name, kycCompleted, onboardingStatus, logout, setName } = useAuth();
   const { isFavorite } = useFavorites();
   /* The real portfolio and the real price feed — the same two sources /wallet and /markets use. */
   const trading = useTrading();
+  const funding = useFundingRequests();
   const { rows: marketFeed, connected: feedConnected } = useMarketTable();
   const [sidebar, setSidebar] = useState<SidebarKey>(tab ?? "dashboard");
   const [marketTab, setMarketTab] = useState<MarketTab>("Holding");
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
+  const [nameSaving, setNameSaving] = useState(false);
+  const [nameError, setNameError] = useState("");
 
   const [ordersSubTab, setOrdersSubTab] = useState<"payments" | "assetsHistory">("payments");
   const [ordersQuery, setOrdersQuery] = useState("");
@@ -383,12 +273,22 @@ function AccountPage() {
 
   const startEditingName = () => {
     setNameDraft(username);
+    setNameError("");
     setEditingName(true);
   };
-  const saveName = () => {
+  const saveName = async () => {
     const trimmed = nameDraft.trim();
-    if (trimmed) setName(trimmed);
-    setEditingName(false);
+    if (!trimmed) return;
+    setNameSaving(true);
+    setNameError("");
+    try {
+      await setName(trimmed);
+      setEditingName(false);
+    } catch (err) {
+      setNameError(err instanceof ApiError ? err.message : "Could not save your name.");
+    } finally {
+      setNameSaving(false);
+    }
   };
 
   /**
@@ -442,17 +342,48 @@ function AccountPage() {
   );
 
   const filteredPayments = useMemo(
-    () => filterTransactions(transactions, ordersQuery, ordersTime),
-    [transactions, ordersQuery, ordersTime],
+    () => filterFunding(funding.requests, ordersQuery, ordersTime),
+    [funding.requests, ordersQuery, ordersTime],
   );
   const filteredTradeOrders = useMemo(
-    () => filterOrders(orders, ordersQuery, ordersTime),
-    [orders, ordersQuery, ordersTime],
+    () => filterOrders(trading.orders, ordersQuery, ordersTime),
+    [trading.orders, ordersQuery, ordersTime],
   );
   const filteredAssetsTx = useMemo(
-    () => filterTransactions(transactions, assetsQuery, assetsTime),
-    [transactions, assetsQuery, assetsTime],
+    () =>
+      filterFunding(funding.requests, assetsQuery, assetsTime).filter(
+        (request) => assetsSubTab === "overview" || request.kind === assetsSubTab,
+      ),
+    [funding.requests, assetsQuery, assetsTime, assetsSubTab],
   );
+
+  const report = useMemo(() => {
+    const deposited = trading.ledger
+      .filter((entry) => entry.kind === "deposit")
+      .reduce((sum, entry) => sum + (parseAmount(entry.amount) ?? 0), 0);
+    const withdrawn = trading.ledger
+      .filter((entry) => entry.kind === "withdrawal")
+      .reduce((sum, entry) => sum + Math.abs(parseAmount(entry.amount) ?? 0), 0);
+    const turnover = trading.trades.reduce(
+      (sum, trade) => sum + Math.abs(parseAmount(trade.notional) ?? 0),
+      0,
+    );
+    const fees = trading.trades.reduce(
+      (sum, trade) => sum + Math.abs(parseAmount(trade.fee) ?? 0),
+      0,
+    );
+    const realizedTrades = trading.trades.filter((trade) => trade.realized_pnl !== null);
+    const winningTrades = realizedTrades.filter(
+      (trade) => (parseAmount(trade.realized_pnl) ?? 0) > 0,
+    );
+    return {
+      deposited,
+      withdrawn,
+      turnover,
+      fees,
+      winRate: realizedTrades.length ? (winningTrades.length / realizedTrades.length) * 100 : null,
+    };
+  }, [trading.ledger, trading.trades]);
 
   const marketRows: MarketRow[] = useMemo(() => {
     switch (marketTab) {
@@ -554,33 +485,41 @@ function AccountPage() {
                   </div>
                   <div>
                     {editingName ? (
-                      <div className="flex items-center gap-2">
-                        <input
-                          autoFocus
-                          value={nameDraft}
-                          onChange={(e) => setNameDraft(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") saveName();
-                            if (e.key === "Escape") setEditingName(false);
-                          }}
-                          className="rounded-lg border border-border bg-background/60 px-2.5 py-1.5 text-lg font-bold text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
-                        />
-                        <button
-                          type="button"
-                          onClick={saveName}
-                          className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground hover:opacity-90"
-                          aria-label="Save name"
-                        >
-                          <i className="fa-solid fa-check text-xs" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setEditingName(false)}
-                          className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground"
-                          aria-label="Cancel"
-                        >
-                          <i className="fa-solid fa-xmark text-xs" />
-                        </button>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            autoFocus
+                            value={nameDraft}
+                            disabled={nameSaving}
+                            onChange={(e) => setNameDraft(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") void saveName();
+                              if (e.key === "Escape") setEditingName(false);
+                            }}
+                            className="rounded-lg border border-border bg-background/60 px-2.5 py-1.5 text-lg font-bold text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40 disabled:opacity-60"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => void saveName()}
+                            disabled={nameSaving}
+                            className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-60"
+                            aria-label="Save name"
+                          >
+                            <i
+                              className={`fa-solid ${nameSaving ? "fa-circle-notch fa-spin" : "fa-check"} text-xs`}
+                            />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditingName(false)}
+                            disabled={nameSaving}
+                            className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-60"
+                            aria-label="Cancel"
+                          >
+                            <i className="fa-solid fa-xmark text-xs" />
+                          </button>
+                        </div>
+                        {nameError && <p className="mt-1 text-xs text-destructive">{nameError}</p>}
                       </div>
                     ) : (
                       <div className="flex items-center gap-2">
@@ -641,24 +580,306 @@ function AccountPage() {
                         >
                           Deposit
                         </Link>
-                        <button
-                          type="button"
-                          disabled
-                          title="Withdrawals aren't available in this demo yet"
-                          className="rounded-lg border border-border bg-secondary px-4 py-2 text-sm font-semibold text-muted-foreground opacity-50"
+                        <Link
+                          to="/withdraw"
+                          className="rounded-lg border border-border bg-secondary px-4 py-2 text-sm font-semibold text-foreground transition-colors hover:bg-secondary/70"
                         >
                           Withdraw
-                        </button>
-                        <button
-                          type="button"
-                          disabled
-                          title="Not available in this demo yet"
-                          className="rounded-lg border border-border bg-secondary px-4 py-2 text-sm font-semibold text-muted-foreground opacity-50"
-                        >
-                          Cash In
-                        </button>
+                        </Link>
                       </div>
                     </div>
+                  </div>
+
+                  {/* A compact account statement, sourced entirely from the trading ledger. */}
+                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                    {(
+                      [
+                        ["Account equity", trading.portfolio?.equity, "fa-scale-balanced"],
+                        ["Free margin", trading.portfolio?.free_margin, "fa-bolt"],
+                        ["Margin used", trading.portfolio?.margin_used, "fa-lock"],
+                        ["Unrealized P&L", trading.portfolio?.unrealized_pnl, "fa-chart-line"],
+                        ["Realized P&L", trading.portfolio?.realized_pnl, "fa-circle-check"],
+                        ["Trading volume", String(report.turnover), "fa-arrow-right-arrow-left"],
+                        ["Fees paid", String(report.fees), "fa-receipt"],
+                        [
+                          "Closed-trade win rate",
+                          report.winRate === null ? null : `${report.winRate.toFixed(1)}%`,
+                          "fa-trophy",
+                        ],
+                      ] satisfies Array<[string, string | null | undefined, string]>
+                    ).map(([label, raw, icon]) => {
+                      const isPercent = typeof raw === "string" && raw.endsWith("%");
+                      const numeric = isPercent ? null : parseAmount(raw);
+                      const pnl = label.includes("P&L");
+                      return (
+                        <div key={label} className="rounded-xl border border-border bg-card p-4">
+                          <div className="flex items-center justify-between text-xs text-muted-foreground">
+                            <span>{label}</span>
+                            <i className={`fa-solid ${icon}`} />
+                          </div>
+                          <div
+                            className={`mt-2 font-mono text-xl font-bold ${
+                              pnl && numeric !== null
+                                ? numeric >= 0
+                                  ? "text-up"
+                                  : "text-down"
+                                : "text-foreground"
+                            }`}
+                          >
+                            {raw === null || raw === undefined
+                              ? "—"
+                              : isPercent
+                                ? raw
+                                : formatMoney(
+                                    numeric,
+                                    trading.portfolio?.account_currency ?? "USDT",
+                                  )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="grid gap-6 xl:grid-cols-2">
+                    <div className="rounded sm:rounded-2xl border border-border bg-card p-5">
+                      <div className="mb-4 flex items-center justify-between">
+                        <div>
+                          <h2 className="font-bold text-foreground">Recent trades</h2>
+                          <p className="text-xs text-muted-foreground">
+                            Executed fills, fees, and booked P&amp;L
+                          </p>
+                        </div>
+                        <span className="font-mono text-xs text-muted-foreground">
+                          {trading.trades.length} fills
+                        </span>
+                      </div>
+                      {trading.trades.length === 0 ? (
+                        <p className="py-8 text-center text-sm text-muted-foreground">
+                          No fills recorded yet.
+                        </p>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="w-full min-w-[720px] text-xs">
+                            <thead className="border-b border-border text-left uppercase tracking-wide text-muted-foreground">
+                              <tr>
+                                <th className="py-2 font-medium">Time</th>
+                                <th className="py-2 font-medium">Instrument</th>
+                                <th className="py-2 font-medium">Side</th>
+                                <th className="py-2 text-right font-medium">Qty</th>
+                                <th className="py-2 text-right font-medium">Fill</th>
+                                <th className="py-2 text-right font-medium">Value</th>
+                                <th className="py-2 text-right font-medium">Fee</th>
+                                <th className="py-2 text-right font-medium">Realized</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {trading.trades.slice(0, 10).map((trade) => (
+                                <tr
+                                  key={trade.id}
+                                  className="border-b border-border/70 last:border-0"
+                                >
+                                  <td className="whitespace-nowrap py-2.5 text-muted-foreground">
+                                    {new Date(trade.at).toLocaleString()}
+                                  </td>
+                                  <td className="py-2.5 font-semibold text-foreground">
+                                    {trade.symbol}
+                                    {trade.position_side && (
+                                      <span className="ml-1.5 text-[9px] uppercase text-muted-foreground">
+                                        {trade.position_side}
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td
+                                    className={`py-2.5 font-bold uppercase ${trade.side === "buy" ? "text-up" : "text-down"}`}
+                                  >
+                                    {trade.side}
+                                  </td>
+                                  <td className="py-2.5 text-right font-mono">{trade.quantity}</td>
+                                  <td className="py-2.5 text-right font-mono">
+                                    {formatMoney(parseAmount(trade.price), trade.currency)}
+                                  </td>
+                                  <td className="py-2.5 text-right font-mono">
+                                    {formatMoney(
+                                      parseAmount(trade.notional),
+                                      trade.account_currency,
+                                    )}
+                                  </td>
+                                  <td className="py-2.5 text-right font-mono text-down">
+                                    {formatMoney(parseAmount(trade.fee), trade.account_currency)}
+                                  </td>
+                                  <td className="py-2.5 text-right">
+                                    {trade.realized_pnl === null ? (
+                                      <span className="text-muted-foreground">Open</span>
+                                    ) : (
+                                      <SignedMoney
+                                        value={trade.realized_pnl}
+                                        currency={trade.account_currency}
+                                      />
+                                    )}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="rounded sm:rounded-2xl border border-border bg-card p-5">
+                      <div className="mb-4 flex items-center justify-between">
+                        <div>
+                          <h2 className="font-bold text-foreground">USDT activity</h2>
+                          <p className="text-xs text-muted-foreground">
+                            Every incoming, outgoing, held, and released amount
+                          </p>
+                        </div>
+                        <div className="text-right font-mono text-[10px] text-muted-foreground">
+                          <div className="text-up">In {formatMoney(report.deposited, "USDT")}</div>
+                          <div className="text-down">
+                            Out {formatMoney(report.withdrawn, "USDT")}
+                          </div>
+                        </div>
+                      </div>
+                      {trading.ledger.length === 0 ? (
+                        <p className="py-8 text-center text-sm text-muted-foreground">
+                          No balance movements recorded yet.
+                        </p>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="w-full min-w-[650px] text-xs">
+                            <thead className="border-b border-border text-left uppercase tracking-wide text-muted-foreground">
+                              <tr>
+                                <th className="py-2 font-medium">Time</th>
+                                <th className="py-2 font-medium">Activity</th>
+                                <th className="py-2 text-right font-medium">Movement</th>
+                                <th className="py-2 text-right font-medium">Available</th>
+                                <th className="py-2 text-right font-medium">Reserved</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {trading.ledger.slice(0, 12).map((entry) => (
+                                <tr
+                                  key={entry.id}
+                                  className="border-b border-border/70 last:border-0"
+                                >
+                                  <td className="whitespace-nowrap py-2.5 text-muted-foreground">
+                                    {new Date(entry.at).toLocaleString()}
+                                  </td>
+                                  <td className="py-2.5">
+                                    <div className="font-medium text-foreground">
+                                      {LEDGER_LABELS[entry.kind]}
+                                    </div>
+                                    {entry.reference && (
+                                      <div className="max-w-44 truncate text-[10px] text-muted-foreground">
+                                        {entry.reference}
+                                      </div>
+                                    )}
+                                  </td>
+                                  <td className="py-2.5 text-right">
+                                    <SignedMoney value={entry.amount} currency={entry.currency} />
+                                  </td>
+                                  <td className="py-2.5 text-right font-mono">
+                                    {formatMoney(
+                                      parseAmount(entry.available_after),
+                                      entry.currency,
+                                    )}
+                                  </td>
+                                  <td className="py-2.5 text-right font-mono">
+                                    {formatMoney(parseAmount(entry.reserved_after), entry.currency)}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="rounded sm:rounded-2xl border border-border bg-card p-5">
+                    <div className="mb-4 flex items-center justify-between">
+                      <div>
+                        <h2 className="font-bold text-foreground">Order report</h2>
+                        <p className="text-xs text-muted-foreground">
+                          Open, filled, cancelled, expired, and rejected instructions
+                        </p>
+                      </div>
+                      <Link
+                        to="/history"
+                        className="text-xs font-semibold text-primary hover:underline"
+                      >
+                        Full history
+                      </Link>
+                    </div>
+                    {trading.orders.length === 0 ? (
+                      <p className="py-8 text-center text-sm text-muted-foreground">
+                        No orders placed yet.
+                      </p>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full min-w-[850px] text-xs">
+                          <thead className="border-b border-border text-left uppercase tracking-wide text-muted-foreground">
+                            <tr>
+                              <th className="py-2 font-medium">Created</th>
+                              <th className="py-2 font-medium">Market</th>
+                              <th className="py-2 font-medium">Instrument</th>
+                              <th className="py-2 font-medium">Instruction</th>
+                              <th className="py-2 text-right font-medium">Quantity</th>
+                              <th className="py-2 text-right font-medium">Average fill</th>
+                              <th className="py-2 text-right font-medium">Filled value</th>
+                              <th className="py-2 text-right font-medium">Status</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {trading.orders.slice(0, 12).map((order) => (
+                              <tr
+                                key={order.id}
+                                className="border-b border-border/70 last:border-0"
+                              >
+                                <td className="whitespace-nowrap py-2.5 text-muted-foreground">
+                                  {new Date(order.created_at).toLocaleString()}
+                                </td>
+                                <td className="py-2.5 capitalize text-muted-foreground">
+                                  {order.asset_class}
+                                </td>
+                                <td className="py-2.5 font-semibold text-foreground">
+                                  {order.symbol}
+                                </td>
+                                <td
+                                  className={`py-2.5 font-bold uppercase ${order.side === "buy" ? "text-up" : "text-down"}`}
+                                >
+                                  {order.side} · {order.position_side ?? "one-way"} ·{" "}
+                                  {order.type.replace("_", " ")}
+                                </td>
+                                <td className="py-2.5 text-right font-mono">
+                                  {order.filled_quantity}/{order.quantity}
+                                </td>
+                                <td className="py-2.5 text-right font-mono">
+                                  {order.average_price === null
+                                    ? "—"
+                                    : formatMoney(parseAmount(order.average_price), order.currency)}
+                                </td>
+                                <td className="py-2.5 text-right font-mono">
+                                  {order.filled_notional === null
+                                    ? "—"
+                                    : formatMoney(
+                                        parseAmount(order.filled_notional),
+                                        order.account_currency,
+                                      )}
+                                </td>
+                                <td className="py-2.5 text-right">
+                                  <span
+                                    className={`rounded-full px-2 py-1 font-semibold capitalize ${order.status === "filled" ? "bg-up/10 text-up" : order.status === "open" ? "bg-primary/10 text-primary" : order.status === "rejected" ? "bg-down/10 text-down" : "bg-secondary text-muted-foreground"}`}
+                                  >
+                                    {order.status}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
                   </div>
 
                   {/* Markets */}
@@ -711,20 +932,31 @@ function AccountPage() {
                               feed, so this is the live worth of the position, not its cost. */}
                           {trading.positions.map((pos) => (
                             <div
-                              key={`${pos.asset_class}:${pos.symbol}`}
+                              key={`${pos.asset_class}:${pos.symbol}:${pos.position_side ?? pos.direction}`}
                               className="flex items-center gap-3 border-b border-border px-1 py-3 last:border-b-0"
                             >
                               <MarketIcon market={pos.asset_class} />
                               <div className="min-w-0">
-                                <div className="font-semibold text-foreground">{pos.symbol}</div>
+                                <div className="flex items-center gap-2 font-semibold text-foreground">
+                                  {pos.symbol}
+                                  <span
+                                    className={`rounded px-1.5 py-0.5 text-[9px] font-bold uppercase ${pos.direction === "long" ? "bg-up/10 text-up" : "bg-down/10 text-down"}`}
+                                  >
+                                    {pos.direction}
+                                  </span>
+                                </div>
                                 <div className="truncate text-xs text-muted-foreground">
                                   {pos.quantity} @{" "}
                                   {formatMoney(parseAmount(pos.average_price), pos.currency)}
                                 </div>
                               </div>
                               <div className="ml-auto text-right">
+                                {/* Already converted into the account balance's own currency —
+                                    `pos.currency` above is what it was bought at, not what
+                                    this figure is in. Tagging it with the wrong one is a
+                                    correct number wearing the wrong label. */}
                                 <div className="font-mono text-sm text-foreground">
-                                  {formatMoney(parseAmount(pos.market_value), pos.currency)}
+                                  {formatMoney(parseAmount(pos.market_value), pos.account_currency)}
                                 </div>
                                 <ChangeBadge value={parseAmount(pos.unrealized_pnl_percent)} />
                               </div>
@@ -817,17 +1049,22 @@ function AccountPage() {
                             {filteredPayments.map((t) => (
                               <tr key={t.id} className="border-b border-border last:border-b-0">
                                 <td className="px-1 sm:px-2 py-2 sm:py-3 text-muted-foreground">
-                                  {new Date(t.date).toLocaleString()}
+                                  {new Date(t.created_at).toLocaleString()}
                                 </td>
                                 <td className="px-1 sm:px-2 py-2 sm:py-3 text-foreground">
-                                  {t.method}
+                                  {t.network}
                                 </td>
-                                <td className="px-1 sm:px-2 py-2 sm:py-3 text-right font-mono font-semibold text-up">
-                                  +{t.amount.toLocaleString()} USDT
+                                <td
+                                  className={`px-1 sm:px-2 py-2 sm:py-3 text-right font-mono font-semibold ${t.kind === "deposit" ? "text-up" : "text-down"}`}
+                                >
+                                  {t.kind === "deposit" ? "+" : "−"}
+                                  {t.amount} {t.currency}
                                 </td>
                                 <td className="px-1 sm:px-2 py-2 sm:py-3">
-                                  <span className="rounded-full bg-up/10 px-2.5 py-0.5 text-xs font-semibold text-up">
-                                    Successful
+                                  <span
+                                    className={`rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize ${t.status === "completed" ? "bg-up/10 text-up" : t.status === "pending" ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}
+                                  >
+                                    {t.status}
                                   </span>
                                 </td>
                                 <td className="px-1 sm:px-2 py-2 sm:py-3 text-right">
@@ -871,22 +1108,22 @@ function AccountPage() {
                           {filteredTradeOrders.map((o) => (
                             <tr key={o.id} className="border-b border-border last:border-b-0">
                               <td className="px-1 sm:px-2 py-2 sm:py-3 text-muted-foreground">
-                                {new Date(o.date).toLocaleString()}
+                                {new Date(o.created_at).toLocaleString()}
                               </td>
                               <td className="px-1 sm:px-2 py-2 sm:py-3 capitalize text-foreground">
-                                {o.action}
+                                {o.side}
                               </td>
                               <td className="px-1 sm:px-2 py-2 sm:py-3 font-semibold text-foreground">
                                 {o.symbol}
                               </td>
                               <td className="px-1 sm:px-2 py-2 sm:py-3 text-right font-mono text-foreground">
-                                {o.qty}
+                                {o.quantity}
                               </td>
                               <td className="px-1 sm:px-2 py-2 sm:py-3 text-right font-mono text-foreground">
-                                {o.price}
+                                {o.average_price ?? o.limit_price ?? o.stop_price ?? "Market"}
                               </td>
                               <td className="px-1 sm:px-2 py-2 sm:py-3 text-right text-muted-foreground">
-                                Completed
+                                {o.status}
                               </td>
                             </tr>
                           ))}
@@ -923,13 +1160,18 @@ function AccountPage() {
                     </div>
                     <p className="mt-1 text-sm text-muted-foreground">
                       {kycCompleted
-                        ? "Submitted for verification. These can only be viewed here, not changed."
+                        ? "Submitted for verification. Use “Edit” on a section to correct it."
                         : onboardingSession && onboardingSession.completed_steps.length > 0
                           ? `${onboardingSession.progress_percent}% complete — pick up where you left off.`
                           : "Complete your account details to unlock deposits and trading."}
                     </p>
                     {kycCompleted && onboardingSession ? (
-                      <KycDetails session={onboardingSession} />
+                      <KycDetails
+                        session={onboardingSession}
+                        onEditStep={(step) =>
+                          void navigate({ to: "/kyc", search: { edit: true, step } })
+                        }
+                      />
                     ) : (
                       <Link
                         to="/kyc"
@@ -1028,11 +1270,7 @@ function AccountPage() {
                     onReset={resetAssetsFilters}
                   />
 
-                  {assetsSubTab === "withdraw" ? (
-                    <p className="py-8 text-center text-sm text-muted-foreground">
-                      No withdrawals yet — withdrawals aren't available in this demo.
-                    </p>
-                  ) : filteredAssetsTx.length === 0 ? (
+                  {filteredAssetsTx.length === 0 ? (
                     <p className="py-8 text-center text-sm text-muted-foreground">
                       No transactions found.
                     </p>
@@ -1054,18 +1292,25 @@ function AccountPage() {
                           {filteredAssetsTx.map((t) => (
                             <tr key={t.id} className="border-b border-border last:border-b-0">
                               <td className="px-1 sm:px-2 py-2 sm:py-3 text-muted-foreground">
-                                {new Date(t.date).toLocaleString()}
+                                {new Date(t.created_at).toLocaleString()}
                               </td>
-                              <td className="px-1 sm:px-2 py-2 sm:py-3 text-foreground">Deposit</td>
+                              <td className="px-1 sm:px-2 py-2 sm:py-3 capitalize text-foreground">
+                                {t.kind}
+                              </td>
                               <td className="px-1 sm:px-2 py-2 sm:py-3 text-foreground">
-                                {t.method}
+                                {t.currency} · {t.network}
                               </td>
-                              <td className="px-1 sm:px-2 py-2 sm:py-3 text-right font-mono font-semibold text-up">
-                                +{t.amount.toLocaleString()}
+                              <td
+                                className={`px-1 sm:px-2 py-2 sm:py-3 text-right font-mono font-semibold ${t.kind === "deposit" ? "text-up" : "text-down"}`}
+                              >
+                                {t.kind === "deposit" ? "+" : "−"}
+                                {t.amount} {t.currency}
                               </td>
                               <td className="px-1 sm:px-2 py-2 sm:py-3">
-                                <span className="rounded-full bg-up/10 px-2.5 py-0.5 text-xs font-semibold text-up">
-                                  Completed
+                                <span
+                                  className={`rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize ${t.status === "completed" ? "bg-up/10 text-up" : t.status === "pending" ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}
+                                >
+                                  {t.status}
                                 </span>
                               </td>
                             </tr>

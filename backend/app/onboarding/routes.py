@@ -53,6 +53,22 @@ def my_session(claims: dict = Depends(get_current_user)):
     return service.get_session_view(claims["uid"])
 
 
+@router.patch(
+    "/kyc",
+    response_model=OnboardingSessionResponse,
+    responses={**UNAUTHORIZED, **NOT_FOUND, **STEP_CONFLICT, **UNAVAILABLE},
+    summary="Correct one section of your submitted application",
+    description=(
+        "For an application that has already been submitted — an in-progress signup keeps "
+        "using `POST /onboarding/step`. Accepts the same per-step bodies except `markets` "
+        "and `agreements`, which return `409` here: product selection and consent aren't "
+        "plain details to overwrite."
+    ),
+)
+def amend_kyc(payload: StepPayload, claims: dict = Depends(get_current_user)):
+    return service.amend_step(claims["uid"], payload)
+
+
 @router.post(
     "/submit",
     response_model=OnboardingSubmitResponse,

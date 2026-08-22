@@ -28,7 +28,13 @@ from app.core.config import (  # noqa: E402
     TRADING_PEGGED_CURRENCIES,
     TRADING_SHORT_SELLING_CLASSES,
 )
-from app.schemas.trading import AssetClass, OrderSide, PositionSide  # noqa: E402
+from app.schemas.trading import (  # noqa: E402
+    AssetClass,
+    HedgeSide,
+    OrderRequest,
+    OrderSide,
+    PositionSide,
+)
 from app.trading import fx  # noqa: E402
 from app.trading.money import (  # noqa: E402
     ZERO,
@@ -40,8 +46,10 @@ from app.trading.money import (  # noqa: E402
     notional_of,
     wallet_delta,
 )
+from app.trading.repository import _position_id  # noqa: E402
 from app.trading.service import (  # noqa: E402
     _assert_no_flip,
+    _assert_position_leg,
     _assert_short_selling_allowed,
     _direction,
     _net_quantity,
@@ -100,11 +108,18 @@ class Account:
         """Reserve for an order the way `place_order` + `_reserve_for` do."""
         quantity = money(Decimal(quantity))
         notional = fx.convert(notional_of(quantity, Decimal(price)), rate)
-        order = {"side": side, "quantity": quantity, "rate": rate,
-                 "reserved_amount": ZERO, "reserved_quantity": ZERO}
+        order = {
+            "side": side,
+            "quantity": quantity,
+            "rate": rate,
+            "reserved_amount": ZERO,
+            "reserved_quantity": ZERO,
+        }
         if _reserves_units(side, self.net()):
             free = self.position["available_quantity"]
-            assert quantity <= free, f"cannot reserve {quantity} units, only {free} free"
+            assert quantity <= free, (
+                f"cannot reserve {quantity} units, only {free} free"
+            )
             self.position["available_quantity"] = money(free - quantity)
             self.position["reserved_quantity"] = money(
                 self.position["reserved_quantity"] + quantity
@@ -112,7 +127,9 @@ class Account:
             order["reserved_quantity"] = quantity
         else:
             amount = money(margin_of(notional) + fee_for(notional))
-            assert amount <= self.available, f"cannot reserve {amount}, have {self.available}"
+            assert amount <= self.available, (
+                f"cannot reserve {amount}, have {self.available}"
+            )
             self.available = money(self.available - amount)
             self.reserved = money(self.reserved + amount)
             order["reserved_amount"] = amount
@@ -197,7 +214,11 @@ class Account:
         return money(exposure - self.position["cost_basis"])
 
     def equity(self, mark=None, rate=Decimal(1)) -> Decimal:
-        pnl = self.unrealized(mark, rate) if mark is not None and self.net() != 0 else ZERO
+        pnl = (
+            self.unrealized(mark, rate)
+            if mark is not None and self.net() != 0
+            else ZERO
+        )
         return money(self.cash() + self.position["margin_used"] + pnl)
 
     def assert_conserved(self, mark=None, rate=Decimal(1)) -> None:
@@ -209,7 +230,11 @@ class Account:
         starts life negative by that fee. Subtracting `fees` here as well would count every
         commission twice.
         """
-        pnl = self.unrealized(mark, rate) if mark is not None and self.net() != 0 else ZERO
+        pnl = (
+            self.unrealized(mark, rate)
+            if mark is not None and self.net() != 0
+            else ZERO
+        )
         paid_in = money(self.deposited - self.withdrawn)
         expected = money(paid_in + self.realized + pnl)
         actual = self.equity(mark, rate)
@@ -230,12 +255,16 @@ class Account:
 # The rules that gate an order
 # --------------------------------------------------------------------------- #
 def test_only_a_sell_against_a_long_reserves_units():
-    assert _reserves_units(SELL, Decimal("5")) is True, "selling a long must lock the stock"
+    assert _reserves_units(SELL, Decimal("5")) is True, (
+        "selling a long must lock the stock"
+    )
     assert _reserves_units(SELL, ZERO) is False, "opening a short has no units to lock"
     assert _reserves_units(SELL, Decimal("-5")) is False, "extending a short locks cash"
     assert _reserves_units(BUY, Decimal("5")) is False
     assert _reserves_units(BUY, ZERO) is False
-    assert _reserves_units(BUY, Decimal("-5")) is False, "closing a short needs cash, not units"
+    assert _reserves_units(BUY, Decimal("-5")) is False, (
+        "closing a short needs cash, not units"
+    )
 
 
 def test_direction_reads_off_the_sign():
@@ -246,7 +275,10 @@ def test_direction_reads_off_the_sign():
 
 def test_net_quantity_adds_reserved_to_signed_available():
     assert _net_quantity(None) == 0
-    long_with_resting_sell = {"available_quantity": Decimal("3"), "reserved_quantity": Decimal("2")}
+    long_with_resting_sell = {
+        "available_quantity": Decimal("3"),
+        "reserved_quantity": Decimal("2"),
+    }
     assert _net_quantity(long_with_resting_sell) == Decimal("5")
     short = {"available_quantity": Decimal("-4"), "reserved_quantity": ZERO}
     assert _net_quantity(short) == Decimal("-4")
@@ -262,32 +294,72 @@ def test_shorting_is_allowed_where_configured_and_refused_elsewhere():
             assert "borrow" in str(error.detail), "the refusal should say why"
         else:
             assert allowed, f"{asset_class.value} should not permit shorting"
-    assert "stocks" not in TRADING_SHORT_SELLING_CLASSES, "equities must stay long-only"
-    assert {"crypto", "forex"} <= TRADING_SHORT_SELLING_CLASSES
+    assert {"crypto", "forex", "stocks"} <= TRADING_SHORT_SELLING_CLASSES
 
 
 def test_an_order_through_zero_is_refused_and_one_up_to_zero_is_not():
-    _assert_no_flip(SELL, Decimal("5"), Decimal("5"), "X")     # exact close
-    _assert_no_flip(SELL, Decimal("3"), Decimal("5"), "X")     # partial close
-    _assert_no_flip(SELL, Decimal("5"), ZERO, "X")             # open a short
-    _assert_no_flip(SELL, Decimal("5"), Decimal("-2"), "X")    # extend a short
-    _assert_no_flip(BUY, Decimal("5"), Decimal("-5"), "X")     # exact close of a short
-    _assert_no_flip(BUY, Decimal("9"), Decimal("2"), "X")      # extend a long
+    _assert_no_flip(SELL, Decimal("5"), Decimal("5"), "X")  # exact close
+    _assert_no_flip(SELL, Decimal("3"), Decimal("5"), "X")  # partial close
+    _assert_no_flip(SELL, Decimal("5"), ZERO, "X")  # open a short
+    _assert_no_flip(SELL, Decimal("5"), Decimal("-2"), "X")  # extend a short
+    _assert_no_flip(BUY, Decimal("5"), Decimal("-5"), "X")  # exact close of a short
+    _assert_no_flip(BUY, Decimal("9"), Decimal("2"), "X")  # extend a long
 
-    for side, quantity, net in ((SELL, Decimal("6"), Decimal("5")), (BUY, Decimal("6"), Decimal("-5"))):
+    for side, quantity, net in (
+        (SELL, Decimal("6"), Decimal("5")),
+        (BUY, Decimal("6"), Decimal("-5")),
+    ):
         try:
             _assert_no_flip(side, quantity, net, "X")
         except Exception as error:
             assert "through zero" in str(error.detail)
         else:
-            raise AssertionError(f"{side.value} {quantity} against {net} should have been refused")
+            raise AssertionError(
+                f"{side.value} {quantity} against {net} should have been refused"
+            )
 
 
-def test_overselling_equity_is_refused_as_a_short_not_as_a_flip():
-    """The refusal has to be actionable. Selling 10 equities against 5 held is not "close
-    then open the other side" — there is no other side to open — so it must come back as the
-    short-selling refusal, which says why, and not as the flip one, which says do something
-    impossible. Placement asks the two gates in that order."""
+def test_hedge_legs_open_and_close_independently():
+    long_id = _position_id("user", "stocks", "AAPL", "long")
+    short_id = _position_id("user", "stocks", "AAPL", "short")
+    assert long_id != short_id
+
+    long_open = OrderRequest(
+        asset_class=AssetClass.stocks,
+        symbol="AAPL",
+        side=BUY,
+        position_side=HedgeSide.long,
+        quantity="2",
+    )
+    short_open = OrderRequest(
+        asset_class=AssetClass.stocks,
+        symbol="AAPL",
+        side=SELL,
+        position_side=HedgeSide.short,
+        quantity="3",
+    )
+    _assert_position_leg(long_open, ZERO)
+    _assert_position_leg(short_open, ZERO)
+
+    long_close = long_open.model_copy(update={"side": SELL, "quantity": Decimal("2")})
+    short_close = short_open.model_copy(update={"side": BUY, "quantity": Decimal("3")})
+    _assert_position_leg(long_close, Decimal("2"))
+    _assert_position_leg(short_close, Decimal("-3"))
+
+    for payload, net in (
+        (long_close.model_copy(update={"quantity": Decimal("3")}), Decimal("2")),
+        (short_close.model_copy(update={"quantity": Decimal("4")}), Decimal("-3")),
+    ):
+        try:
+            _assert_position_leg(payload, net)
+        except Exception as error:
+            assert "leg only has" in str(error.detail)
+        else:
+            raise AssertionError("a hedge close larger than its own leg was accepted")
+
+
+def test_overselling_any_enabled_class_hits_the_flip_guard():
+    """All default desks support shorts, but a single netting order still cannot cross zero."""
     stocks, crypto = AssetClass.stocks, AssetClass.crypto
     held, wanted = Decimal("5"), Decimal("10")
 
@@ -297,21 +369,13 @@ def test_overselling_equity_is_refused_as_a_short_not_as_a_flip():
             _assert_short_selling_allowed(asset_class, "X", net)
         _assert_no_flip(SELL, quantity, net, "X")
 
-    try:
-        gates(stocks, wanted, held)
-    except Exception as error:
-        assert "borrow" in str(error.detail), f"wrong refusal for equities: {error.detail}"
-        assert "you hold 5" in str(error.detail), "the refusal should say what is held"
-    else:
-        raise AssertionError("overselling an equity holding was allowed")
-
-    # On a shortable class the flip refusal is the correct one, and it is actionable.
-    try:
-        gates(crypto, wanted, held)
-    except Exception as error:
-        assert "through zero" in str(error.detail), f"wrong refusal for crypto: {error.detail}"
-    else:
-        raise AssertionError("a crypto position flip was allowed")
+    for asset_class in (stocks, crypto):
+        try:
+            gates(asset_class, wanted, held)
+        except Exception as error:
+            assert "through zero" in str(error.detail), f"wrong refusal: {error.detail}"
+        else:
+            raise AssertionError(f"a {asset_class.value} position flip was allowed")
 
     # Selling exactly what is held is a plain close on both.
     gates(stocks, held, held)
@@ -321,11 +385,15 @@ def test_overselling_equity_is_refused_as_a_short_not_as_a_flip():
 def test_pegged_currencies_convert_one_to_one():
     assert TRADING_ACCOUNT_CURRENCY in TRADING_PEGGED_CURRENCIES
     for currency in TRADING_PEGGED_CURRENCIES:
-        assert fx.cached_rate(currency) == 1, f"{currency} should be 1:1 with the account"
+        assert fx.cached_rate(currency) == 1, (
+            f"{currency} should be 1:1 with the account"
+        )
     assert fx.cached_rate("") is None
     assert fx.convert(Decimal("100"), Decimal("0.012")) == Decimal("1.2")
     assert fx.unconvert(Decimal("1.2"), Decimal("0.012")) == Decimal("100")
-    assert fx.unconvert(Decimal("5"), ZERO) == Decimal("5"), "a zero rate must not divide"
+    assert fx.unconvert(Decimal("5"), ZERO) == Decimal("5"), (
+        "a zero rate must not divide"
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -412,7 +480,9 @@ def test_a_resting_sell_locks_the_stock_and_settles_out_of_it():
     account.trade(BUY, "4", "20")
     order = account.place(SELL, "3", "25")
     assert order["reserved_quantity"] == Decimal("3") and order["reserved_amount"] == 0
-    assert account.position["available_quantity"] == Decimal("1"), "units were not locked"
+    assert account.position["available_quantity"] == Decimal("1"), (
+        "units were not locked"
+    )
     assert account.net() == Decimal("4"), "locking units changed the position size"
 
     # The locked units cannot be sold a second time while that order rests.
@@ -439,7 +509,9 @@ def test_partial_closes_walk_a_position_down_to_flat():
         account.assert_conserved(mark="20")
     assert account.net() == 0
     assert account.position["cost_basis"] == 0 and account.position["margin_used"] == 0
-    assert account.available == money(opening - account.fees), "partial exits leaked value"
+    assert account.available == money(opening - account.fees), (
+        "partial exits leaked value"
+    )
 
 
 def test_adding_to_a_position_then_closing_it_all():
@@ -466,7 +538,9 @@ def test_leverage_changes_the_cash_locked_and_not_the_outcome():
     assert account.position["margin_used"] == order["reserved_amount"]
     account.trade(SELL, "1", "110")
     assert account.realized == money(
-        Decimal("10") - fee_for(notional) - fee_for(notional_of(Decimal("1"), Decimal("110")))
+        Decimal("10")
+        - fee_for(notional)
+        - fee_for(notional_of(Decimal("1"), Decimal("110")))
     ), "leverage changed the realized P&L"
     account.assert_conserved()
 
@@ -479,10 +553,16 @@ def test_an_inr_priced_instrument_settles_in_the_account_currency():
     account.trade(BUY, "10", "2400", rate)
 
     # The cash that moved is the converted figure, not the rupee one.
-    assert account.position["cost_basis"] < Decimal("500"), "an INR notional was not converted"
-    assert account.position["cost_basis_quote"] == Decimal("24000"), "quote basis was converted"
+    assert account.position["cost_basis"] < Decimal("500"), (
+        "an INR notional was not converted"
+    )
+    assert account.position["cost_basis_quote"] == Decimal("24000"), (
+        "quote basis was converted"
+    )
     # `average_price` is reported off the quote basis, so it matches the screen.
-    assert money(account.position["cost_basis_quote"] / account.net()) == Decimal("2400")
+    assert money(account.position["cost_basis_quote"] / account.net()) == Decimal(
+        "2400"
+    )
 
     account.assert_conserved(mark="2400", rate=rate)
     account.trade(SELL, "10", "2500", rate)
@@ -510,9 +590,11 @@ def test_a_leveraged_loss_deeper_than_its_margin_comes_out_of_cash():
     margin = account.position["margin_used"]
     before = account.available
 
-    account.trade(SELL, "2", "45")            # a 10.00 gross loss against ~0.6 of margin
+    account.trade(SELL, "2", "45")  # a 10.00 gross loss against ~0.6 of margin
     assert account.realized < -margin, "the loss did not exceed the margin posted"
-    assert account.available < before, "a loss beyond the margin did not touch the balance"
+    assert account.available < before, (
+        "a loss beyond the margin did not touch the balance"
+    )
     assert account.available == money(before + margin + account.realized)
     account.assert_conserved()
 
@@ -522,8 +604,8 @@ def test_a_loss_bigger_than_the_account_closes_anyway_into_a_negative_balance():
     balance is allowed to go under. It is contained: every reservation and every withdrawal
     guards on available cash, so nothing can be traded or paid out of a negative balance."""
     account = Account(opening=Decimal("50"))
-    account.trade(BUY, "10", "100")           # 1000 notional on 50 of cash, via leverage
-    account.trade(SELL, "10", "20")           # an 800 gross loss
+    account.trade(BUY, "10", "100")  # 1000 notional on 50 of cash, via leverage
+    account.trade(SELL, "10", "20")  # an 800 gross loss
 
     assert account.went_negative, "the account absorbed a loss it could not afford"
     assert account.available < 0
@@ -540,9 +622,9 @@ def test_a_loss_bigger_than_the_account_closes_anyway_into_a_negative_balance():
 
 def test_an_opening_fill_that_gaps_past_the_balance_is_refused_not_funded():
     account = Account(opening=Decimal("1"))
-    order = account.place(BUY, "1", "100")     # margin ~0.6 of a 1.00 balance: fits
+    order = account.place(BUY, "1", "100")  # margin ~0.6 of a 1.00 balance: fits
     try:
-        account.fill(order, "10000")           # gapped 100x: the margin owed is ~50
+        account.fill(order, "10000")  # gapped 100x: the margin owed is ~50
     except AssertionError as error:
         assert "opening fill" in str(error), error
     else:
@@ -562,7 +644,9 @@ def test_deposit_and_withdraw_move_the_one_balance():
     account.place(BUY, "5", "100")
     locked = account.reserved
     assert locked > 0
-    assert account.withdraw(money(account.available + 1)) is False, "withdrew more than available"
+    assert account.withdraw(money(account.available + 1)) is False, (
+        "withdrew more than available"
+    )
     account.assert_conserved()
 
 
@@ -585,15 +669,15 @@ def test_a_full_session_of_wins_losses_and_both_directions():
     account = Account()
     account.deposit("1000")
 
-    account.trade(BUY, "1", "100")          # long
-    account.trade(SELL, "1", "120")          # win
-    account.trade(BUY, "2", "50")            # long again
-    account.trade(SELL, "2", "45")           # loss
-    account.trade(SELL, "3", "30")           # open a short
+    account.trade(BUY, "1", "100")  # long
+    account.trade(SELL, "1", "120")  # win
+    account.trade(BUY, "2", "50")  # long again
+    account.trade(SELL, "2", "45")  # loss
+    account.trade(SELL, "3", "30")  # open a short
     account.assert_conserved(mark="28")
-    account.trade(BUY, "1", "28")            # partial close, in profit
+    account.trade(BUY, "1", "28")  # partial close, in profit
     account.assert_conserved(mark="33")
-    account.trade(BUY, "2", "33")            # close the rest, at a loss
+    account.trade(BUY, "2", "33")  # close the rest, at a loss
     assert account.net() == 0
 
     resting = account.place(BUY, "1", "10")  # something still open
@@ -609,7 +693,9 @@ def test_a_full_session_of_wins_losses_and_both_directions():
 
 
 def main() -> int:
-    tests = [value for name, value in sorted(globals().items()) if name.startswith("test_")]
+    tests = [
+        value for name, value in sorted(globals().items()) if name.startswith("test_")
+    ]
     failures = 0
     for test in tests:
         try:

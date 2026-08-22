@@ -44,12 +44,7 @@ function TradePage() {
           that sizes itself to the viewport, and a background layer only showed through the
           gaps the old layout left. */}
       <section className="relative overflow-hidden border-b border-border">
-        <TradingDesk
-          assetClasses={CLASSES}
-          tableTitle="Instruments"
-          initialAssetClass={assetClass}
-          initialSymbol={symbol}
-        />
+        <TradingDesk assetClasses={CLASSES} initialAssetClass={assetClass} initialSymbol={symbol} />
       </section>
     </AppLayout>
   );

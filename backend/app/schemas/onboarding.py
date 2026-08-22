@@ -26,6 +26,7 @@ from app.schemas.common import ErrorResponse
 # Reusable constrained types
 # --------------------------------------------------------------------------- #
 
+
 def _upper(value: Any) -> Any:
     """Normalise before the pattern runs — StringConstraints applies its own `to_upper`
     *after* matching, so a lowercase `in` would otherwise fail an `^[A-Z]{2}$` code.
@@ -50,7 +51,10 @@ UpperCode = Annotated[
     BeforeValidator(_upper),
 ]
 PersonName = Annotated[
-    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=64, pattern=r"^[^\d]+$")
+    str,
+    StringConstraints(
+        strip_whitespace=True, min_length=1, max_length=64, pattern=r"^[^\d]+$"
+    ),
 ]
 
 
@@ -86,9 +90,9 @@ class OnboardingStatus(str, Enum):
 
 class KycTier(str, Enum):
     unverified = "unverified"  # signed up, nothing verified
-    basic = "basic"            # identity document on file
-    verified = "verified"      # full application submitted
-    pro = "pro"               # derivatives approved by review
+    basic = "basic"  # identity document on file
+    verified = "verified"  # full application submitted
+    pro = "pro"  # derivatives approved by review
 
 
 class Gender(str, Enum):
@@ -175,7 +179,12 @@ class Product(str, Enum):
 
 # Products that only go live after a human review of the income proof.
 REVIEW_GATED_PRODUCTS: frozenset[Product] = frozenset(
-    {Product.domestic_derivatives, Product.commodities, Product.forex, Product.crypto_derivatives}
+    {
+        Product.domestic_derivatives,
+        Product.commodities,
+        Product.forex,
+        Product.crypto_derivatives,
+    }
 )
 
 
@@ -204,9 +213,18 @@ class RoutingType(str, Enum):
 
 # Each scheme has a fixed shape, so a typo is caught here rather than by a failed transfer.
 ROUTING_PATTERNS: dict[RoutingType, tuple[str, str]] = {
-    RoutingType.ifsc: (r"^[A-Z]{4}0[A-Z0-9]{6}$", "IFSC is 4 letters, a 0, then 6 alphanumerics"),
-    RoutingType.swift: (r"^[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?$", "SWIFT/BIC is 8 or 11 characters"),
-    RoutingType.iban: (r"^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$", "IBAN is a country code, 2 check digits, then the account"),
+    RoutingType.ifsc: (
+        r"^[A-Z]{4}0[A-Z0-9]{6}$",
+        "IFSC is 4 letters, a 0, then 6 alphanumerics",
+    ),
+    RoutingType.swift: (
+        r"^[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?$",
+        "SWIFT/BIC is 8 or 11 characters",
+    ),
+    RoutingType.iban: (
+        r"^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$",
+        "IBAN is a country code, 2 check digits, then the account",
+    ),
     RoutingType.aba: (r"^[0-9]{9}$", "ABA routing number is 9 digits"),
     RoutingType.sort_code: (r"^[0-9]{6}$", "Sort code is 6 digits"),
 }
@@ -259,22 +277,38 @@ ALWAYS_REQUIRED_AGREEMENTS: frozenset[AgreementDocument] = frozenset(
 )
 
 AGREEMENTS_BY_PRODUCT: dict[Product, frozenset[AgreementDocument]] = {
-    Product.domestic_equity_delivery: frozenset({AgreementDocument.risk_disclosure_securities}),
-    Product.domestic_equity_intraday: frozenset(
-        {AgreementDocument.risk_disclosure_securities, AgreementDocument.risk_disclosure_derivatives}
+    Product.domestic_equity_delivery: frozenset(
+        {AgreementDocument.risk_disclosure_securities}
     ),
-    Product.domestic_derivatives: frozenset({AgreementDocument.risk_disclosure_derivatives}),
+    Product.domestic_equity_intraday: frozenset(
+        {
+            AgreementDocument.risk_disclosure_securities,
+            AgreementDocument.risk_disclosure_derivatives,
+        }
+    ),
+    Product.domestic_derivatives: frozenset(
+        {AgreementDocument.risk_disclosure_derivatives}
+    ),
     Product.foreign_equity: frozenset(
-        {AgreementDocument.risk_disclosure_securities, AgreementDocument.cross_border_remittance}
+        {
+            AgreementDocument.risk_disclosure_securities,
+            AgreementDocument.cross_border_remittance,
+        }
     ),
     Product.mutual_funds: frozenset({AgreementDocument.risk_disclosure_securities}),
     Product.commodities: frozenset({AgreementDocument.risk_disclosure_derivatives}),
     Product.forex: frozenset(
-        {AgreementDocument.risk_disclosure_derivatives, AgreementDocument.cross_border_remittance}
+        {
+            AgreementDocument.risk_disclosure_derivatives,
+            AgreementDocument.cross_border_remittance,
+        }
     ),
     Product.crypto_spot: frozenset({AgreementDocument.risk_disclosure_crypto}),
     Product.crypto_derivatives: frozenset(
-        {AgreementDocument.risk_disclosure_crypto, AgreementDocument.risk_disclosure_derivatives}
+        {
+            AgreementDocument.risk_disclosure_crypto,
+            AgreementDocument.risk_disclosure_derivatives,
+        }
     ),
     Product.crypto_staking: frozenset({AgreementDocument.risk_disclosure_crypto}),
 }
@@ -296,7 +330,9 @@ class Address(_Strict):
     line2: str | None = Field(default=None, min_length=1, max_length=128)
     city: str = Field(min_length=1, max_length=64)
     state: str = Field(min_length=1, max_length=64)
-    postal_code: str = Field(min_length=3, max_length=16, pattern=r"^[A-Za-z0-9][A-Za-z0-9 \-]{1,15}$")
+    postal_code: str = Field(
+        min_length=3, max_length=16, pattern=r"^[A-Za-z0-9][A-Za-z0-9 \-]{1,15}$"
+    )
     country: CountryCode
 
 
@@ -367,19 +403,38 @@ class AddressStep(_Strict):
     @model_validator(mode="after")
     def _permanent_present(self) -> "AddressStep":
         if self.permanent_same_as_residential and self.permanent is not None:
-            raise ValueError("Do not send `permanent` when it is the same as the residential address")
+            raise ValueError(
+                "Do not send `permanent` when it is the same as the residential address"
+            )
         if not self.permanent_same_as_residential and self.permanent is None:
-            raise ValueError("`permanent` is required when it differs from the residential address")
+            raise ValueError(
+                "`permanent` is required when it differs from the residential address"
+            )
         return self
 
 
 # Formats are fixed per document, so a mistyped number never reaches the KYC vendor.
 DOCUMENT_PATTERNS: dict[DocumentType, tuple[str, str]] = {
-    DocumentType.pan: (r"^[A-Z]{5}[0-9]{4}[A-Z]$", "PAN is 5 letters, 4 digits, 1 letter"),
-    DocumentType.aadhaar: (r"^[2-9][0-9]{11}$", "Aadhaar is 12 digits and cannot start with 0 or 1"),
-    DocumentType.passport: (r"^[A-Z0-9]{6,12}$", "Passport number is 6-12 alphanumerics"),
-    DocumentType.national_id: (r"^[A-Z0-9]{4,20}$", "National ID is 4-20 alphanumerics"),
-    DocumentType.drivers_licence: (r"^[A-Z0-9]{6,20}$", "Licence number is 6-20 alphanumerics"),
+    DocumentType.pan: (
+        r"^[A-Z]{5}[0-9]{4}[A-Z]$",
+        "PAN is 5 letters, 4 digits, 1 letter",
+    ),
+    DocumentType.aadhaar: (
+        r"^[2-9][0-9]{11}$",
+        "Aadhaar is 12 digits and cannot start with 0 or 1",
+    ),
+    DocumentType.passport: (
+        r"^[A-Z0-9]{6,12}$",
+        "Passport number is 6-12 alphanumerics",
+    ),
+    DocumentType.national_id: (
+        r"^[A-Z0-9]{4,20}$",
+        "National ID is 4-20 alphanumerics",
+    ),
+    DocumentType.drivers_licence: (
+        r"^[A-Z0-9]{6,20}$",
+        "Licence number is 6-20 alphanumerics",
+    ),
 }
 # Documents that carry an expiry must have a future one; PAN/Aadhaar do not expire.
 EXPIRING_DOCUMENTS: frozenset[DocumentType] = frozenset(
@@ -401,11 +456,15 @@ class IdentityStep(_Strict):
             raise ValueError(f"Invalid {self.document_type.value} number — {hint}")
         if self.document_type in EXPIRING_DOCUMENTS:
             if self.expiry_date is None:
-                raise ValueError(f"`expiry_date` is required for a {self.document_type.value}")
+                raise ValueError(
+                    f"`expiry_date` is required for a {self.document_type.value}"
+                )
             if self.expiry_date <= date.today():
                 raise ValueError("Document has expired")
         elif self.expiry_date is not None:
-            raise ValueError(f"A {self.document_type.value} does not carry an expiry date")
+            raise ValueError(
+                f"A {self.document_type.value} does not carry an expiry date"
+            )
         return self
 
 
@@ -417,23 +476,32 @@ class TaxStep(_Strict):
     is_us_person: bool
     pep_status: PepStatus
     source_of_funds: SourceOfFunds
-    source_of_funds_detail: str | None = Field(default=None, min_length=3, max_length=200)
+    source_of_funds_detail: str | None = Field(
+        default=None, min_length=3, max_length=200
+    )
 
     @model_validator(mode="after")
     def _tin_or_reason(self) -> "TaxStep":
         if self.tax_identification_number is None and not self.no_tin_reason:
             raise ValueError("Provide `tax_identification_number` or `no_tin_reason`")
         if self.tax_identification_number is not None and self.no_tin_reason:
-            raise ValueError("Send either `tax_identification_number` or `no_tin_reason`, not both")
-        if self.source_of_funds is SourceOfFunds.other and not self.source_of_funds_detail:
-            raise ValueError("`source_of_funds_detail` is required when source_of_funds is `other`")
+            raise ValueError(
+                "Send either `tax_identification_number` or `no_tin_reason`, not both"
+            )
+        if (
+            self.source_of_funds is SourceOfFunds.other
+            and not self.source_of_funds_detail
+        ):
+            raise ValueError(
+                "`source_of_funds_detail` is required when source_of_funds is `other`"
+            )
         return self
 
 
 class FinancialStep(_Strict):
     step: Literal[OnboardingStep.financial]
     occupation: Occupation
-    employer_designation : str | None = Field(default=None, min_length=2, max_length=128)
+    employer_designation: str | None = Field(default=None, min_length=2, max_length=128)
     income_currency: Currency
     annual_income_band: MoneyBand
     net_worth_band: MoneyBand
@@ -445,9 +513,15 @@ class FinancialStep(_Strict):
     def _consistent(self) -> "FinancialStep":
         if len(set(self.investment_objectives)) != len(self.investment_objectives):
             raise ValueError("`investment_objectives` must not repeat a value")
-        employed = {Occupation.salaried_private, Occupation.salaried_public, Occupation.government}
+        employed = {
+            Occupation.salaried_private,
+            Occupation.salaried_public,
+            Occupation.government,
+        }
         if self.occupation in employed and not self.employer_designation:
-            raise ValueError("`employer_designation` is required for a salaried occupation")
+            raise ValueError(
+                "`employer_designation` is required for a salaried occupation"
+            )
         return self
 
 
@@ -467,7 +541,9 @@ class FundingStep(_Strict):
     step: Literal[OnboardingStep.funding]
     primary_method: FundingMethod
     bank_account: BankAccount | None = None
-    crypto_deposit_networks: list[CryptoNetwork] = Field(default_factory=list, max_length=len(CryptoNetwork))
+    crypto_deposit_networks: list[CryptoNetwork] = Field(
+        default_factory=list, max_length=len(CryptoNetwork)
+    )
 
     @model_validator(mode="after")
     def _method_matches_instrument(self) -> "FundingStep":
@@ -475,7 +551,9 @@ class FundingStep(_Strict):
             if not self.crypto_deposit_networks:
                 raise ValueError("Pick at least one network for crypto deposits")
         elif self.bank_account is None:
-            raise ValueError(f"`bank_account` is required for {self.primary_method.value}")
+            raise ValueError(
+                f"`bank_account` is required for {self.primary_method.value}"
+            )
         if len(set(self.crypto_deposit_networks)) != len(self.crypto_deposit_networks):
             raise ValueError("`crypto_deposit_networks` must not repeat a value")
         return self
@@ -492,7 +570,9 @@ class SecurityStep(_Strict):
 
 class AgreementsStep(_Strict):
     step: Literal[OnboardingStep.agreements]
-    accepted: list[AcceptedAgreement] = Field(min_length=1, max_length=len(AgreementDocument))
+    accepted: list[AcceptedAgreement] = Field(
+        min_length=1, max_length=len(AgreementDocument)
+    )
 
     @model_validator(mode="after")
     def _unique_documents(self) -> "AgreementsStep":
@@ -529,7 +609,8 @@ class OnboardingSessionResponse(BaseModel):
     status: OnboardingStatus
     kyc_tier: KycTier
     current_step: OnboardingStep | None = Field(
-        default=None, description="Next step to submit; null once every step is captured"
+        default=None,
+        description="Next step to submit; null once every step is captured",
     )
     completed_steps: list[OnboardingStep]
     remaining_steps: list[OnboardingStep]
@@ -552,7 +633,9 @@ class OnboardingSubmitResponse(BaseModel):
     status: OnboardingStatus
     kyc_tier: KycTier
     enabled_products: list[Product] = Field(description="Live immediately")
-    pending_products: list[Product] = Field(description="Held until income proof is reviewed")
+    pending_products: list[Product] = Field(
+        description="Held until income proof is reviewed"
+    )
     submitted_at: datetime
 
 

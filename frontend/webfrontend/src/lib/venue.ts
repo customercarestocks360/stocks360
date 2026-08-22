@@ -58,7 +58,6 @@ export const TRADING_PEGGED_CURRENCIES = ["USDT", "USDC", "USD"] as const;
 
 /**
  * Asset classes where a sell with nothing behind it opens a short instead of being refused.
- * Equities are excluded: shorting a listed share is a stock loan needing a borrow, a locate
- * and a recall process this venue has none of.
+ * This simulated margin venue is two-sided on every asset class by default.
  */
-export const TRADING_SHORT_SELLING_CLASSES = ["crypto", "forex"] as const;
+export const TRADING_SHORT_SELLING_CLASSES = ["crypto", "forex", "stocks"] as const;

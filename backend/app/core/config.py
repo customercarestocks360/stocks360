@@ -41,13 +41,15 @@ def _service_account_from_env() -> dict | None:
                 "FIREBASE_SERVICE_ACCOUNT is neither a JSON object nor valid base64. "
                 "Encode the service account JSON with: "
                 'python -c "import base64,sys;'
-                'print(base64.b64encode(open(sys.argv[1],\'rb\').read()).decode())" key.json'
+                "print(base64.b64encode(open(sys.argv[1],'rb').read()).decode())\" key.json"
             ) from exc
 
     try:
         info = json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise RuntimeError(f"FIREBASE_SERVICE_ACCOUNT does not contain valid JSON: {exc}") from exc
+        raise RuntimeError(
+            f"FIREBASE_SERVICE_ACCOUNT does not contain valid JSON: {exc}"
+        ) from exc
     # Valid JSON that is not a service account (an array, a bare string, the web config by
     # mistake) reads as "every field missing", which is what the message below says.
     if not isinstance(info, dict):
@@ -92,7 +94,9 @@ if FIREBASE_CREDENTIALS_INFO is None:
 # Tolerance for clock drift between this server and Google. Without it, a server
 # running even a few seconds behind rejects every freshly-issued token with
 # "Token used too early". Firebase caps this at 60s.
-CLOCK_SKEW_SECONDS = max(0, min(60, int(os.getenv("FIREBASE_CLOCK_SKEW_SECONDS", "30"))))
+CLOCK_SKEW_SECONDS = max(
+    0, min(60, int(os.getenv("FIREBASE_CLOCK_SKEW_SECONDS", "30")))
+)
 
 # Firebase Web SDK config, kept here rather than hardcoded in the client so the
 # values live in one place and can differ per environment. Served to browsers by
@@ -103,7 +107,9 @@ CLOCK_SKEW_SECONDS = max(0, min(60, int(os.getenv("FIREBASE_CLOCK_SKEW_SECONDS",
 # route pays it. Caching per uid bounds how stale a revocation can be: a logout on THIS
 # process evicts immediately, so the window only applies to other instances behind a load
 # balancer. 0 disables the cache and checks every request.
-FIREBASE_REVOCATION_TTL_SECONDS = max(0, min(300, int(os.getenv("FIREBASE_REVOCATION_TTL_SECONDS", "30"))))
+FIREBASE_REVOCATION_TTL_SECONDS = max(
+    0, min(300, int(os.getenv("FIREBASE_REVOCATION_TTL_SECONDS", "30")))
+)
 
 FIREBASE_WEB_CONFIG = {
     "apiKey": os.getenv("FIREBASE_API_KEY"),
@@ -119,7 +125,10 @@ FIREBASE_WEB_CONFIG = {
 # so fail at startup rather than handing the browser a config that cannot authenticate.
 _missing = [k for k, v in FIREBASE_WEB_CONFIG.items() if not v and k != "measurementId"]
 if _missing:
-    raise RuntimeError(f"Missing Firebase web config in .env: {', '.join(sorted(_missing))}")
+    raise RuntimeError(
+        f"Missing Firebase web config in .env: {', '.join(sorted(_missing))}"
+    )
+
 
 # --- Deployment posture ---
 def _bool(name: str, default: bool) -> bool:
@@ -160,6 +169,12 @@ if not MONGODB_URI:
 
 MONGODB_DB_NAME = os.getenv("MONGODB_DB_NAME", "stocks360")
 
+# Default QR/manual settlement destination. Admin settings stored in Mongo can rotate this
+# without a redeploy; the environment value is the bootstrap/fallback.
+DEPOSIT_BEP20_ADDRESS = os.getenv(
+    "DEPOSIT_BEP20_ADDRESS", "0x8cfa8b2fff6d4cec11dd6b53b68793fb4f81ffe3"
+).strip()
+
 
 def _bounded_int(name: str, default: int, low: int, high: int) -> int:
     """Read an int from env, clamped, so a typo degrades instead of breaking startup."""
@@ -188,12 +203,16 @@ BINANCE_TIMEOUT_SECONDS = _bounded_int("BINANCE_TIMEOUT_SECONDS", 10, 1, 60)
 
 # How long the tradable-symbol list is trusted before being refetched. Listings change
 # rarely, and every watchlist write validates against this, so caching it matters.
-CRYPTO_SYMBOLS_TTL_SECONDS = _bounded_int("CRYPTO_SYMBOLS_TTL_SECONDS", 21600, 60, 86400)
+CRYPTO_SYMBOLS_TTL_SECONDS = _bounded_int(
+    "CRYPTO_SYMBOLS_TTL_SECONDS", 21600, 60, 86400
+)
 
 # Per-user ceilings. Each open socket holds an upstream subscription and a queue, so these
 # bound both memory and the fan-out cost of one abusive account.
 CRYPTO_MAX_WATCHLISTS = _bounded_int("CRYPTO_MAX_WATCHLISTS", 20, 1, 200)
-CRYPTO_MAX_SYMBOLS_PER_WATCHLIST = _bounded_int("CRYPTO_MAX_SYMBOLS_PER_WATCHLIST", 50, 1, 500)
+CRYPTO_MAX_SYMBOLS_PER_WATCHLIST = _bounded_int(
+    "CRYPTO_MAX_SYMBOLS_PER_WATCHLIST", 50, 1, 500
+)
 CRYPTO_MAX_SOCKETS_PER_USER = _bounded_int("CRYPTO_MAX_SOCKETS_PER_USER", 5, 1, 50)
 
 # Seconds of silence before the server sends a heartbeat frame, so a client can tell a
@@ -225,7 +244,9 @@ FOREX_POLL_SECONDS = _bounded_int("FOREX_POLL_SECONDS", 3, 1, 60)
 FOREX_STALE_SECONDS = _bounded_int("FOREX_STALE_SECONDS", 180, 30, 86400)
 
 FOREX_MAX_WATCHLISTS = _bounded_int("FOREX_MAX_WATCHLISTS", 20, 1, 200)
-FOREX_MAX_SYMBOLS_PER_WATCHLIST = _bounded_int("FOREX_MAX_SYMBOLS_PER_WATCHLIST", 30, 1, 200)
+FOREX_MAX_SYMBOLS_PER_WATCHLIST = _bounded_int(
+    "FOREX_MAX_SYMBOLS_PER_WATCHLIST", 30, 1, 200
+)
 FOREX_MAX_SOCKETS_PER_USER = _bounded_int("FOREX_MAX_SOCKETS_PER_USER", 5, 1, 50)
 FOREX_HEARTBEAT_SECONDS = _bounded_int("FOREX_HEARTBEAT_SECONDS", 20, 5, 300)
 
@@ -257,7 +278,9 @@ YAHOO_USER_AGENT = os.getenv(
 STOCKS_TIMEOUT_SECONDS = _bounded_int("STOCKS_TIMEOUT_SECONDS", 12, 1, 60)
 
 # Resolved instruments (name, exchange, currency) barely change; cache them.
-STOCKS_INSTRUMENT_TTL_SECONDS = _bounded_int("STOCKS_INSTRUMENT_TTL_SECONDS", 3600, 60, 86400)
+STOCKS_INSTRUMENT_TTL_SECONDS = _bounded_int(
+    "STOCKS_INSTRUMENT_TTL_SECONDS", 3600, 60, 86400
+)
 
 # There is no batch quote endpoint that still works unauthenticated, so a poll costs one
 # request per distinct symbol. Equities move slower than crypto and this feed is delayed
@@ -270,7 +293,9 @@ STOCKS_POLL_CONCURRENCY = _bounded_int("STOCKS_POLL_CONCURRENCY", 6, 1, 32)
 STOCKS_STALE_SECONDS = _bounded_int("STOCKS_STALE_SECONDS", 1800, 60, 86400)
 
 STOCKS_MAX_WATCHLISTS = _bounded_int("STOCKS_MAX_WATCHLISTS", 20, 1, 200)
-STOCKS_MAX_SYMBOLS_PER_WATCHLIST = _bounded_int("STOCKS_MAX_SYMBOLS_PER_WATCHLIST", 25, 1, 100)
+STOCKS_MAX_SYMBOLS_PER_WATCHLIST = _bounded_int(
+    "STOCKS_MAX_SYMBOLS_PER_WATCHLIST", 25, 1, 100
+)
 STOCKS_MAX_SOCKETS_PER_USER = _bounded_int("STOCKS_MAX_SOCKETS_PER_USER", 5, 1, 50)
 STOCKS_HEARTBEAT_SECONDS = _bounded_int("STOCKS_HEARTBEAT_SECONDS", 20, 5, 300)
 
@@ -280,13 +305,25 @@ STOCKS_HEARTBEAT_SECONDS = _bounded_int("STOCKS_HEARTBEAT_SECONDS", 20, 5, 300)
 # the only definition that means the same thing across all three feeds. Override any of
 # them to re-point a deployment at different headline symbols.
 OVERVIEW_CRYPTO_SYMBOLS = _csv("OVERVIEW_CRYPTO_SYMBOLS") or [
-    "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT",
+    "BTCUSDT",
+    "ETHUSDT",
+    "BNBUSDT",
+    "SOLUSDT",
+    "XRPUSDT",
 ]
 OVERVIEW_FOREX_SYMBOLS = _csv("OVERVIEW_FOREX_SYMBOLS") or [
-    "EUR-USD", "USD-JPY", "GBP-USD", "USD-INR", "AUD-USD",
+    "EUR-USD",
+    "USD-JPY",
+    "GBP-USD",
+    "USD-INR",
+    "AUD-USD",
 ]
 OVERVIEW_STOCKS_SYMBOLS = _csv("OVERVIEW_STOCKS_SYMBOLS") or [
-    "RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "INFY.NS", "ICICIBANK.NS",
+    "RELIANCE.NS",
+    "TCS.NS",
+    "HDFCBANK.NS",
+    "INFY.NS",
+    "ICICIBANK.NS",
 ]
 
 # This socket is unauthenticated, so there is no account to attribute abuse to and the peer
@@ -321,7 +358,7 @@ TRADING_ENABLED = _bool("TRADING_ENABLED", True)
 # still tested; this only decides whether they are asked. What it does **not** touch is
 # authentication: every `/trading/*` route still requires a verified Firebase token, so
 # "open" means open to account holders, not to the internet.
-TRADING_OPEN_ACCESS = _bool("TRADING_OPEN_ACCESS", True)
+TRADING_OPEN_ACCESS = _bool("TRADING_OPEN_ACCESS", False)
 
 # Commission in basis points of notional, charged in the instrument's quote currency and
 # rounded up. 10 bps = 0.1%.
@@ -339,14 +376,18 @@ TRADING_MAX_OPEN_ORDERS = _bounded_int("TRADING_MAX_OPEN_ORDERS", 50, 1, 500)
 # Notional bounds per order, in the instrument's quote currency. Crude by definition —
 # one unit means something different in INR and in USD — but they are here to stop
 # absurdity, not to price risk.
-TRADING_MIN_ORDER_NOTIONAL = _bounded_decimal("TRADING_MIN_ORDER_NOTIONAL", "1", "0", "1000000")
+TRADING_MIN_ORDER_NOTIONAL = _bounded_decimal(
+    "TRADING_MIN_ORDER_NOTIONAL", "1", "0", "1000000"
+)
 TRADING_MAX_ORDER_NOTIONAL = _bounded_decimal(
     "TRADING_MAX_ORDER_NOTIONAL", "1000000", "1", "1000000000"
 )
 
 # The smallest order this venue accepts, in the instrument's own units (0.1 BTC, 0.1
 # EUR-USD, 0.1 shares) — a floor under the notional band above, not a substitute for it.
-TRADING_MIN_QUANTITY = _bounded_decimal("TRADING_MIN_QUANTITY", "0.1", "0.00000001", "1000000000")
+TRADING_MIN_QUANTITY = _bounded_decimal(
+    "TRADING_MIN_QUANTITY", "0.1", "0.00000001", "1000000000"
+)
 
 # Venue-wide leverage, applied to every asset class alike: a buy only has to reserve
 # 1/TRADING_LEVERAGE of its notional in cash rather than all of it. This is a fixed rule,
@@ -358,8 +399,12 @@ TRADING_MIN_QUANTITY = _bounded_decimal("TRADING_MIN_QUANTITY", "0.1", "0.000000
 TRADING_LEVERAGE = _bounded_int("TRADING_LEVERAGE", 200, 1, 1000)
 
 # Bounds on a single simulated funding movement.
-TRADING_MAX_DEPOSIT = _bounded_decimal("TRADING_MAX_DEPOSIT", "1000000", "1", "1000000000")
-TRADING_MAX_WITHDRAWAL = _bounded_decimal("TRADING_MAX_WITHDRAWAL", "1000000", "1", "1000000000")
+TRADING_MAX_DEPOSIT = _bounded_decimal(
+    "TRADING_MAX_DEPOSIT", "1000000", "1", "1000000000"
+)
+TRADING_MAX_WITHDRAWAL = _bounded_decimal(
+    "TRADING_MAX_WITHDRAWAL", "1000000", "1", "1000000000"
+)
 
 # --- The account balance ---
 # One balance per account, in one currency, funding every asset class. An instrument
@@ -370,12 +415,16 @@ TRADING_MAX_WITHDRAWAL = _bounded_decimal("TRADING_MAX_WITHDRAWAL", "1000000", "
 # Overridable, but it has to be a currency `app.trading.fx` can price everything against —
 # in practice USDT or USD. Changing it on a live deployment does not re-denominate the
 # wallets already written; those keep their own currency and stay withdrawable.
-TRADING_ACCOUNT_CURRENCY = (os.getenv("TRADING_ACCOUNT_CURRENCY", "USDT") or "USDT").strip().upper()
+TRADING_ACCOUNT_CURRENCY = (
+    (os.getenv("TRADING_ACCOUNT_CURRENCY", "USDT") or "USDT").strip().upper()
+)
 
 # What a new account opens with, credited once, the first time its wallet is touched. It
 # lands as an ordinary `deposit` ledger entry rather than a magic starting number, so the
 # balance still reconciles against the ledger from the first row.
-TRADING_INITIAL_BALANCE = _bounded_decimal("TRADING_INITIAL_BALANCE", "1000", "0", "1000000")
+TRADING_INITIAL_BALANCE = _bounded_decimal(
+    "TRADING_INITIAL_BALANCE", "1000", "0", "1000000"
+)
 
 # How many decimal places the USDT/USD peg is worth modelling to. USDT is pegged, not
 # fixed, but this venue has no licensed source for the deviation, so the pegged currencies
@@ -385,12 +434,12 @@ TRADING_PEGGED_CURRENCIES = frozenset(
 ) or frozenset({"USDT", "USDC", "USD"})
 
 # Asset classes where a sell with nothing behind it opens a short position instead of
-# being refused. Equities are excluded on purpose: shorting a listed share is a stock
-# loan, which needs a borrow, a locate and a recall process this venue has none of.
-# Crypto perps and FX are natively two-sided, so a sell there is just the other direction.
+# being refused. This is a simulated margin venue rather than a cash-share broker, so all
+# three desks are two-sided by default; deployments that model physical stock delivery can
+# still remove `stocks` explicitly through the environment variable.
 TRADING_SHORT_SELLING_CLASSES = frozenset(
     s.lower() for s in _csv("TRADING_SHORT_SELLING_CLASSES")
-) or frozenset({"crypto", "forex"})
+) or frozenset({"crypto", "forex", "stocks"})
 
 # How long a fetched FX rate is reused before being refreshed. A conversion rate is not a
 # traded price: it scales a notional into account currency, so seconds of staleness are
@@ -404,7 +453,9 @@ TRADING_SWEEP_SECONDS = _bounded_int("TRADING_SWEEP_SECONDS", 15, 5, 300)
 
 # Equity tickers ending in one of these are treated as domestic, which decides whether an
 # order needs the domestic or the foreign equity product. India-first, like the rest.
-TRADING_DOMESTIC_SUFFIXES = tuple(s.upper() for s in _csv("TRADING_DOMESTIC_SUFFIXES")) or (
+TRADING_DOMESTIC_SUFFIXES = tuple(
+    s.upper() for s in _csv("TRADING_DOMESTIC_SUFFIXES")
+) or (
     ".NS",
     ".BO",
 )

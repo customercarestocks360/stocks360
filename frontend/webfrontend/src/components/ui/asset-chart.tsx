@@ -9,10 +9,17 @@ import {
   TickMarkType,
   type IChartApi,
   type ISeriesApi,
+  type MouseEventParams,
   type Time,
   type UTCTimestamp,
 } from "lightweight-charts";
-import { TIMEFRAMES, TIMEFRAMES_FOR, mergeLiveTick, type ChartPoint, type Timeframe } from "@/lib/chart-data";
+import {
+  TIMEFRAMES,
+  TIMEFRAMES_FOR,
+  mergeLiveTick,
+  type ChartPoint,
+  type Timeframe,
+} from "@/lib/chart-data";
 import { describeSeries } from "@/lib/chart-window";
 import { decimalsFor } from "@/lib/instrument";
 import type { AssetClass } from "@/lib/trading-api";
@@ -31,15 +38,28 @@ function istTickMarkFormatter(time: Time, tickMarkType: TickMarkType): string {
     case TickMarkType.Year:
       return new Intl.DateTimeFormat("en-IN", { ...opts, year: "numeric" }).format(date);
     case TickMarkType.Month:
-      return new Intl.DateTimeFormat("en-IN", { ...opts, month: "short", year: "2-digit" }).format(date);
+      return new Intl.DateTimeFormat("en-IN", { ...opts, month: "short", year: "2-digit" }).format(
+        date,
+      );
     case TickMarkType.DayOfMonth:
-      return new Intl.DateTimeFormat("en-IN", { ...opts, day: "2-digit", month: "short" }).format(date);
+      return new Intl.DateTimeFormat("en-IN", { ...opts, day: "2-digit", month: "short" }).format(
+        date,
+      );
     case TickMarkType.TimeWithSeconds:
       return new Intl.DateTimeFormat("en-IN", {
-        ...opts, hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+        ...opts,
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false,
       }).format(date);
     default:
-      return new Intl.DateTimeFormat("en-IN", { ...opts, hour: "2-digit", minute: "2-digit", hour12: false }).format(date);
+      return new Intl.DateTimeFormat("en-IN", {
+        ...opts,
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      }).format(date);
   }
 }
 
@@ -70,7 +90,8 @@ const ACCENT = "#2b6ef2";
 const DEFAULT_VISIBLE_BARS = 120;
 
 type ChartType = "candles" | "area" | "line";
-type Tool = "cursor" | "crosshair" | "trendline" | "hline" | "ray" | "rect" | "fib" | "arrow" | "measure";
+type Tool =
+  "cursor" | "crosshair" | "trendline" | "hline" | "ray" | "rect" | "fib" | "arrow" | "measure";
 
 /** How many clicks each tool needs before the drawing is committed. */
 const REQUIRED_POINTS: Partial<Record<Tool, number>> = {
@@ -83,7 +104,16 @@ const REQUIRED_POINTS: Partial<Record<Tool, number>> = {
   measure: 2,
 };
 const FIB_LEVELS = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
-const PALETTE = ["#2b6ef2", "#26a69a", "#ef5350", "#eab308", "#a855f7", "#f97316", "#38bdf8", "#e5e7eb"];
+const PALETTE = [
+  "#2b6ef2",
+  "#26a69a",
+  "#ef5350",
+  "#eab308",
+  "#a855f7",
+  "#f97316",
+  "#38bdf8",
+  "#e5e7eb",
+];
 const WIDTHS = [1, 1.5, 2, 3];
 
 type DrawPoint = { time: number; price: number };
@@ -107,7 +137,10 @@ export type WatchlistItem = {
  * throws a React hydration error.
  */
 function fmt(n: number, decimals: number) {
-  return n.toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+  return n.toLocaleString("en-US", {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  });
 }
 function fmtInt(n: number) {
   return n.toLocaleString("en-US");
@@ -141,7 +174,9 @@ function HoverTip({
       <span
         role="tooltip"
         className={`pointer-events-none absolute z-[80] whitespace-nowrap rounded-md border border-border bg-card px-2 py-1 text-[11px] font-medium text-foreground opacity-0 shadow-lg transition-opacity duration-150 group-hover/tip:opacity-100 ${
-          side === "right" ? "left-full top-1/2 ml-2 -translate-y-1/2" : "bottom-full left-1/2 mb-2 -translate-x-1/2"
+          side === "right"
+            ? "left-full top-1/2 ml-2 -translate-y-1/2"
+            : "bottom-full left-1/2 mb-2 -translate-x-1/2"
         }`}
       >
         {label}
@@ -223,13 +258,11 @@ export function AssetChart({
   watchlist?: WatchlistItem[];
   onSelectSymbol?: (item: WatchlistItem) => void;
   marketStatusLabel?: string;
-  /** Which timeframe buttons to show and, for equities, which timezone the axis reads in.
-   *  Omitted callers (the pages not wired to a real feed) still get every button. */
+  /** Which timeframe buttons to show and, for equities, which timezone the axis reads in. */
   assetClass?: AssetClass;
   /**
-   * Real candles for the current timeframe. When supplied, the chart renders these and does
-   * not synthesise anything; when omitted it falls back to the seeded demo series, which is
-   * what the pages that are not wired to a feed still rely on.
+   * Real candles for the current timeframe. When omitted, the chart renders an honest empty
+   * state; it never synthesises a price series.
    */
   series?: ChartPoint[];
   /** Lifts the timeframe out so the parent can fetch the matching range. Uncontrolled if omitted. */
@@ -274,7 +307,9 @@ export function AssetChart({
   const hostRef = useRef<HTMLDivElement | null>(null);
   const overlayRef = useRef<HTMLCanvasElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
-  const mainRef = useRef<ISeriesApi<"Candlestick"> | ISeriesApi<"Area"> | ISeriesApi<"Line"> | null>(null);
+  const mainRef = useRef<
+    ISeriesApi<"Candlestick"> | ISeriesApi<"Area"> | ISeriesApi<"Line"> | null
+  >(null);
   const volRef = useRef<ISeriesApi<"Histogram"> | null>(null);
   const maRef = useRef<ISeriesApi<"Line"> | null>(null);
   const drawIdRef = useRef(1);
@@ -286,18 +321,15 @@ export function AssetChart({
   const lastPointerTypeRef = useRef<string>("mouse");
   const undoRef = useRef<Drawing[][]>([]);
   const redoRef = useRef<Drawing[][]>([]);
-  const dragRef = useRef<
-    | {
-        id: number;
-        mode: "body" | "anchor";
-        anchorIdx: number | undefined;
-        start: DrawPoint & { idx: number; rawPrice: number };
-        startPoints: DrawPoint[];
-        snapshot: Drawing[];
-        moved: boolean;
-      }
-    | null
-  >(null);
+  const dragRef = useRef<{
+    id: number;
+    mode: "body" | "anchor";
+    anchorIdx: number | undefined;
+    start: DrawPoint & { idx: number; rawPrice: number };
+    startPoints: DrawPoint[];
+    snapshot: Drawing[];
+    moved: boolean;
+  } | null>(null);
 
   /**
    * Only ever real candles.
@@ -369,8 +401,32 @@ export function AssetChart({
 
   /* Everything the imperative listeners need, kept in a ref so the handlers
      never read stale closure values. */
-  const S = useRef({ activeTool, drawings, selectedId, hoverId, magnet, locked, showDrawings, pending, data, timeIndex, decimals });
-  S.current = { activeTool, drawings, selectedId, hoverId, magnet, locked, showDrawings, pending, data, timeIndex, decimals };
+  const S = useRef({
+    activeTool,
+    drawings,
+    selectedId,
+    hoverId,
+    magnet,
+    locked,
+    showDrawings,
+    pending,
+    data,
+    timeIndex,
+    decimals,
+  });
+  S.current = {
+    activeTool,
+    drawings,
+    selectedId,
+    hoverId,
+    magnet,
+    locked,
+    showDrawings,
+    pending,
+    data,
+    timeIndex,
+    decimals,
+  };
 
   const flash = useCallback((msg: string) => {
     setToast(msg);
@@ -426,7 +482,8 @@ export function AssetChart({
   }, []);
 
   /* ---------------- undo / redo ---------------- */
-  const cloneList = (l: Drawing[]) => l.map((d) => ({ ...d, points: d.points.map((p) => ({ ...p })) }));
+  const cloneList = (l: Drawing[]) =>
+    l.map((d) => ({ ...d, points: d.points.map((p) => ({ ...p })) }));
   const pushUndo = useCallback(() => {
     undoRef.current.push(cloneList(S.current.drawings));
     if (undoRef.current.length > 60) undoRef.current.shift();
@@ -453,20 +510,47 @@ export function AssetChart({
       if (pts.some((p) => !p)) return { pts, segs };
       const P = pts as { x: number; y: number }[];
       if (d.type === "hline") {
-        segs.push([{ x: 0, y: P[0]!.y }, { x: width, y: P[0]!.y }]);
+        segs.push([
+          { x: 0, y: P[0]!.y },
+          { x: width, y: P[0]!.y },
+        ]);
       } else if (d.type === "ray") {
         segs.push([P[0]!, P[1]!]);
       } else if (d.type === "rect") {
-        const x1 = P[0]!.x, y1 = P[0]!.y, x2 = P[1]!.x, y2 = P[1]!.y;
-        segs.push([{ x: x1, y: y1 }, { x: x2, y: y1 }], [{ x: x2, y: y1 }, { x: x2, y: y2 }],
-                  [{ x: x2, y: y2 }, { x: x1, y: y2 }], [{ x: x1, y: y2 }, { x: x1, y: y1 }]);
+        const x1 = P[0]!.x,
+          y1 = P[0]!.y,
+          x2 = P[1]!.x,
+          y2 = P[1]!.y;
+        segs.push(
+          [
+            { x: x1, y: y1 },
+            { x: x2, y: y1 },
+          ],
+          [
+            { x: x2, y: y1 },
+            { x: x2, y: y2 },
+          ],
+          [
+            { x: x2, y: y2 },
+            { x: x1, y: y2 },
+          ],
+          [
+            { x: x1, y: y2 },
+            { x: x1, y: y1 },
+          ],
+        );
       } else if (d.type === "fib") {
-        const a = d.points[0]!.price, b = d.points[1]!.price;
-        const xL = Math.min(P[0]!.x, P[1]!.x), xR = Math.max(P[0]!.x, P[1]!.x);
+        const a = d.points[0]!.price,
+          b = d.points[1]!.price;
+        const xL = Math.min(P[0]!.x, P[1]!.x),
+          xR = Math.max(P[0]!.x, P[1]!.x);
         for (const lvl of FIB_LEVELS) {
           const y = yFor(a - (a - b) * lvl);
           if (y == null) continue;
-          segs.push([{ x: xL, y }, { x: xR, y }]);
+          segs.push([
+            { x: xL, y },
+            { x: xR, y },
+          ]);
         }
       } else {
         for (let i = 0; i < P.length - 1; i++) segs.push([P[i]!, P[i + 1]!]);
@@ -488,9 +572,12 @@ export function AssetChart({
         const { pts, segs } = segmentsFor(d, w);
         for (let k = 0; k < pts.length; k++) {
           const p = pts[k];
-          if (p && Math.hypot(x - p.x, y - p.y) <= anchorTolerance) return { drawing: d, mode: "anchor" as const, anchorIdx: k };
+          if (p && Math.hypot(x - p.x, y - p.y) <= anchorTolerance)
+            return { drawing: d, mode: "anchor" as const, anchorIdx: k };
         }
-        for (const [a, b] of segs) if (distToSeg(x, y, a.x, a.y, b.x, b.y) <= bodyTolerance) return { drawing: d, mode: "body" as const };
+        for (const [a, b] of segs)
+          if (distToSeg(x, y, a.x, a.y, b.x, b.y) <= bodyTolerance)
+            return { drawing: d, mode: "body" as const };
       }
       return null;
     },
@@ -517,7 +604,7 @@ export function AssetChart({
       ctx.fillStyle = base;
       ctx.lineWidth = d.width + (active ? 0.8 : 0);
       ctx.font = "10px ui-monospace, monospace";
-      const line = (a: any, b: any) => {
+      const line = (a: { x: number; y: number } | null, b: { x: number; y: number } | null) => {
         if (!a || !b) return;
         ctx.beginPath();
         ctx.moveTo(a.x, a.y);
@@ -549,8 +636,10 @@ export function AssetChart({
         }
         case "rect": {
           if (!P[0] || !P[1]) break;
-          const x = Math.min(P[0]!.x, P[1]!.x), y = Math.min(P[0]!.y, P[1]!.y);
-          const rw = Math.abs(P[1]!.x - P[0]!.x), rh = Math.abs(P[1]!.y - P[0]!.y);
+          const x = Math.min(P[0]!.x, P[1]!.x),
+            y = Math.min(P[0]!.y, P[1]!.y);
+          const rw = Math.abs(P[1]!.x - P[0]!.x),
+            rh = Math.abs(P[1]!.y - P[0]!.y);
           ctx.fillStyle = withAlpha(base, 0.12);
           ctx.fillRect(x, y, rw, rh);
           ctx.strokeRect(x, y, rw, rh);
@@ -558,8 +647,10 @@ export function AssetChart({
         }
         case "fib": {
           if (!P[0] || !P[1]) break;
-          const a = d.points[0]!.price, b = d.points[1]!.price;
-          const xL = Math.min(P[0]!.x, P[1]!.x), xR = Math.max(P[0]!.x, P[1]!.x);
+          const a = d.points[0]!.price,
+            b = d.points[1]!.price;
+          const xL = Math.min(P[0]!.x, P[1]!.x),
+            xR = Math.max(P[0]!.x, P[1]!.x);
           for (const lvl of FIB_LEVELS) {
             const price = a - (a - b) * lvl;
             const y = yFor(price);
@@ -579,13 +670,15 @@ export function AssetChart({
           ctx.setLineDash([4, 3]);
           line(P[0], P[1]);
           ctx.setLineDash([]);
-          const p1 = d.points[0]!, p2 = d.points[1]!;
+          const p1 = d.points[0]!,
+            p2 = d.points[1]!;
           const dP = p2.price - p1.price;
           const pct = (dP / p1.price) * 100;
           const i1 = S.current.timeIndex.get(p1.time);
           const i2 = S.current.timeIndex.get(p2.time);
           const bars = i1 != null && i2 != null ? Math.abs(i2 - i1) : "?";
-          const mx = (P[0]!.x + P[1]!.x) / 2, my = (P[0]!.y + P[1]!.y) / 2;
+          const mx = (P[0]!.x + P[1]!.x) / 2,
+            my = (P[0]!.y + P[1]!.y) / 2;
           const t1 = `${dP >= 0 ? "+" : ""}${fmt(dP, dec)} (${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%)`;
           const t2 = `${bars} bars`;
           ctx.font = "11px ui-monospace, monospace";
@@ -623,7 +716,16 @@ export function AssetChart({
     }
 
     if (S.current.pending.length) {
-      paint({ id: -1, type: S.current.activeTool, points: S.current.pending, color: ACCENT, width: 1.5 }, true);
+      paint(
+        {
+          id: -1,
+          type: S.current.activeTool,
+          points: S.current.pending,
+          color: ACCENT,
+          width: 1.5,
+        },
+        true,
+      );
       for (const p of S.current.pending.map(ptPx)) {
         if (!p) continue;
         ctx.beginPath();
@@ -639,9 +741,19 @@ export function AssetChart({
     const host = hostRef.current;
     if (!host) return;
     const chart = createChart(host, {
-      layout: { background: { type: ColorType.Solid, color: "transparent" }, textColor: "#8b95a1", fontSize: 11 },
-      grid: { vertLines: { color: "rgba(128,140,155,.10)" }, horzLines: { color: "rgba(128,140,155,.10)" } },
-      rightPriceScale: { borderColor: "rgba(128,140,155,.22)", scaleMargins: { top: 0.08, bottom: 0.26 } },
+      layout: {
+        background: { type: ColorType.Solid, color: "transparent" },
+        textColor: "#8b95a1",
+        fontSize: 11,
+      },
+      grid: {
+        vertLines: { color: "rgba(128,140,155,.10)" },
+        horzLines: { color: "rgba(128,140,155,.10)" },
+      },
+      rightPriceScale: {
+        borderColor: "rgba(128,140,155,.22)",
+        scaleMargins: { top: 0.08, bottom: 0.26 },
+      },
       timeScale: {
         borderColor: "rgba(128,140,155,.22)",
         rightOffset: 4,
@@ -656,11 +768,24 @@ export function AssetChart({
       },
       // Wheel zooms in/out around the cursor for a closer look at the trend;
       // left-press-and-drag scrolls back through history / forward to the present.
-      handleScroll: { mouseWheel: false, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: true },
-      handleScale: { mouseWheel: true, pinch: true, axisPressedMouseMove: true, axisDoubleClickReset: true },
+      handleScroll: {
+        mouseWheel: false,
+        pressedMouseMove: true,
+        horzTouchDrag: true,
+        vertTouchDrag: true,
+      },
+      handleScale: {
+        mouseWheel: true,
+        pinch: true,
+        axisPressedMouseMove: true,
+        axisDoubleClickReset: true,
+      },
     });
     chartRef.current = chart;
-    const vol = chart.addHistogramSeries({ priceFormat: { type: "volume" }, priceScaleId: "volume" });
+    const vol = chart.addHistogramSeries({
+      priceFormat: { type: "volume" },
+      priceScaleId: "volume",
+    });
     chart.priceScale("volume").applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
     volRef.current = vol;
 
@@ -682,7 +807,7 @@ export function AssetChart({
 
     const onRange = () => renderOverlay();
     chart.timeScale().subscribeVisibleLogicalRangeChange(onRange);
-    const onCross = (param: any) => {
+    const onCross = (param: MouseEventParams<Time>) => {
       const idx = param?.time != null ? S.current.timeIndex.get(param.time as number) : undefined;
       setHoverIndex(idx ?? null);
     };
@@ -731,23 +856,57 @@ export function AssetChart({
     const priceFormat = { type: "price" as const, precision: decimals, minMove: 10 ** -decimals };
     if (chartType === "candles") {
       const s = chart.addCandlestickSeries({
-        upColor: UP, downColor: DOWN, borderUpColor: UP, borderDownColor: DOWN, wickUpColor: UP, wickDownColor: DOWN,
+        upColor: UP,
+        downColor: DOWN,
+        borderUpColor: UP,
+        borderDownColor: DOWN,
+        wickUpColor: UP,
+        wickDownColor: DOWN,
         priceFormat,
       });
-      s.setData(data.map((d) => ({ time: d.time as UTCTimestamp, open: d.open, high: d.high, low: d.low, close: d.close })));
+      s.setData(
+        data.map((d) => ({
+          time: d.time as UTCTimestamp,
+          open: d.open,
+          high: d.high,
+          low: d.low,
+          close: d.close,
+        })),
+      );
       mainRef.current = s;
     } else if (chartType === "area") {
-      const s = chart.addAreaSeries({ lineColor: color, topColor: withAlpha(color, 0.35), bottomColor: withAlpha(color, 0), lineWidth: 2, priceFormat });
+      const s = chart.addAreaSeries({
+        lineColor: color,
+        topColor: withAlpha(color, 0.35),
+        bottomColor: withAlpha(color, 0),
+        lineWidth: 2,
+        priceFormat,
+      });
       s.setData(closes);
       mainRef.current = s;
     } else {
-      const s = chart.addLineSeries({ color, lineWidth: 2, lineType: LineType.Simple, priceFormat });
+      const s = chart.addLineSeries({
+        color,
+        lineWidth: 2,
+        lineType: LineType.Simple,
+        priceFormat,
+      });
       s.setData(closes);
       mainRef.current = s;
     }
     if (showMA) {
-      const ma = chart.addLineSeries({ color: "#eab308", lineWidth: 1, lineStyle: LineStyle.Dashed, priceLineVisible: false, lastValueVisible: false });
-      ma.setData(data.filter((d) => d.ma != null).map((d) => ({ time: d.time as UTCTimestamp, value: d.ma! })));
+      const ma = chart.addLineSeries({
+        color: "#eab308",
+        lineWidth: 1,
+        lineStyle: LineStyle.Dashed,
+        priceLineVisible: false,
+        lastValueVisible: false,
+      });
+      ma.setData(
+        data
+          .filter((d) => d.ma != null)
+          .map((d) => ({ time: d.time as UTCTimestamp, value: d.ma! })),
+      );
       maRef.current = ma;
     }
     /*
@@ -759,7 +918,11 @@ export function AssetChart({
     const plotVolume = showVolume && seriesHasVolume;
     volRef.current?.setData(
       plotVolume
-        ? data.map((d) => ({ time: d.time as UTCTimestamp, value: d.volume, color: d.close >= d.open ? withAlpha(UP, 0.5) : withAlpha(DOWN, 0.5) }))
+        ? data.map((d) => ({
+            time: d.time as UTCTimestamp,
+            value: d.volume,
+            color: d.close >= d.open ? withAlpha(UP, 0.5) : withAlpha(DOWN, 0.5),
+          }))
         : [],
     );
     chart.priceScale("right").applyOptions({
@@ -779,7 +942,9 @@ export function AssetChart({
       // Opens zoomed to the current time, not fitted to the whole loaded history — see
       // `DEFAULT_VISIBLE_BARS`. Too few bars to zoom past just fits what there is.
       if (total > DEFAULT_VISIBLE_BARS) {
-        chart.timeScale().setVisibleLogicalRange({ from: total - DEFAULT_VISIBLE_BARS, to: total - 1 });
+        chart
+          .timeScale()
+          .setVisibleLogicalRange({ from: total - DEFAULT_VISIBLE_BARS, to: total - 1 });
       } else {
         chart.timeScale().fitContent();
       }
@@ -790,6 +955,7 @@ export function AssetChart({
     renderOverlay();
   }, [
     data,
+    decimals,
     chartType,
     showMA,
     showVolume,
@@ -821,7 +987,10 @@ export function AssetChart({
         close: merged.close,
       });
     } else {
-      (main as ISeriesApi<"Area" | "Line">).update({ time: merged.time as UTCTimestamp, value: merged.close });
+      (main as ISeriesApi<"Area" | "Line">).update({
+        time: merged.time as UTCTimestamp,
+        value: merged.close,
+      });
     }
   }, [liveTick, rawLastPoint, chartType]);
 
@@ -890,11 +1059,13 @@ export function AssetChart({
         list.map((d) => {
           if (d.id !== drag.id) return d;
           if (drag.mode === "anchor") {
-            const pts = d.points.map((p, i) => (i === drag.anchorIdx ? { time: cur.time, price: cur.price } : p));
+            const pts = d.points.map((p, i) =>
+              i === drag.anchorIdx ? { time: cur.time, price: cur.price } : p,
+            );
             return { ...d, points: pts };
           }
           const dIdx = cur.idx - drag.start.idx;
-          const dPrice = cur.rawPrice - (drag.start as any).rawPrice;
+          const dPrice = cur.rawPrice - drag.start.rawPrice;
           const arr = S.current.data;
           return {
             ...d,
@@ -960,7 +1131,7 @@ export function AssetChart({
         id: found.drawing.id,
         mode: found.mode,
         anchorIdx: found.anchorIdx,
-        start: start as any,
+        start,
         startPoints: found.drawing.points.map((p) => ({ ...p })),
         snapshot: cloneList(S.current.drawings),
         moved: false,
@@ -1087,7 +1258,8 @@ export function AssetChart({
       }
       if (mod && e.key.toLowerCase() === "z") {
         e.preventDefault();
-        e.shiftKey ? doRedo() : doUndo();
+        if (e.shiftKey) doRedo();
+        else doUndo();
         return;
       }
       if (mod && e.key.toLowerCase() === "y") {
@@ -1108,12 +1280,30 @@ export function AssetChart({
       }
       if (!isFullscreen) return; // single-key tool shortcuts only inside the terminal
       const k = e.key.toLowerCase();
-      if (k === "m") { setMagnet((v) => !v); return; }
-      if (k === "t") { setActiveTool("trendline"); return; }
-      if (k === "h") { setActiveTool("hline"); return; }
-      if (k === "f") { setActiveTool("fib"); return; }
-      if (k === "r") { setActiveTool("measure"); return; }
-      if (k === "a") { setActiveTool("arrow"); return; }
+      if (k === "m") {
+        setMagnet((v) => !v);
+        return;
+      }
+      if (k === "t") {
+        setActiveTool("trendline");
+        return;
+      }
+      if (k === "h") {
+        setActiveTool("hline");
+        return;
+      }
+      if (k === "f") {
+        setActiveTool("fib");
+        return;
+      }
+      if (k === "r") {
+        setActiveTool("measure");
+        return;
+      }
+      if (k === "a") {
+        setActiveTool("arrow");
+        return;
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -1129,8 +1319,13 @@ export function AssetChart({
   /* ---------------- watchlist ---------------- */
   const filteredWatchlist = useMemo(() => {
     const q = watchQuery.trim().toLowerCase();
-    let list = watchlist.filter((w) => !q || w.sym.toLowerCase().includes(q) || w.name.toLowerCase().includes(q));
-    if (watchSort) list = [...list].sort((a, b) => (watchSort === "desc" ? b.changePct - a.changePct : a.changePct - b.changePct));
+    let list = watchlist.filter(
+      (w) => !q || w.sym.toLowerCase().includes(q) || w.name.toLowerCase().includes(q),
+    );
+    if (watchSort)
+      list = [...list].sort((a, b) =>
+        watchSort === "desc" ? b.changePct - a.changePct : a.changePct - b.changePct,
+      );
     return list;
   }, [watchlist, watchQuery, watchSort]);
 
@@ -1186,11 +1381,24 @@ export function AssetChart({
     <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
       {readout && (
         <div className="flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-[11px] text-muted-foreground">
-          <span>O <span className="text-foreground">{fmt(readout.open, decimals)}</span></span>
-          <span>H <span className="text-foreground">{fmt(readout.high, decimals)}</span></span>
-          <span>L <span className="text-foreground">{fmt(readout.low, decimals)}</span></span>
-          <span>C <span className={readout.close >= readout.open ? "text-up" : "text-down"}>{fmt(readout.close, decimals)}</span></span>
-          <span>Vol <span className="text-foreground">{fmtInt(readout.volume)}</span></span>
+          <span>
+            O <span className="text-foreground">{fmt(readout.open, decimals)}</span>
+          </span>
+          <span>
+            H <span className="text-foreground">{fmt(readout.high, decimals)}</span>
+          </span>
+          <span>
+            L <span className="text-foreground">{fmt(readout.low, decimals)}</span>
+          </span>
+          <span>
+            C{" "}
+            <span className={readout.close >= readout.open ? "text-up" : "text-down"}>
+              {fmt(readout.close, decimals)}
+            </span>
+          </span>
+          <span>
+            Vol <span className="text-foreground">{fmtInt(readout.volume)}</span>
+          </span>
         </div>
       )}
       {/* The move across the loaded series, which is scoped to the timeframe and so says
@@ -1242,11 +1450,13 @@ export function AssetChart({
       {/* Row 2 — chart type + indicators */}
       <div className="flex flex-wrap items-center gap-1">
         <div className="flex gap-1 border-r border-border pr-2">
-          {([
-            { key: "candles", icon: "fa-chart-column", label: "Candles" },
-            { key: "area", icon: "fa-chart-area", label: "Area" },
-            { key: "line", icon: "fa-chart-line", label: "Line" },
-          ] as const).map((opt) => (
+          {(
+            [
+              { key: "candles", icon: "fa-chart-column", label: "Candles" },
+              { key: "area", icon: "fa-chart-area", label: "Area" },
+              { key: "line", icon: "fa-chart-line", label: "Line" },
+            ] as const
+          ).map((opt) => (
             <HoverTip key={opt.key} label={opt.label}>
               <button
                 type="button"
@@ -1263,12 +1473,20 @@ export function AssetChart({
             </HoverTip>
           ))}
         </div>
-        <HoverTip label={showMA ? `Hide ${MA_WINDOW}-period moving average` : `Show ${MA_WINDOW}-period moving average`}>
+        <HoverTip
+          label={
+            showMA
+              ? `Hide ${MA_WINDOW}-period moving average`
+              : `Show ${MA_WINDOW}-period moving average`
+          }
+        >
           <button
             type="button"
             onClick={() => setShowMA((v) => !v)}
             className={`rounded border px-2 py-1 font-mono text-xs font-semibold transition-colors ${
-              showMA ? "border-primary bg-primary text-primary-foreground" : "border-border bg-secondary/40 text-muted-foreground hover:text-foreground"
+              showMA
+                ? "border-primary bg-primary text-primary-foreground"
+                : "border-border bg-secondary/40 text-muted-foreground hover:text-foreground"
             }`}
           >
             MA{MA_WINDOW}
@@ -1290,7 +1508,9 @@ export function AssetChart({
             disabled={!seriesHasVolume}
             onClick={() => setShowVolume((v) => !v)}
             className={`rounded border px-2 py-1 font-mono text-xs font-semibold transition-colors ${
-              showVolume && seriesHasVolume ? "border-primary bg-primary text-primary-foreground" : "border-border bg-secondary/40 text-muted-foreground hover:text-foreground"
+              showVolume && seriesHasVolume
+                ? "border-primary bg-primary text-primary-foreground"
+                : "border-border bg-secondary/40 text-muted-foreground hover:text-foreground"
             } ${seriesHasVolume ? "" : "cursor-not-allowed opacity-40"}`}
           >
             Vol
@@ -1367,7 +1587,9 @@ export function AssetChart({
               type="button"
               onClick={() => restyle({ width: w })}
               className={`flex h-5 w-6 items-center justify-center rounded font-mono text-[10px] transition-colors ${
-                selected.width === w ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+                selected.width === w
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:bg-secondary hover:text-foreground"
               }`}
             >
               {w}
@@ -1375,12 +1597,20 @@ export function AssetChart({
           ))}
           <span className="mx-0.5 h-4 w-px bg-border" />
           <HoverTip label="Duplicate (Ctrl+D)">
-            <button type="button" onClick={duplicateSelected} className="flex h-5 w-6 items-center justify-center rounded text-muted-foreground hover:bg-secondary hover:text-foreground">
+            <button
+              type="button"
+              onClick={duplicateSelected}
+              className="flex h-5 w-6 items-center justify-center rounded text-muted-foreground hover:bg-secondary hover:text-foreground"
+            >
               <i className="fa-regular fa-clone text-[10px]" />
             </button>
           </HoverTip>
           <HoverTip label="Delete (Del)">
-            <button type="button" onClick={deleteSelected} className="flex h-5 w-6 items-center justify-center rounded text-muted-foreground hover:bg-secondary hover:text-foreground">
+            <button
+              type="button"
+              onClick={deleteSelected}
+              className="flex h-5 w-6 items-center justify-center rounded text-muted-foreground hover:bg-secondary hover:text-foreground"
+            >
               <i className="fa-solid fa-trash text-[10px]" />
             </button>
           </HoverTip>
@@ -1399,31 +1629,93 @@ export function AssetChart({
     createPortal(
       <div
         className="fixed z-[300] min-w-[196px] rounded-lg border border-border bg-card p-1 shadow-2xl"
-        style={{ left: Math.min(ctxMenu.x, window.innerWidth - 210), top: Math.min(ctxMenu.y, window.innerHeight - 260) }}
+        style={{
+          left: Math.min(ctxMenu.x, window.innerWidth - 210),
+          top: Math.min(ctxMenu.y, window.innerHeight - 260),
+        }}
         onClick={(e) => e.stopPropagation()}
       >
         {ctxMenu.onDrawing && (
           <>
-            <MenuItem icon="fa-trash" label="Remove drawing" hint="Del" onClick={() => { deleteSelected(); setCtxMenu(null); }} />
-            <MenuItem icon="fa-clone" label="Duplicate" hint="Ctrl+D" onClick={() => { duplicateSelected(); setCtxMenu(null); }} />
+            <MenuItem
+              icon="fa-trash"
+              label="Remove drawing"
+              hint="Del"
+              onClick={() => {
+                deleteSelected();
+                setCtxMenu(null);
+              }}
+            />
+            <MenuItem
+              icon="fa-clone"
+              label="Duplicate"
+              hint="Ctrl+D"
+              onClick={() => {
+                duplicateSelected();
+                setCtxMenu(null);
+              }}
+            />
             <MenuItem
               icon="fa-arrow-up"
               label="Bring to front"
               onClick={() => {
                 pushUndo();
-                setDrawings((l) => { const i = l.findIndex((d) => d.id === selectedId); if (i < 0) return l; const c = [...l]; c.push(c.splice(i, 1)[0]!); return c; });
+                setDrawings((l) => {
+                  const i = l.findIndex((d) => d.id === selectedId);
+                  if (i < 0) return l;
+                  const c = [...l];
+                  c.push(c.splice(i, 1)[0]!);
+                  return c;
+                });
                 setCtxMenu(null);
               }}
             />
             <div className="my-1 h-px bg-border" />
           </>
         )}
-        <MenuItem icon="fa-magnet" label={magnet ? "Turn magnet off" : "Turn magnet on"} hint="M" onClick={() => { setMagnet((v) => !v); setCtxMenu(null); }} />
-        <MenuItem icon="fa-expand" label="Fit chart to data" onClick={() => { chartRef.current?.timeScale().fitContent(); setCtxMenu(null); }} />
-        <MenuItem icon="fa-arrows-up-down" label="Auto-fit price scale" onClick={() => { chartRef.current?.priceScale("right").applyOptions({ autoScale: true }); setCtxMenu(null); }} />
+        <MenuItem
+          icon="fa-magnet"
+          label={magnet ? "Turn magnet off" : "Turn magnet on"}
+          hint="M"
+          onClick={() => {
+            setMagnet((v) => !v);
+            setCtxMenu(null);
+          }}
+        />
+        <MenuItem
+          icon="fa-expand"
+          label="Fit chart to data"
+          onClick={() => {
+            chartRef.current?.timeScale().fitContent();
+            setCtxMenu(null);
+          }}
+        />
+        <MenuItem
+          icon="fa-arrows-up-down"
+          label="Auto-fit price scale"
+          onClick={() => {
+            chartRef.current?.priceScale("right").applyOptions({ autoScale: true });
+            setCtxMenu(null);
+          }}
+        />
         <div className="my-1 h-px bg-border" />
-        <MenuItem icon="fa-rotate-left" label="Undo" hint="Ctrl+Z" onClick={() => { doUndo(); setCtxMenu(null); }} />
-        <MenuItem icon="fa-eraser" label="Remove all drawings" onClick={() => { clearDrawings(); setCtxMenu(null); }} />
+        <MenuItem
+          icon="fa-rotate-left"
+          label="Undo"
+          hint="Ctrl+Z"
+          onClick={() => {
+            doUndo();
+            setCtxMenu(null);
+          }}
+        />
+        <MenuItem
+          icon="fa-eraser"
+          label="Remove all drawings"
+          onClick={() => {
+            clearDrawings();
+            setCtxMenu(null);
+          }}
+        />
       </div>,
       document.body,
     );
@@ -1454,13 +1746,43 @@ export function AssetChart({
         />
       ))}
       <div className="my-2 h-px w-6 bg-border" />
-      <ToolBtn icon="fa-magnet" label={magnet ? "Magnet on — snaps to OHLC (M)" : "Magnet off (M)"} active={magnet} onClick={() => setMagnet((v) => !v)} />
-      <ToolBtn icon="fa-rotate-left" label="Undo (Ctrl+Z)" onClick={doUndo} disabled={!undoRef.current.length} />
-      <ToolBtn icon="fa-rotate-right" label="Redo (Ctrl+Shift+Z)" onClick={doRedo} disabled={!redoRef.current.length} />
+      <ToolBtn
+        icon="fa-magnet"
+        label={magnet ? "Magnet on — snaps to OHLC (M)" : "Magnet off (M)"}
+        active={magnet}
+        onClick={() => setMagnet((v) => !v)}
+      />
+      <ToolBtn
+        icon="fa-rotate-left"
+        label="Undo (Ctrl+Z)"
+        onClick={doUndo}
+        disabled={!undoRef.current.length}
+      />
+      <ToolBtn
+        icon="fa-rotate-right"
+        label="Redo (Ctrl+Shift+Z)"
+        onClick={doRedo}
+        disabled={!redoRef.current.length}
+      />
       <div className="flex-1" />
-      <ToolBtn icon={showDrawings ? "fa-eye" : "fa-eye-slash"} label={showDrawings ? "Hide drawings" : "Show drawings"} active={showDrawings} onClick={() => setShowDrawings((v) => !v)} />
-      <ToolBtn icon={locked ? "fa-lock" : "fa-lock-open"} label={locked ? "Unlock drawings" : "Lock drawings"} active={locked} onClick={() => setLocked((v) => !v)} />
-      <ToolBtn icon="fa-trash" label="Remove all drawings" onClick={clearDrawings} disabled={!drawings.length} />
+      <ToolBtn
+        icon={showDrawings ? "fa-eye" : "fa-eye-slash"}
+        label={showDrawings ? "Hide drawings" : "Show drawings"}
+        active={showDrawings}
+        onClick={() => setShowDrawings((v) => !v)}
+      />
+      <ToolBtn
+        icon={locked ? "fa-lock" : "fa-lock-open"}
+        label={locked ? "Unlock drawings" : "Lock drawings"}
+        active={locked}
+        onClick={() => setLocked((v) => !v)}
+      />
+      <ToolBtn
+        icon="fa-trash"
+        label="Remove all drawings"
+        onClick={clearDrawings}
+        disabled={!drawings.length}
+      />
     </>
   );
 
@@ -1469,16 +1791,31 @@ export function AssetChart({
       <div className="shrink-0 border-b border-border p-4">
         <div className="mb-3 flex items-center justify-between">
           <span className="text-sm font-bold text-foreground">Watchlist</span>
-          <HoverTip label={watchSort === "desc" ? "Sorted: top gainers first" : watchSort === "asc" ? "Sorted: top losers first" : "Sort by change"} side="right">
+          <HoverTip
+            label={
+              watchSort === "desc"
+                ? "Sorted: top gainers first"
+                : watchSort === "asc"
+                  ? "Sorted: top losers first"
+                  : "Sort by change"
+            }
+            side="right"
+          >
             <button
               type="button"
-              onClick={() => setWatchSort((s) => (s === null ? "desc" : s === "desc" ? "asc" : null))}
+              onClick={() =>
+                setWatchSort((s) => (s === null ? "desc" : s === "desc" ? "asc" : null))
+              }
               aria-label="Sort watchlist by change"
               className={`flex h-7 w-7 items-center justify-center rounded border text-xs transition-colors ${
-                watchSort ? "border-primary bg-primary text-primary-foreground" : "border-border bg-secondary/40 text-muted-foreground hover:text-foreground"
+                watchSort
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-border bg-secondary/40 text-muted-foreground hover:text-foreground"
               }`}
             >
-              <i className={`fa-solid text-[10px] ${watchSort === "asc" ? "fa-arrow-up-short-wide" : watchSort === "desc" ? "fa-arrow-down-wide-short" : "fa-sort"}`} />
+              <i
+                className={`fa-solid text-[10px] ${watchSort === "asc" ? "fa-arrow-up-short-wide" : watchSort === "desc" ? "fa-arrow-down-wide-short" : "fa-sort"}`}
+              />
             </button>
           </HoverTip>
         </div>
@@ -1492,10 +1829,14 @@ export function AssetChart({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
-        {groupedWatchlist.length === 0 && <p className="py-6 text-center text-xs text-muted-foreground">No symbols found.</p>}
+        {groupedWatchlist.length === 0 && (
+          <p className="py-6 text-center text-xs text-muted-foreground">No symbols found.</p>
+        )}
         {groupedWatchlist.map((group) => (
           <div key={group.label} className="mb-3">
-            <div className="px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{group.label}</div>
+            <div className="px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+              {group.label}
+            </div>
             {group.items.map((item) => {
               const isActive = item.sym === symbol;
               const itemUp = item.changePct >= 0;
@@ -1515,10 +1856,16 @@ export function AssetChart({
                     >
                       {item.sym.slice(0, 2)}
                     </span>
-                    <span className={`truncate text-xs font-semibold ${isActive ? "text-primary" : "text-foreground"}`}>{item.sym}</span>
+                    <span
+                      className={`truncate text-xs font-semibold ${isActive ? "text-primary" : "text-foreground"}`}
+                    >
+                      {item.sym}
+                    </span>
                     <span className="ml-auto text-right">
                       <span className="block font-mono text-xs text-foreground">{item.price}</span>
-                      <span className={`block font-mono text-[10px] font-semibold ${itemUp ? "text-up" : "text-down"}`}>
+                      <span
+                        className={`block font-mono text-[10px] font-semibold ${itemUp ? "text-up" : "text-down"}`}
+                      >
                         {itemUp ? "+" : ""}
                         {item.changePct.toFixed(2)}%
                       </span>
@@ -1537,7 +1884,9 @@ export function AssetChart({
           <span className="font-medium text-foreground">{marketStatusLabel}</span>
         </div>
         <div className="mt-2 flex items-baseline gap-2">
-          <span className="font-mono text-xl font-bold text-foreground">{fmt(lastPrice, decimals)}</span>
+          <span className="font-mono text-xl font-bold text-foreground">
+            {fmt(lastPrice, decimals)}
+          </span>
           <span className={`font-mono text-xs font-bold ${up ? "text-up" : "text-down"}`}>
             {up ? "+" : ""}
             {changePct.toFixed(2)}%
@@ -1562,15 +1911,25 @@ export function AssetChart({
             onClick={() => setMobilePanel((p) => (p === "tools" ? "none" : "tools"))}
             aria-label="Drawing tools"
             className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md border text-sm transition-colors lg:hidden ${
-              mobilePanel === "tools" ? "border-primary bg-primary text-primary-foreground" : "border-border text-muted-foreground hover:bg-secondary"
+              mobilePanel === "tools"
+                ? "border-primary bg-primary text-primary-foreground"
+                : "border-border text-muted-foreground hover:bg-secondary"
             }`}
           >
             <i className="fa-solid fa-pencil" />
           </button>
           <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto no-scrollbar">
-            <span className="shrink-0 text-base font-bold text-foreground sm:text-lg">{symbol ?? seed}</span>
-            {name && <span className="hidden shrink-0 text-sm text-muted-foreground sm:inline">{name}</span>}
-            <span className="shrink-0 rounded border border-border px-1.5 py-0.5 font-mono text-[10px] uppercase text-muted-foreground">{exchange}</span>
+            <span className="shrink-0 text-base font-bold text-foreground sm:text-lg">
+              {symbol ?? seed}
+            </span>
+            {name && (
+              <span className="hidden shrink-0 text-sm text-muted-foreground sm:inline">
+                {name}
+              </span>
+            )}
+            <span className="shrink-0 rounded border border-border px-1.5 py-0.5 font-mono text-[10px] uppercase text-muted-foreground">
+              {exchange}
+            </span>
             <span className="mx-1 hidden h-4 w-px shrink-0 bg-border sm:block" />
             <div className="hidden shrink-0 gap-1 sm:flex">
               {timeframeOptions.map((tf) => (
@@ -1605,7 +1964,9 @@ export function AssetChart({
               onClick={() => setMobilePanel((p) => (p === "watchlist" ? "none" : "watchlist"))}
               aria-label="Watchlist"
               className={`hidden h-8 w-8 items-center justify-center rounded-md border text-sm transition-colors lg:hidden ${
-                mobilePanel === "watchlist" ? "border-primary bg-primary text-primary-foreground" : "border-border text-muted-foreground hover:bg-secondary"
+                mobilePanel === "watchlist"
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-border text-muted-foreground hover:bg-secondary"
               }`}
             >
               <i className="fa-solid fa-list-ul" />
@@ -1656,11 +2017,16 @@ export function AssetChart({
       </div>
 
       {/* Right: watchlist + performance — desktop only; mobile gets a slide-in drawer below */}
-      <div className="hidden w-80 shrink-0 flex-col border-l border-border bg-card/40 lg:flex">{watchlistPanel}</div>
+      <div className="hidden w-80 shrink-0 flex-col border-l border-border bg-card/40 lg:flex">
+        {watchlistPanel}
+      </div>
 
       {/* Mobile drawers */}
       {mobilePanel !== "none" && (
-        <div className="fixed inset-0 z-40 bg-black/50 lg:hidden" onClick={() => setMobilePanel("none")} />
+        <div
+          className="fixed inset-0 z-40 bg-black/50 lg:hidden"
+          onClick={() => setMobilePanel("none")}
+        />
       )}
       <div
         className={`fixed inset-y-0 left-0 z-50 flex w-16 -translate-x-full flex-col items-center gap-1 border-r border-border bg-card py-4 shadow-2xl transition-transform duration-200 lg:hidden ${
@@ -1682,7 +2048,17 @@ export function AssetChart({
   );
 }
 
-function MenuItem({ icon, label, hint, onClick }: { icon: string; label: string; hint?: string; onClick: () => void }) {
+function MenuItem({
+  icon,
+  label,
+  hint,
+  onClick,
+}: {
+  icon: string;
+  label: string;
+  hint?: string;
+  onClick: () => void;
+}) {
   return (
     <button
       type="button"

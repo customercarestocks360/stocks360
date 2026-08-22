@@ -192,8 +192,6 @@ function Login() {
                 </Link>
               </div>
             </div>
-
-
           </div>
         </div>
       </div>

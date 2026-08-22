@@ -36,6 +36,7 @@ export type AssetClass = (typeof ASSET_CLASSES)[number];
 
 export const ORDER_SIDES = ["buy", "sell"] as const;
 export type OrderSide = (typeof ORDER_SIDES)[number];
+export type HedgeSide = "long" | "short";
 
 export const ORDER_TYPES = ["market", "limit", "stop", "stop_limit"] as const;
 export type OrderType = (typeof ORDER_TYPES)[number];
@@ -85,9 +86,9 @@ export const TRADING_PEGGED_CURRENCIES = ["USDT", "USDC", "USD"] as const;
 
 /**
  * Asset classes where a sell with nothing behind it opens a short instead of being refused.
- * Equities are excluded: shorting a listed share needs a stock borrow this venue has none of.
+ * This simulated margin venue is two-sided on every asset class by default.
  */
-export const TRADING_SHORT_SELLING_CLASSES = ["crypto", "forex"] as const;
+export const TRADING_SHORT_SELLING_CLASSES = ["crypto", "forex", "stocks"] as const;
 
 /** The only currencies this venue will hold. An instrument quoted in anything else is a 409. */
 export const SETTLEMENT_CURRENCIES = [
@@ -119,6 +120,7 @@ export const LEDGER_KINDS = [
   "trade_debit",
   "trade_credit",
   "fee",
+  "adjustment",
 ] as const;
 export type LedgerKind = (typeof LEDGER_KINDS)[number];
 
@@ -132,6 +134,8 @@ export type Order = {
   asset_class: AssetClass;
   symbol: string;
   side: OrderSide;
+  /** Independent hedge leg; null denotes a legacy one-way order. */
+  position_side: HedgeSide | null;
   type: OrderType;
   time_in_force: TimeInForce;
   status: OrderStatus;
@@ -168,6 +172,7 @@ export type Trade = {
   asset_class: AssetClass;
   symbol: string;
   side: OrderSide;
+  position_side: HedgeSide | null;
   /** Quote currency — what `price` is in. */
   currency: string;
   /** Wallet currency — what `notional`, `fee` and `realized_pnl` are in. */
@@ -197,6 +202,8 @@ export type Position = {
   currency: string;
   /** Wallet currency — what `cost_basis`, `margin_used` and the P&L figures are in. */
   account_currency: string;
+  /** Independent hedge leg; null denotes a legacy one-way position. */
+  position_side: HedgeSide | null;
   direction: PositionSide;
   /**
    * **Signed**: positive is long, negative is short. One document per instrument holds
@@ -228,6 +235,17 @@ export type PositionValuation = Position & {
   unrealized_pnl_percent: string | null;
   market_state: MarketState;
   stale: boolean;
+};
+
+/**
+ * What one unit of `currency` is worth in `account_currency`, at the same rate an order in
+ * that currency would be funded at right now. `1` for the account currency itself and for
+ * anything pegged to it, with no network call behind it either way.
+ */
+export type FxRate = {
+  currency: string;
+  account_currency: string;
+  rate: string;
 };
 
 export type Balance = {
@@ -337,6 +355,7 @@ export type OrderRequest = {
   asset_class: AssetClass;
   symbol: string;
   side: OrderSide;
+  position_side?: HedgeSide;
   type?: OrderType;
   quantity: string;
   limit_price?: string;
@@ -366,6 +385,24 @@ export function fetchEligibility(token: string, signal?: AbortSignal): Promise<E
 /** `GET /trading/balances` — cash per currency, newest state. Works even when trading is disabled. */
 export function fetchBalances(token: string, signal?: AbortSignal): Promise<Balance[]> {
   return apiFetch<Balance[]>("/trading/balances", { token, ...(signal ? { signal } : {}) });
+}
+
+/**
+ * `GET /trading/fx-rate?currency=X` — what `currency` is worth in the account balance right
+ * now. Needed before an order exists to carry its own `fx_rate`: pricing or validating a buy
+ * in an instrument that does not settle in {@link TRADING_ACCOUNT_CURRENCY} has nowhere else
+ * to get this number, and approximating it locally would be exactly the invented conversion
+ * this venue's FX design exists to avoid. `409` means nothing prices `currency` at all.
+ */
+export function fetchFxRate(
+  currency: string,
+  token: string,
+  signal?: AbortSignal,
+): Promise<FxRate> {
+  return apiFetch<FxRate>(`/trading/fx-rate${query({ currency })}`, {
+    token,
+    ...(signal ? { signal } : {}),
+  });
 }
 
 /**
@@ -500,6 +537,17 @@ export function amount(raw: string | null | undefined): number | null {
   return Number.isFinite(value) ? value : null;
 }
 
+/**
+ * A money or price field, rounded to 2 decimals for display — "64070.72", not the backend's
+ * full 8-decimal-place storage precision ("64070.71666700"). Quantities are deliberately not
+ * this: a crypto quantity like `0.00514296` needs its own decimals or it reads as zero.
+ */
+export function money2(raw: string | null | undefined): string {
+  const value = amount(raw);
+  if (value === null) return "—";
+  return value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 /** A `client_order_id` the server will accept: `^[A-Za-z0-9_-]{8,64}$`. */
 export function newClientOrderId(): string {
   const random = Math.random().toString(36).slice(2, 10);
@@ -520,7 +568,7 @@ export function describeOutcome(order: Order): { ok: boolean; message: string } 
     case "filled":
       return {
         ok: true,
-        message: `Filled ${order.filled_quantity} ${order.symbol} at ${order.average_price ?? "—"} ${order.currency}`,
+        message: `Filled ${order.filled_quantity} ${order.symbol} at ${money2(order.average_price)} ${order.currency}`,
       };
     case "open":
       return {

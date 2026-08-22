@@ -31,7 +31,7 @@ import { MobileTradeBar } from "@/components/ui/mobile-trade-bar";
 import { formatPrice, type TradeInstrument } from "@/lib/instrument";
 import { blankInstrument } from "@/lib/quote-to-instrument";
 import { searchUniverse, type SearchHit } from "@/lib/instrument-search";
-import { type AssetClass, type PositionValuation } from "@/lib/trading-api";
+import { amount, money2, type AssetClass, type PositionValuation } from "@/lib/trading-api";
 import { fetchForexSession, type SessionInfo } from "@/lib/watchlists-api";
 import { TIMEFRAMES_FOR, type Timeframe } from "@/lib/chart-data";
 import { WatchlistPanel } from "@/components/ui/watchlist-panel";
@@ -74,13 +74,11 @@ type RailView = (typeof RAIL_VIEWS)[number];
 
 export function TradingDesk({
   assetClasses,
-  tableTitle,
   initialAssetClass,
   initialSymbol,
 }: {
   /** One or more classes this desk can trade. A picker appears when there is more than one. */
   assetClasses: readonly AssetClass[];
-  tableTitle: string;
   /** Deep-link target from `/markets`' "Trade" button — which class the desk should open on. */
   initialAssetClass?: AssetClass | undefined;
   /** Deep-link target from `/markets`' "Trade" button — which instrument to preselect. */
@@ -95,7 +93,11 @@ export function TradingDesk({
   const [action, setAction] = useState<"buy" | "sell">("buy");
   const [timeframe, setTimeframe] = useState<Timeframe>("1D");
   /** Set by "Close" on a position row: pre-fills the ticket to sell the whole free quantity. */
-  const [closeIntent, setCloseIntent] = useState<{ symbol: string; quantity: string } | null>(null);
+  const [closeIntent, setCloseIntent] = useState<{
+    symbol: string;
+    quantity: string;
+    positionSide?: "long" | "short";
+  } | null>(null);
   const [railView, setRailView] = useState<RailView>("Book");
 
   const [query, setQuery] = useState("");
@@ -113,6 +115,7 @@ export function TradingDesk({
   const board = useTradingBoard(assetClass);
 
   const instruments = board.instruments;
+  const resolveInstrument = board.resolve;
 
   // Default to the first streamed instrument, and re-anchor when the class changes.
   useEffect(() => {
@@ -131,13 +134,13 @@ export function TradingDesk({
     initialSymbolConsumed.current = true;
     let cancelled = false;
     void (async () => {
-      const resolved = await board.resolve(initialSymbol);
+      const resolved = await resolveInstrument(initialSymbol);
       if (!cancelled) setSelectedSymbol(resolved?.symbol ?? initialSymbol);
     })();
     return () => {
       cancelled = true;
     };
-  }, [initialSymbol, board.resolve]);
+  }, [initialSymbol, resolveInstrument]);
 
   const selected = useMemo(() => {
     if (selectedSymbol) {
@@ -261,8 +264,12 @@ export function TradingDesk({
 
   const closePosition = (p: PositionValuation) => {
     setSelectedSymbol(p.symbol);
-    setAction("sell");
-    setCloseIntent({ symbol: p.symbol, quantity: p.available_quantity });
+    setAction(p.direction === "short" ? "buy" : "sell");
+    setCloseIntent({
+      symbol: p.symbol,
+      quantity: String(Math.abs(Number(p.available_quantity))),
+      ...(p.position_side ? { positionSide: p.position_side } : {}),
+    });
     revealTicket();
   };
 
@@ -288,6 +295,12 @@ export function TradingDesk({
     : board.connected
       ? "Live prices streaming"
       : "Connecting to live prices…";
+
+  const accountCurrency = trading.portfolio?.account_currency ?? "USDT";
+  const totalPnl = trading.portfolio
+    ? (amount(trading.portfolio.realized_pnl) ?? 0) +
+      (amount(trading.portfolio.unrealized_pnl) ?? 0)
+    : null;
 
   return (
     // `pb-14` below lg reserves room for the fixed mobile trade bar, so the dock's last rows
@@ -405,12 +418,38 @@ export function TradingDesk({
           </span>
         )}
 
+        {trading.ready && trading.portfolio && (
+          <div className="ml-auto hidden shrink-0 items-center divide-x divide-overlay-border rounded border border-overlay-border bg-background/30 md:flex">
+            <div className="px-3 py-1">
+              <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Equity
+              </div>
+              <div className="font-mono text-xs font-bold text-foreground">
+                {money2(trading.portfolio.equity)}{" "}
+                <span className="text-[9px] text-muted-foreground">{accountCurrency}</span>
+              </div>
+            </div>
+            <div className="px-3 py-1">
+              <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Total P&amp;L
+              </div>
+              <div
+                className={`font-mono text-xs font-bold ${totalPnl !== null && totalPnl >= 0 ? "text-up" : "text-down"}`}
+              >
+                {totalPnl !== null && totalPnl > 0 ? "+" : ""}
+                {totalPnl === null ? "—" : money2(String(totalPnl))}{" "}
+                <span className="text-[9px] opacity-70">{accountCurrency}</span>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Pane widths persist, so there has to be a way back to the defaults. */}
         <button
           type="button"
           onClick={resetDeskLayout}
           title="Reset panel sizes to their defaults"
-          className="ml-auto hidden shrink-0 items-center gap-1.5 rounded border border-overlay-border px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground transition-colors hover:text-foreground lg:flex"
+          className={`${trading.ready && trading.portfolio ? "" : "ml-auto"} hidden shrink-0 items-center gap-1.5 rounded border border-overlay-border px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground transition-colors hover:text-foreground lg:flex`}
         >
           <i className="fa-solid fa-table-columns text-[10px]" />
           Reset layout
@@ -440,6 +479,7 @@ export function TradingDesk({
               assetClass={assetClass}
               watchlists={board.watchlists}
               instruments={instruments}
+              marketInstruments={board.marketInstruments}
               selectedSymbol={selected?.symbol ?? null}
               onSelectSymbol={setSelectedSymbol}
               activeSymbol={selected?.symbol ?? null}
@@ -547,19 +587,12 @@ export function TradingDesk({
         dock={
           <DeskDock
             trading={trading}
-            instruments={instruments}
             assetClass={assetClass}
-            selectedSymbol={selected?.symbol ?? null}
-            connected={board.connected}
-            boardError={board.error}
             onSelect={(symbol) => {
               setSelectedSymbol(symbol);
               revealTicket();
             }}
             onClosePosition={closePosition}
-            favKey={favKey}
-            classIcon={(c) => <ClassIcon assetClass={c} />}
-            instrumentsLabel={tableTitle}
           />
         }
       />

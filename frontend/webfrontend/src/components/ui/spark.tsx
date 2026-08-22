@@ -7,11 +7,7 @@ export function Spark({ up }: { up: boolean }) {
     <svg viewBox="0 0 96 36" className="h-9 w-24" preserveAspectRatio="none" aria-hidden="true">
       <defs>
         <linearGradient id={`g-${id}`} x1="0" y1="0" x2="0" y2="1">
-          <stop
-            offset="0%"
-            stopColor={up ? "var(--up)" : "var(--down)"}
-            stopOpacity="0.45"
-          />
+          <stop offset="0%" stopColor={up ? "var(--up)" : "var(--down)"} stopOpacity="0.45" />
           <stop offset="100%" stopColor={up ? "var(--up)" : "var(--down)"} stopOpacity="0" />
         </linearGradient>
       </defs>

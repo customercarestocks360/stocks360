@@ -1,12 +1,14 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { Confetti } from "@/components/ui/confetti";
 import { ApiError } from "@/lib/api";
 import { currentIdToken } from "@/lib/firebase";
+import { adminAmendUserKyc, adminFetchUserDetail } from "@/lib/users-api";
 import {
   ACCOUNT_TYPES,
   AGREEMENT_DOCUMENTS,
+  AMENDABLE_STEPS,
   CRYPTO_NETWORKS,
   CURRENCIES,
   DOCUMENT_TYPES,
@@ -25,6 +27,7 @@ import {
   RISK_TOLERANCES,
   SOURCES_OF_FUNDS,
   TWO_FACTOR_METHODS,
+  amendOnboardingStep,
   fetchOnboardingSession,
   submitOnboardingApplication,
   submitOnboardingStep,
@@ -58,7 +61,20 @@ function AuthPageShell({ children }: { children: ReactNode }) {
   );
 }
 
+type KycSearch = { edit?: boolean; step?: OnboardingStep; uid?: string };
+
 export const Route = createFileRoute("/kyc")({
+  validateSearch: (search: Record<string, unknown>): KycSearch => {
+    const step = ONBOARDING_STEPS.includes(search["step"] as OnboardingStep)
+      ? (search["step"] as OnboardingStep)
+      : undefined;
+    const uid = typeof search["uid"] === "string" && search["uid"] ? search["uid"] : undefined;
+    return {
+      ...(search["edit"] === true ? { edit: true as const } : {}),
+      ...(step ? { step } : {}),
+      ...(uid ? { uid } : {}),
+    };
+  },
   head: () => ({
     meta: [
       { title: "Complete your KYC — Stocks360" },
@@ -441,6 +457,14 @@ const MASKED_FIELD_HINT =
 function KycPage() {
   const navigate = useNavigate();
   const { isLoggedIn, onboardingStatus, refreshProfile } = useAuth();
+  const { edit, step: targetStep, uid: adminUid } = Route.useSearch();
+
+  /** Editing one section of an already-submitted application, entered from account.tsx's
+   * "Edit" button on a KYC recap group — as opposed to the ordered signup funnel below.
+   * `adminUid` set means this same edit form is correcting someone else's application from
+   * the admin panel, via `PATCH /admin/users/{uid}/kyc` instead of `PATCH /onboarding/kyc`. */
+  const isEditMode =
+    edit === true && targetStep !== undefined && AMENDABLE_STEPS.includes(targetStep);
 
   const [loadingSession, setLoadingSession] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -448,7 +472,14 @@ function KycPage() {
   const [readyToSubmit, setReadyToSubmit] = useState(false);
   const [alreadySubmitted, setAlreadySubmitted] = useState(false);
 
-  const [stepIndex, setStepIndex] = useState(0);
+  const [stepIndex, setStepIndex] = useState(() =>
+    isEditMode
+      ? Math.max(
+          0,
+          STEPS.findIndex((s) => s.key === targetStep),
+        )
+      : 0,
+  );
   const [error, setError] = useState("");
   const [celebrate, setCelebrate] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -525,6 +556,138 @@ function KycPage() {
   const toggleInArray = <T,>(arr: T[], value: T): T[] =>
     arr.includes(value) ? arr.filter((v) => v !== value) : [...arr, value];
 
+  const hydrateFromSession = useCallback(
+    (session: OnboardingSession) => {
+      setCompletedSteps(new Set(session.completed_steps));
+      setReadyToSubmit(session.ready_to_submit);
+      setAlreadySubmitted(session.submitted_at !== null);
+      // A submitted session normally has nothing left to hydrate into — the funnel below is
+      // never shown once `alreadySubmitted` gates it. Edit mode is the one case that reaches
+      // the wizard anyway, and needs the captured fields prefilled to correct them.
+      if (session.submitted_at !== null && !isEditMode) return;
+
+      const data = <T,>(step: OnboardingStep): (Partial<T> & Record<string, unknown>) | undefined =>
+        session.steps[step]?.data as (Partial<T> & Record<string, unknown>) | undefined;
+
+      const c = data<ContactStepInput>("contact");
+      if (c) {
+        setContact((prev) => ({
+          ...prev,
+          mobile_country_code: (c.mobile_country_code as string) ?? prev.mobile_country_code,
+          // Masked once captured — leave blank so an untouched resubmit can never send "**1234".
+          mobile_number: "",
+          country_of_residence: (c.country_of_residence as string) ?? prev.country_of_residence,
+          nationality: (c.nationality as string) ?? prev.nationality,
+        }));
+      }
+      const p = data<PersonalStepInput>("personal");
+      if (p) {
+        setPersonal((prev) => ({
+          ...prev,
+          first_name: (p.first_name as string) ?? prev.first_name,
+          last_name: (p.last_name as string) ?? prev.last_name,
+          date_of_birth: (p.date_of_birth as string) ?? prev.date_of_birth,
+          gender: (p.gender as Personal["gender"]) ?? prev.gender,
+          place_of_birth_country:
+            (p.place_of_birth_country as string) ?? prev.place_of_birth_country,
+        }));
+      }
+      const a = data<AddressStepInput>("address");
+      if (a) {
+        setAddress((prev) => ({
+          residential: (a.residential as PostalAddress) ?? prev.residential,
+          permanent_same_as_residential:
+            (a.permanent_same_as_residential as boolean) ?? prev.permanent_same_as_residential,
+          permanent: (a.permanent as PostalAddress) ?? prev.permanent,
+        }));
+      }
+      const id = data<IdentityStepInput>("identity");
+      if (id) {
+        setIdentity((prev) => ({
+          document_type: (id.document_type as Identity["document_type"]) ?? prev.document_type,
+          document_number: "", // masked once captured
+          issuing_country: (id.issuing_country as string) ?? prev.issuing_country,
+          expiry_date: id.expiry_date as string | undefined,
+        }));
+      }
+      const t = data<TaxStepInput>("tax");
+      if (t) {
+        setTax((prev) => ({
+          tax_residency_country: (t.tax_residency_country as string) ?? prev.tax_residency_country,
+          tax_identification_number: "", // masked once captured
+          no_tin_reason: (t.no_tin_reason as string) ?? "",
+          is_us_person: (t.is_us_person as boolean) ?? prev.is_us_person,
+          pep_status: (t.pep_status as Tax["pep_status"]) ?? prev.pep_status,
+          source_of_funds: (t.source_of_funds as Tax["source_of_funds"]) ?? prev.source_of_funds,
+          source_of_funds_detail: (t.source_of_funds_detail as string) ?? "",
+        }));
+      }
+      const f = data<FinancialStepInput>("financial");
+      if (f) {
+        setFinancial((prev) => ({
+          occupation: (f.occupation as Financial["occupation"]) ?? prev.occupation,
+          employer_designation: (f.employer_designation as string) ?? "",
+          income_currency:
+            (f.income_currency as Financial["income_currency"]) ?? prev.income_currency,
+          annual_income_band:
+            (f.annual_income_band as Financial["annual_income_band"]) ?? prev.annual_income_band,
+          net_worth_band: (f.net_worth_band as Financial["net_worth_band"]) ?? prev.net_worth_band,
+          investment_experience_years:
+            (f.investment_experience_years as number) ?? prev.investment_experience_years,
+          risk_tolerance: (f.risk_tolerance as Financial["risk_tolerance"]) ?? prev.risk_tolerance,
+          investment_objectives:
+            (f.investment_objectives as Financial["investment_objectives"]) ??
+            prev.investment_objectives,
+        }));
+      }
+      const m = data<MarketsStepInput>("markets");
+      if (m) {
+        setMarketsPrefs((prev) => ({
+          products: (m.products as MarketsPrefs["products"]) ?? prev.products,
+          base_currency: (m.base_currency as MarketsPrefs["base_currency"]) ?? prev.base_currency,
+        }));
+      }
+      const fund = data<FundingStepInput>("funding");
+      if (fund) {
+        setFunding((prev) => ({
+          primary_method: (fund.primary_method as Funding["primary_method"]) ?? prev.primary_method,
+          bank_account: fund.bank_account
+            ? {
+                ...(fund.bank_account as NonNullable<FundingStepInput["bank_account"]>),
+                account_number: "",
+              }
+            : prev.bank_account,
+          crypto_deposit_networks:
+            (fund.crypto_deposit_networks as Funding["crypto_deposit_networks"]) ??
+            prev.crypto_deposit_networks,
+        }));
+      }
+      const sec = data<SecurityStepInput>("security");
+      if (sec) {
+        setSecurity((prev) => ({
+          two_factor_method:
+            (sec.two_factor_method as Security["two_factor_method"]) ?? prev.two_factor_method,
+          anti_phishing_code: (sec.anti_phishing_code as string) ?? prev.anti_phishing_code,
+          withdrawal_whitelist_only:
+            (sec.withdrawal_whitelist_only as boolean) ?? prev.withdrawal_whitelist_only,
+          notify_on_new_device: (sec.notify_on_new_device as boolean) ?? prev.notify_on_new_device,
+        }));
+      }
+      const ag = data<{ accepted: AcceptedAgreement[] }>("agreements");
+      if (ag?.accepted) setAcceptedDocs(new Set(ag.accepted.map((d) => d.document)));
+
+      // Edit mode targets one specific step from the URL — resuming the funnel's own
+      // current_step would jump away from it (a submitted session has none left, which
+      // resolves to the last step).
+      if (isEditMode) return;
+      const idx = session.current_step
+        ? STEPS.findIndex((s) => s.key === session.current_step)
+        : STEPS.length - 1;
+      setStepIndex(Math.max(0, idx));
+    },
+    [isEditMode],
+  );
+
   // --- Resume: hydrate every step's local state from the server session, once. ---------
   useEffect(() => {
     if (!isLoggedIn) return;
@@ -534,7 +697,9 @@ function KycPage() {
       setLoadError("");
       try {
         const token = await currentIdToken();
-        const session = await fetchOnboardingSession(token);
+        const session = adminUid
+          ? (await adminFetchUserDetail(adminUid, token)).kyc
+          : await fetchOnboardingSession(token);
         if (cancelled) return;
         hydrateFromSession(session);
       } catch (err) {
@@ -542,7 +707,7 @@ function KycPage() {
         setLoadError(
           err instanceof ApiError
             ? err.message
-            : "Could not load your application. Please try again.",
+            : "Could not load this application. Please try again.",
         );
       } finally {
         if (!cancelled) setLoadingSession(false);
@@ -551,128 +716,7 @@ function KycPage() {
     return () => {
       cancelled = true;
     };
-  }, [isLoggedIn]);
-
-  function hydrateFromSession(session: OnboardingSession) {
-    setCompletedSteps(new Set(session.completed_steps));
-    setReadyToSubmit(session.ready_to_submit);
-    setAlreadySubmitted(session.submitted_at !== null);
-    if (session.submitted_at !== null) return;
-
-    const data = <T,>(step: OnboardingStep): (Partial<T> & Record<string, unknown>) | undefined =>
-      session.steps[step]?.data as (Partial<T> & Record<string, unknown>) | undefined;
-
-    const c = data<ContactStepInput>("contact");
-    if (c) {
-      setContact((prev) => ({
-        ...prev,
-        mobile_country_code: (c.mobile_country_code as string) ?? prev.mobile_country_code,
-        // Masked once captured — leave blank so an untouched resubmit can never send "**1234".
-        mobile_number: "",
-        country_of_residence: (c.country_of_residence as string) ?? prev.country_of_residence,
-        nationality: (c.nationality as string) ?? prev.nationality,
-      }));
-    }
-    const p = data<PersonalStepInput>("personal");
-    if (p) {
-      setPersonal((prev) => ({
-        ...prev,
-        first_name: (p.first_name as string) ?? prev.first_name,
-        last_name: (p.last_name as string) ?? prev.last_name,
-        date_of_birth: (p.date_of_birth as string) ?? prev.date_of_birth,
-        gender: (p.gender as Personal["gender"]) ?? prev.gender,
-        place_of_birth_country: (p.place_of_birth_country as string) ?? prev.place_of_birth_country,
-      }));
-    }
-    const a = data<AddressStepInput>("address");
-    if (a) {
-      setAddress((prev) => ({
-        residential: (a.residential as PostalAddress) ?? prev.residential,
-        permanent_same_as_residential:
-          (a.permanent_same_as_residential as boolean) ?? prev.permanent_same_as_residential,
-        permanent: (a.permanent as PostalAddress) ?? prev.permanent,
-      }));
-    }
-    const id = data<IdentityStepInput>("identity");
-    if (id) {
-      setIdentity((prev) => ({
-        document_type: (id.document_type as Identity["document_type"]) ?? prev.document_type,
-        document_number: "", // masked once captured
-        issuing_country: (id.issuing_country as string) ?? prev.issuing_country,
-        expiry_date: id.expiry_date as string | undefined,
-      }));
-    }
-    const t = data<TaxStepInput>("tax");
-    if (t) {
-      setTax((prev) => ({
-        tax_residency_country: (t.tax_residency_country as string) ?? prev.tax_residency_country,
-        tax_identification_number: "", // masked once captured
-        no_tin_reason: (t.no_tin_reason as string) ?? "",
-        is_us_person: (t.is_us_person as boolean) ?? prev.is_us_person,
-        pep_status: (t.pep_status as Tax["pep_status"]) ?? prev.pep_status,
-        source_of_funds: (t.source_of_funds as Tax["source_of_funds"]) ?? prev.source_of_funds,
-        source_of_funds_detail: (t.source_of_funds_detail as string) ?? "",
-      }));
-    }
-    const f = data<FinancialStepInput>("financial");
-    if (f) {
-      setFinancial((prev) => ({
-        occupation: (f.occupation as Financial["occupation"]) ?? prev.occupation,
-        employer_designation: (f.employer_designation as string) ?? "",
-        income_currency:
-          (f.income_currency as Financial["income_currency"]) ?? prev.income_currency,
-        annual_income_band:
-          (f.annual_income_band as Financial["annual_income_band"]) ?? prev.annual_income_band,
-        net_worth_band: (f.net_worth_band as Financial["net_worth_band"]) ?? prev.net_worth_band,
-        investment_experience_years:
-          (f.investment_experience_years as number) ?? prev.investment_experience_years,
-        risk_tolerance: (f.risk_tolerance as Financial["risk_tolerance"]) ?? prev.risk_tolerance,
-        investment_objectives:
-          (f.investment_objectives as Financial["investment_objectives"]) ??
-          prev.investment_objectives,
-      }));
-    }
-    const m = data<MarketsStepInput>("markets");
-    if (m) {
-      setMarketsPrefs((prev) => ({
-        products: (m.products as MarketsPrefs["products"]) ?? prev.products,
-        base_currency: (m.base_currency as MarketsPrefs["base_currency"]) ?? prev.base_currency,
-      }));
-    }
-    const fund = data<FundingStepInput>("funding");
-    if (fund) {
-      setFunding((prev) => ({
-        primary_method: (fund.primary_method as Funding["primary_method"]) ?? prev.primary_method,
-        bank_account: fund.bank_account
-          ? {
-              ...(fund.bank_account as NonNullable<FundingStepInput["bank_account"]>),
-              account_number: "",
-            }
-          : prev.bank_account,
-        crypto_deposit_networks:
-          (fund.crypto_deposit_networks as Funding["crypto_deposit_networks"]) ??
-          prev.crypto_deposit_networks,
-      }));
-    }
-    const sec = data<SecurityStepInput>("security");
-    if (sec) {
-      setSecurity((prev) => ({
-        two_factor_method:
-          (sec.two_factor_method as Security["two_factor_method"]) ?? prev.two_factor_method,
-        anti_phishing_code: (sec.anti_phishing_code as string) ?? prev.anti_phishing_code,
-        withdrawal_whitelist_only:
-          (sec.withdrawal_whitelist_only as boolean) ?? prev.withdrawal_whitelist_only,
-        notify_on_new_device: (sec.notify_on_new_device as boolean) ?? prev.notify_on_new_device,
-      }));
-    }
-    const ag = data<{ accepted: AcceptedAgreement[] }>("agreements");
-    if (ag?.accepted) setAcceptedDocs(new Set(ag.accepted.map((d) => d.document)));
-
-    const idx = session.current_step
-      ? STEPS.findIndex((s) => s.key === session.current_step)
-      : STEPS.length - 1;
-    setStepIndex(Math.max(0, idx));
-  }
+  }, [adminUid, hydrateFromSession, isLoggedIn]);
 
   if (!isLoggedIn) {
     return (
@@ -730,7 +774,7 @@ function KycPage() {
     );
   }
 
-  if (alreadySubmitted && !celebrate) {
+  if (alreadySubmitted && !celebrate && !isEditMode) {
     return (
       <AuthPageShell>
         <div className="relative w-full max-w-md rounded sm:rounded-3xl border border-border bg-card/80 p-8 text-center shadow-2xl backdrop-blur-xl">
@@ -948,6 +992,18 @@ function KycPage() {
     setSubmitting(true);
     try {
       const token = await currentIdToken();
+
+      if (isEditMode) {
+        if (adminUid) {
+          await adminAmendUserKyc(adminUid, buildPayload(), token);
+          void navigate({ to: "/admin" });
+        } else {
+          await amendOnboardingStep(buildPayload(), token);
+          void navigate({ to: "/account", search: { tab: "account" } });
+        }
+        return;
+      }
+
       const session = await submitOnboardingStep(buildPayload(), token);
       setCompletedSteps(new Set(session.completed_steps));
       setReadyToSubmit(session.ready_to_submit);
@@ -1005,51 +1061,57 @@ function KycPage() {
         ) : (
           <>
             <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
-              Complete your remaining details
+              {isEditMode
+                ? `Edit ${ONBOARDING_STEP_LABELS[currentStepKey]}`
+                : "Complete your remaining details"}
             </h1>
             <p className="mt-2 text-sm text-muted-foreground">
-              A few quick steps to verify your identity before you can deposit and trade.
+              {isEditMode
+                ? "Correct this section of your account details."
+                : "A few quick steps to verify your identity before you can deposit and trade."}
             </p>
 
             {/* ── Horizontal step indicator ── */}
-            <div className="mt-8 flex items-center">
-              {STEPS.map((step, i) => (
-                <div key={step.key} className="flex flex-1 items-center last:flex-none">
-                  <div className="flex flex-col items-center gap-2">
-                    <div
-                      className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold transition-colors ${
-                        i < stepIndex || completedSteps.has(step.key)
-                          ? "bg-up text-white"
-                          : i === stepIndex
-                            ? "bg-primary text-primary-foreground"
-                            : "border border-border bg-background text-muted-foreground"
-                      }`}
-                    >
-                      {i < stepIndex || completedSteps.has(step.key) ? (
-                        <i className="fa-solid fa-check text-[11px]" />
-                      ) : (
-                        i + 1
-                      )}
-                    </div>
-                    <span
-                      className={`text-[11px] font-medium ${
-                        i <= stepIndex ? "text-foreground" : "text-muted-foreground"
-                      }`}
-                    >
-                      {step.label}
-                    </span>
-                  </div>
-                  {i < STEPS.length - 1 && (
-                    <div className="mx-2 h-0.5 flex-1 rounded-full bg-border">
+            {!isEditMode && (
+              <div className="mt-8 flex items-center">
+                {STEPS.map((step, i) => (
+                  <div key={step.key} className="flex flex-1 items-center last:flex-none">
+                    <div className="flex flex-col items-center gap-2">
                       <div
-                        className="h-0.5 rounded-full bg-up transition-all duration-500"
-                        style={{ width: i < stepIndex ? "100%" : "0%" }}
-                      />
+                        className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold transition-colors ${
+                          i < stepIndex || completedSteps.has(step.key)
+                            ? "bg-up text-white"
+                            : i === stepIndex
+                              ? "bg-primary text-primary-foreground"
+                              : "border border-border bg-background text-muted-foreground"
+                        }`}
+                      >
+                        {i < stepIndex || completedSteps.has(step.key) ? (
+                          <i className="fa-solid fa-check text-[11px]" />
+                        ) : (
+                          i + 1
+                        )}
+                      </div>
+                      <span
+                        className={`text-[11px] font-medium ${
+                          i <= stepIndex ? "text-foreground" : "text-muted-foreground"
+                        }`}
+                      >
+                        {step.label}
+                      </span>
                     </div>
-                  )}
-                </div>
-              ))}
-            </div>
+                    {i < STEPS.length - 1 && (
+                      <div className="mx-2 h-0.5 flex-1 rounded-full bg-border">
+                        <div
+                          className="h-0.5 rounded-full bg-up transition-all duration-500"
+                          style={{ width: i < stepIndex ? "100%" : "0%" }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
 
             {/* ── Step content ── */}
             <div className="mt-10 rounded sm:rounded-3xl border border-border bg-card p-4 shadow-sm sm:p-7">
@@ -1767,11 +1829,22 @@ function KycPage() {
               <div className="mt-7 flex items-center justify-between gap-3">
                 <button
                   type="button"
-                  onClick={stepIndex === 0 ? () => navigate({ to: "/" }) : handleBack}
+                  onClick={
+                    isEditMode
+                      ? () =>
+                          void navigate(
+                            adminUid
+                              ? { to: "/admin" }
+                              : { to: "/account", search: { tab: "account" } },
+                          )
+                      : stepIndex === 0
+                        ? () => navigate({ to: "/" })
+                        : handleBack
+                  }
                   disabled={submitting}
                   className="rounded sm:rounded-xl border border-border px-5 py-2.5 text-sm font-semibold text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
                 >
-                  {stepIndex === 0 ? "Cancel" : "Back"}
+                  {isEditMode || stepIndex === 0 ? "Cancel" : "Back"}
                 </button>
                 <button
                   type="button"
@@ -1782,10 +1855,12 @@ function KycPage() {
                   {submitting && <i className="fa-solid fa-circle-notch fa-spin" />}
                   {submitting
                     ? "Saving..."
-                    : stepIndex === STEPS.length - 1 ||
-                        (readyToSubmit && currentStepKey === "agreements")
-                      ? "Submit & finish"
-                      : "Continue"}
+                    : isEditMode
+                      ? "Save changes"
+                      : stepIndex === STEPS.length - 1 ||
+                          (readyToSubmit && currentStepKey === "agreements")
+                        ? "Submit & finish"
+                        : "Continue"}
                 </button>
               </div>
             </div>

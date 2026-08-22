@@ -148,6 +148,13 @@ export async function signOutFirebase(): Promise<void> {
   await signOut(auth);
 }
 
+/** Send Firebase's signed, expiring password-reset link. */
+export async function sendPasswordReset(email: string): Promise<void> {
+  const auth = await getFirebaseAuth();
+  const { sendPasswordResetEmail } = await import("firebase/auth");
+  await sendPasswordResetEmail(auth, email.trim());
+}
+
 /**
  * Firebase error codes, translated into something a user can act on.
  *

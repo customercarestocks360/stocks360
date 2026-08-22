@@ -32,6 +32,7 @@ export function WatchlistPanel({
   assetClass,
   watchlists,
   instruments,
+  marketInstruments,
   selectedSymbol,
   onSelectSymbol,
   /** The symbol the desk currently has open, so it can be added to a list in one click. */
@@ -42,6 +43,8 @@ export function WatchlistPanel({
 }: {
   assetClass: AssetClass;
   watchlists: WatchlistsState;
+  /** The broader public market set, used to fill the rail below a short personal watchlist. */
+  marketInstruments: TradeInstrument[];
   instruments: TradeInstrument[];
   selectedSymbol: string | null;
   onSelectSymbol: (symbol: string) => void;
@@ -107,6 +110,62 @@ export function WatchlistPanel({
     selected.symbols.length < cap;
 
   const atCap = selected !== null && selected.symbols.length >= cap;
+  const savedSymbols = new Set(selected?.symbols ?? []);
+  const primaryInstruments = selected
+    ? instruments.filter((instrument) => savedSymbols.has(instrument.symbol))
+    : instruments;
+  const moreInstruments = selected
+    ? [...instruments, ...marketInstruments].filter(
+        (instrument, index, all) =>
+          !savedSymbols.has(instrument.symbol) &&
+          all.findIndex((candidate) => candidate.symbol === instrument.symbol) === index,
+      )
+    : [];
+
+  const instrumentRow = (i: TradeInstrument, saved: boolean) => (
+    <div
+      key={i.symbol}
+      className={`group flex items-center gap-1.5 border-l-2 px-1.5 py-2 transition-colors ${
+        selectedSymbol === i.symbol
+          ? "border-l-primary bg-primary/10"
+          : "border-l-transparent hover:bg-secondary/40"
+      }`}
+    >
+      <FavoriteStar id={`${i.assetClass}:${i.symbol}`} />
+      <button
+        type="button"
+        onClick={() => onSelectSymbol(i.symbol)}
+        className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+      >
+        <span className="min-w-0 flex-1">
+          <span className="block truncate font-mono text-xs font-bold text-foreground">
+            {i.label}
+          </span>
+          <span className="block truncate text-[9px] leading-tight text-muted-foreground">
+            {i.name}
+          </span>
+        </span>
+        <span className="shrink-0 font-mono text-xs font-semibold tabular-nums text-foreground">
+          {formatPrice(i.price)}
+        </span>
+        <span className="w-14 shrink-0 text-right">
+          <ChangeText pct={i.changePercent} />
+        </span>
+      </button>
+      {/* Only saved rows can be removed from the selected watchlist. */}
+      {saved && selected && selected.symbols.length > 1 && (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void run(() => watchlists.removeSymbol(selected.id, i.symbol))}
+          title={`Remove ${i.label}`}
+          className="shrink-0 text-[10px] text-muted-foreground/0 transition-colors group-hover:text-muted-foreground/60 hover:!text-down disabled:opacity-40"
+        >
+          <i className="fa-solid fa-xmark" />
+        </button>
+      )}
+    </div>
+  );
 
   return (
     <div
@@ -266,44 +325,21 @@ export function WatchlistPanel({
               : "Connecting…"}
         </p>
       ) : (
-        <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {instruments.map((i) => (
-            <div
-              key={i.symbol}
-              className={`group flex items-center gap-1.5 rounded-md px-1.5 py-1.5 transition-colors ${
-                selectedSymbol === i.symbol ? "bg-primary/10" : "hover:bg-secondary/40"
-              }`}
-            >
-              <FavoriteStar id={`${i.assetClass}:${i.symbol}`} />
-              <button
-                type="button"
-                onClick={() => onSelectSymbol(i.symbol)}
-                className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
-              >
-                <span className="min-w-0 flex-1 truncate font-mono text-xs font-semibold text-foreground">
-                  {i.label}
-                </span>
-                <span className="shrink-0 font-mono text-xs text-foreground">
-                  {formatPrice(i.price)}
-                </span>
-                <span className="w-14 shrink-0 text-right">
-                  <ChangeText pct={i.changePercent} />
-                </span>
-              </button>
-              {/* The venue refuses to leave a watchlist empty, so the last row keeps no remove. */}
-              {selected && selected.symbols.length > 1 && (
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => void run(() => watchlists.removeSymbol(selected.id, i.symbol))}
-                  title={`Remove ${i.label}`}
-                  className="shrink-0 text-[10px] text-muted-foreground/0 transition-colors group-hover:text-muted-foreground/60 hover:!text-down disabled:opacity-40"
-                >
-                  <i className="fa-solid fa-xmark" />
-                </button>
-              )}
-            </div>
-          ))}
+        <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div className="sticky top-0 z-10 flex items-center border-b border-overlay-border bg-surface/95 px-1.5 pb-1.5 pt-0.5 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground backdrop-blur">
+            <span className="min-w-0 flex-1 pl-6">Instrument</span>
+            <span className="pr-[3.8rem]">Price</span>
+            <span className="w-14 text-right">Change</span>
+          </div>
+          {primaryInstruments.map((i) => instrumentRow(i, true))}
+          {moreInstruments.length > 0 && (
+            <>
+              <div className="px-1.5 pb-0.5 pt-2 text-[9px] font-semibold uppercase tracking-widest text-muted-foreground/70">
+                More instruments
+              </div>
+              {moreInstruments.map((i) => instrumentRow(i, false))}
+            </>
+          )}
         </div>
       )}
 

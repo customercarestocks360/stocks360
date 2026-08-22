@@ -27,7 +27,14 @@ from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, StringConstr
 
 from app.core.config import TRADING_ACCOUNT_CURRENCY
 from app.schemas.common import ErrorResponse
-from app.schemas.trading import Amount, IdempotencyKey, Money, SettlementCurrency, Settles
+from app.schemas.trading import (
+    AccountCurrency,
+    AccountCurrencyField,
+    Amount,
+    IdempotencyKey,
+    Money,
+    SettlementCurrency,
+)
 
 # --------------------------------------------------------------------------- #
 # Enums
@@ -129,7 +136,9 @@ Destination = Annotated[
     Field(examples=["0x8cfa8b2fff6d4cec11dd6b53b68793fb4f81ffe3"]),
 ]
 
-Note = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=256)]
+Note = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=256)
+]
 
 
 class _Strict(BaseModel):
@@ -142,10 +151,9 @@ class _Strict(BaseModel):
 
 
 class _FundingBase(_Strict):
-    currency: Settles | None = Field(
+    currency: AccountCurrencyField | None = Field(
         default=None,
-        description=f"Optional, and only {TRADING_ACCOUNT_CURRENCY} is accepted — this venue "
-        "settles into one balance, so there is no second currency to fund",
+        description=f"Optional — {TRADING_ACCOUNT_CURRENCY} is the only value this venue holds",
     )
     amount: Money
     network: NetworkCode
@@ -159,17 +167,11 @@ class _FundingBase(_Strict):
     def _assert_one_balance(self) -> None:
         """The reviewed queue funds the same single balance the instant endpoints do.
 
-        Accepting an INR request here and crediting an INR wallet would leave money in a
-        currency nothing can be traded out of, which is worse than refusing it: the user
-        would see a balance and every order against it would fail.
+        Nothing else reaches here: `AccountCurrencyField` has one member, so any other
+        currency is already a 422 from the field itself. This only fills in the default.
         """
         if self.currency is None:
-            self.currency = SettlementCurrency(TRADING_ACCOUNT_CURRENCY)
-        elif self.currency.value != TRADING_ACCOUNT_CURRENCY:
-            raise ValueError(
-                f"This venue holds a single {TRADING_ACCOUNT_CURRENCY} balance, so "
-                f"{self.currency.value} cannot be funded or paid out. Omit `currency`."
-            )
+            self.currency = AccountCurrency(TRADING_ACCOUNT_CURRENCY)
 
     def _assert_rail_carries_currency(self) -> None:
         allowed = NETWORKS_FOR.get(self.currency.value, frozenset())
@@ -187,18 +189,27 @@ class _FundingBase(_Strict):
 class DepositRequest(_FundingBase):
     """A claim that money was sent to the venue. It credits nothing on its own."""
 
+    reference: str = Field(
+        min_length=4,
+        max_length=128,
+        description="Blockchain transaction hash used by the reviewer to verify the transfer",
+    )
+
 
 class WithdrawalRequest(_FundingBase):
     """A request to send money out. Placing it locks the amount immediately."""
 
-    destination: Destination = Field(description="Where to send it — your own account or wallet")
+    destination: Destination = Field(
+        description="Where to send it — your own account or wallet"
+    )
 
 
 class ReviewDecision(_Strict):
     """What a reviewer records alongside approving or declining a request."""
 
     note: Note | None = Field(
-        default=None, description="Shown to the user — say why, especially when declining"
+        default=None,
+        description="Shown to the user — say why, especially when declining",
     )
 
 
@@ -221,6 +232,10 @@ class FundingRequest(BaseModel):
     amount: Amount
     network: FundingNetwork
     destination: str | None = Field(default=None, description="Withdrawals only")
+    deposit_address: str | None = Field(
+        default=None,
+        description="Deposits only: snapshot of the configured receiving address",
+    )
     reference: str | None = None
     funded: bool = Field(
         description="Withdrawals only: whether the amount is actually locked. False means "
@@ -228,7 +243,8 @@ class FundingRequest(BaseModel):
     )
     resolution_note: str | None = None
     resolved_by: str | None = Field(
-        default=None, description="`user` for a self-cancellation, otherwise the reviewer's uid"
+        default=None,
+        description="`user` for a self-cancellation, otherwise the reviewer's uid",
     )
     resolved_at: datetime | None = None
     ledger_entry_id: str | None = Field(

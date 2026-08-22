@@ -42,9 +42,8 @@ const MARKET_STYLES: Record<OverviewMarket, { icon: string; color: string }> = {
 };
 
 /**
- * Favorites are keyed "<namespace>:<id>". The backend's symbols (`RELIANCE.NS`, `EUR-USD`)
- * never collide with the other pages' demo tickers (`AAPL`, `EUR/USD`), so these rows get
- * their own namespace rather than trying to alias into one.
+ * Favorites are keyed "<namespace>:<id>" so the same symbol text in two market classes
+ * cannot collide.
  */
 function favKeyFor(row: MarketRow) {
   return `${row.market}:${row.symbol}`;

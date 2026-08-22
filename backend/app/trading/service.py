@@ -16,9 +16,8 @@ the account currency.
 **Positions are signed, and both directions are real.** Positive is long, negative short,
 one document per instrument. A sell against a long reduces it and reserves the units; a sell
 with nothing behind it opens a short and reserves cash. Shorting is allowed on the asset
-classes in `TRADING_SHORT_SELLING_CLASSES` — crypto and forex, which are natively two-sided
-— and refused on equities, where a short is a stock loan needing a borrow this venue cannot
-arrange. An order that would carry a position *through* zero is refused rather than split.
+classes in `TRADING_SHORT_SELLING_CLASSES` — all three desks by default in this simulated
+margin venue. An order that would carry a position *through* zero is refused rather than split.
 
 **One settlement path.** `money.apply_fill` turns a fill into a complete set of deltas and
 `_settle_fill` applies them. There used to be a `_settle_buy` and a `_settle_sell`, and the
@@ -80,6 +79,7 @@ from app.schemas.trading import (
     Balance,
     Eligibility,
     FundsRequest,
+    HedgeSide,
     LedgerKind,
     MarketState,
     OrderRequest,
@@ -123,7 +123,9 @@ _settlement = asyncio.Lock()
 # Statuses that mean the account has finished onboarding. `under_review` is included on
 # purpose: the products that need a human are already held back in `pending_products`, so
 # waiting on the review does not need to block the products that were granted outright.
-_TRADING_STATUSES = frozenset({OnboardingStatus.under_review, OnboardingStatus.approved})
+_TRADING_STATUSES = frozenset(
+    {OnboardingStatus.under_review, OnboardingStatus.approved}
+)
 _TRADING_TIERS = frozenset({KycTier.verified, KycTier.pro})
 
 
@@ -158,7 +160,9 @@ def _profile(uid: str) -> dict:
 
 def _status_of(user: dict) -> OnboardingStatus:
     try:
-        return OnboardingStatus(user.get("onboarding_status") or OnboardingStatus.not_started.value)
+        return OnboardingStatus(
+            user.get("onboarding_status") or OnboardingStatus.not_started.value
+        )
     except ValueError:
         return OnboardingStatus.not_started
 
@@ -175,7 +179,9 @@ def _products(user: dict, field: str) -> list[Product]:
     for value in user.get(field) or []:
         try:
             out.append(Product(value))
-        except ValueError:  # a product retired from the catalogue but still on a profile
+        except (
+            ValueError
+        ):  # a product retired from the catalogue but still on a profile
             continue
     return out
 
@@ -186,11 +192,16 @@ def _trading_block(user: dict) -> str | None:
     The single place the account-level gate is decided, so `TRADING_OPEN_ACCESS` only has to
     be honoured here: `assert_can_trade`, `eligibility` and the funding gate all read this.
     """
+    if user.get("account_status", "active") == "suspended":
+        reason = user.get("account_status_reason") or "Contact support for details"
+        return f"This account is suspended: {reason}"
     if TRADING_OPEN_ACCESS:
         return None
     onboarding = _status_of(user)
     if onboarding is OnboardingStatus.rejected:
-        return "Your application was rejected — trading is not available on this account"
+        return (
+            "Your application was rejected — trading is not available on this account"
+        )
     if onboarding not in _TRADING_STATUSES:
         return (
             "Complete onboarding before trading — finish the ten steps and call "
@@ -214,7 +225,7 @@ def assert_product_enabled(user: dict, product: Product) -> None:
     proof; one in neither list was never asked for during onboarding. Telling those apart
     is the difference between "wait" and "you need to do something".
 
-    Skipped entirely under `TRADING_OPEN_ACCESS`, which is the default: refusing a funded
+    Skipped entirely when `TRADING_OPEN_ACCESS` is explicitly enabled: refusing a funded
     account access to a paper market because it did not tick that box during onboarding was
     the gate with the least to justify it.
     """
@@ -259,9 +270,7 @@ def eligibility(uid: str) -> Eligibility:
         elif waiting:
             reason = f"{', '.join(p.value for p in waiting)} is still under review"
         else:
-            reason = (
-                f"None of {', '.join(p.value for p in candidates)} were requested during onboarding"
-            )
+            reason = f"None of {', '.join(p.value for p in candidates)} were requested during onboarding"
         classes.append(
             AssetClassEligibility(
                 asset_class=asset_class,
@@ -365,12 +374,13 @@ def _reserves_units(side: OrderSide, net: Decimal) -> bool:
     return side is OrderSide.sell and net > 0
 
 
-def _assert_short_selling_allowed(asset_class: AssetClass, symbol: str, net: Decimal) -> None:
+def _assert_short_selling_allowed(
+    asset_class: AssetClass, symbol: str, net: Decimal
+) -> None:
     """A sell with nothing behind it is a short, and not every market can carry one.
 
-    Crypto and FX are natively two-sided, so a sell there is simply the other direction.
-    Shorting a listed share is a stock loan — a borrow, a locate, a recall — and this venue
-    has no borrow desk, so it says no rather than pretending the position is financed.
+    The configured deployment policy is authoritative. This simulated margin venue enables
+    every desk by default; a cash-delivery deployment may remove equities from the setting.
     """
     if asset_class.value in TRADING_SHORT_SELLING_CLASSES:
         return
@@ -383,7 +393,9 @@ def _assert_short_selling_allowed(asset_class: AssetClass, symbol: str, net: Dec
     )
 
 
-def _assert_no_flip(side: OrderSide, quantity: Decimal, net: Decimal, symbol: str) -> None:
+def _assert_no_flip(
+    side: OrderSide, quantity: Decimal, net: Decimal, symbol: str
+) -> None:
     """Refuse an order that would carry a position through zero and out the other side.
 
     Deliberate, not an oversight: one fill carries one fee, and splitting it across a close
@@ -398,6 +410,27 @@ def _assert_no_flip(side: OrderSide, quantity: Decimal, net: Decimal, symbol: st
         f"{quantity}, which would flip the position through zero. Close the {abs(net)} you "
         f"hold first, then open the other side — one order cannot price both halves."
     )
+
+
+def _assert_position_leg(payload: OrderRequest, net: Decimal) -> None:
+    """Validate one-way orders and explicit hedge legs without conflating the modes."""
+    if payload.position_side is HedgeSide.long:
+        if net < 0:
+            raise _conflict("The LONG leg contains an invalid negative position")
+        if payload.side is OrderSide.sell and payload.quantity > net:
+            raise _conflict(f"The LONG leg only has {net} {payload.symbol} to close")
+    elif payload.position_side is HedgeSide.short:
+        if net > 0:
+            raise _conflict("The SHORT leg contains an invalid positive position")
+        if payload.side is OrderSide.sell:
+            _assert_short_selling_allowed(payload.asset_class, payload.symbol, net)
+        elif payload.quantity > abs(net):
+            raise _conflict(
+                f"The SHORT leg only has {abs(net)} {payload.symbol} to close"
+            )
+    elif payload.side is OrderSide.sell and payload.quantity > max(net, ZERO):
+        _assert_short_selling_allowed(payload.asset_class, payload.symbol, net)
+    _assert_no_flip(payload.side, payload.quantity, net, payload.symbol)
 
 
 def _assert_notional(notional: Decimal, currency: str) -> None:
@@ -448,7 +481,9 @@ def _marketable_at(order: dict, mark: Mark) -> Decimal | None:
     if order_type is OrderType.market:
         return price
 
-    if order_type in (OrderType.stop, OrderType.stop_limit) and not order.get("triggered"):
+    if order_type in (OrderType.stop, OrderType.stop_limit) and not order.get(
+        "triggered"
+    ):
         stop = order["stop_price"]
         reached = mark.last >= stop if side is OrderSide.buy else mark.last <= stop
         if not reached:
@@ -493,7 +528,9 @@ async def place_order(uid: str, payload: OrderRequest) -> dict:
     # Resolves the instrument against the live universe and prices it in one step, so a
     # symbol that does not exist is a 404 before anything is written.
     mark = await pricing.mark(payload.asset_class, payload.symbol)
-    assert_product_enabled(user, pricing.product_for(payload.asset_class, payload.symbol))
+    assert_product_enabled(
+        user, pricing.product_for(payload.asset_class, payload.symbol)
+    )
 
     if payload.limit_price is not None:
         _assert_price_band(payload.limit_price, "limit_price", mark)
@@ -519,7 +556,10 @@ async def place_order(uid: str, payload: OrderRequest) -> dict:
     notional = fx.convert(notional_quote, fx_rate)
     _assert_notional(notional, TRADING_ACCOUNT_CURRENCY)
 
-    if await asyncio.to_thread(repository.count_open_orders, uid) >= TRADING_MAX_OPEN_ORDERS:
+    if (
+        await asyncio.to_thread(repository.count_open_orders, uid)
+        >= TRADING_MAX_OPEN_ORDERS
+    ):
         raise _conflict(
             f"You already have {TRADING_MAX_OPEN_ORDERS} open orders — cancel one first"
         )
@@ -527,8 +567,13 @@ async def place_order(uid: str, payload: OrderRequest) -> dict:
     # What the caller already holds decides what this order commits: stock if it is selling
     # a long, cash in every other case. Read once, here, so placement and settlement agree
     # on which of the two the order is holding.
+    position_side = payload.position_side.value if payload.position_side else None
     held = await asyncio.to_thread(
-        repository.get_position, uid, payload.asset_class.value, payload.symbol
+        repository.get_position,
+        uid,
+        payload.asset_class.value,
+        payload.symbol,
+        position_side,
     )
     net = _net_quantity(held)
     # Order matters. Any sell bigger than the long behind it ends up net short, so the
@@ -536,9 +581,7 @@ async def place_order(uid: str, payload: OrderRequest) -> dict:
     # refused for "flipping through zero", advice the caller cannot act on because there is
     # no other side to open. On a shortable class the flip check is the right refusal and
     # runs next.
-    if payload.side is OrderSide.sell and payload.quantity > max(net, ZERO):
-        _assert_short_selling_allowed(payload.asset_class, payload.symbol, net)
-    _assert_no_flip(payload.side, payload.quantity, net, payload.symbol)
+    _assert_position_leg(payload, net)
 
     now = _now()
     # Cash orders lock margin, not the full notional — see `money.margin_of`. A sell against
@@ -546,7 +589,10 @@ async def place_order(uid: str, payload: OrderRequest) -> dict:
     if _reserves_units(payload.side, net):
         reserved_amount, reserved_quantity = ZERO, payload.quantity
     else:
-        reserved_amount, reserved_quantity = money(margin_of(notional) + fee_for(notional)), ZERO
+        reserved_amount, reserved_quantity = (
+            money(margin_of(notional) + fee_for(notional)),
+            ZERO,
+        )
 
     doc = {
         "_id": repository.new_id(),
@@ -555,6 +601,7 @@ async def place_order(uid: str, payload: OrderRequest) -> dict:
         "asset_class": payload.asset_class.value,
         "symbol": payload.symbol,
         "side": payload.side.value,
+        "position_side": position_side,
         "type": payload.type.value,
         "time_in_force": payload.time_in_force.value,
         "status": OrderStatus.open.value,
@@ -576,7 +623,9 @@ async def place_order(uid: str, payload: OrderRequest) -> dict:
         "liquidation": False,
         "created_at": now,
         "updated_at": now,
-        "expires_at": _day_expiry(now) if payload.time_in_force is TimeInForce.day else None,
+        "expires_at": _day_expiry(now)
+        if payload.time_in_force is TimeInForce.day
+        else None,
         "closed_at": None,
     }
 
@@ -606,7 +655,11 @@ async def place_order(uid: str, payload: OrderRequest) -> dict:
         )
         # None means a tick filled it in the moment between the attempt and the cancel,
         # which is a better outcome than the one being asked for — report what happened.
-        return closed or await asyncio.to_thread(repository.get_order, uid, order["id"]) or order
+        return (
+            closed
+            or await asyncio.to_thread(repository.get_order, uid, order["id"])
+            or order
+        )
 
     await _engine_notify()
     return order
@@ -633,11 +686,20 @@ async def _reserve_for(order: dict, amount: Decimal, quantity: Decimal) -> None:
 
     if quantity > 0:
         position = await asyncio.to_thread(
-            repository.reserve_quantity, uid, order["asset_class"], order["symbol"], quantity
+            repository.reserve_quantity,
+            uid,
+            order["asset_class"],
+            order["symbol"],
+            quantity,
+            order.get("position_side"),
         )
         if position is None:
             held = await asyncio.to_thread(
-                repository.get_position, uid, order["asset_class"], order["symbol"]
+                repository.get_position,
+                uid,
+                order["asset_class"],
+                order["symbol"],
+                order.get("position_side"),
             )
             free = held["available_quantity"] if held else ZERO
             await _reject(order_id, "Insufficient position")
@@ -730,6 +792,7 @@ async def release_reservation(order: dict) -> None:
             order["asset_class"],
             order["symbol"],
             order["reserved_quantity"],
+            order.get("position_side"),
         )
     await asyncio.to_thread(repository.clear_reservations, order["id"])
 
@@ -739,7 +802,9 @@ async def cancel_order(uid: str, order_id: str) -> dict:
     order = await asyncio.to_thread(repository.get_order, uid, order_id)
     if order is None:
         # Same answer whether it never existed or belongs to someone else.
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Order not found"
+        )
     if order["status"] != OrderStatus.open.value:
         raise _conflict(f"This order is already {order['status']}")
 
@@ -749,7 +814,9 @@ async def cancel_order(uid: str, order_id: str) -> dict:
         )
         if closed is None:
             current = await asyncio.to_thread(repository.get_order, uid, order_id)
-            raise _conflict(f"This order is already {current['status']}" if current else "Gone")
+            raise _conflict(
+                f"This order is already {current['status']}" if current else "Gone"
+            )
         await release_reservation(closed)
         refreshed = await asyncio.to_thread(repository.get_order, uid, order_id)
 
@@ -775,7 +842,11 @@ async def execute(order: dict, mark: Mark) -> dict | None:
 
 async def _execute_locked(order_id: str, mark: Mark) -> dict | None:
     order = await asyncio.to_thread(repository.get_order_unscoped, order_id)
-    if order is None or order["status"] != OrderStatus.open.value or not order.get("funded"):
+    if (
+        order is None
+        or order["status"] != OrderStatus.open.value
+        or not order.get("funded")
+    ):
         return None
 
     price = _marketable_at(order, mark)
@@ -799,7 +870,11 @@ async def _execute_locked(order_id: str, mark: Mark) -> dict | None:
     fee = fee_for(notional)
 
     position = await asyncio.to_thread(
-        repository.get_position, order["uid"], order["asset_class"], order["symbol"]
+        repository.get_position,
+        order["uid"],
+        order["asset_class"],
+        order["symbol"],
+        order.get("position_side"),
     )
     net = _net_quantity(position)
     try:
@@ -820,7 +895,8 @@ async def _execute_locked(order_id: str, mark: Mark) -> dict | None:
         # zero — a short partly closed by another order, say. Refused for the same reason it
         # is refused at placement, and the caller gets the reservation back.
         return await _reject_and_release(
-            order, "This order would flip the position through zero — close what is open first"
+            order,
+            "This order would flip the position through zero — close what is open first",
         )
 
     # Every fill, not only the cash-reserving ones: a sell that reserved units can still
@@ -832,7 +908,12 @@ async def _execute_locked(order_id: str, mark: Mark) -> dict | None:
         )
 
     claimed = await asyncio.to_thread(
-        repository.claim_fill, order_id, quantity=quantity, price=price, notional=notional, fee=fee
+        repository.claim_fill,
+        order_id,
+        quantity=quantity,
+        price=price,
+        notional=notional,
+        fee=fee,
     )
     if claimed is None:
         return None  # someone else took it between the read and here
@@ -848,6 +929,7 @@ async def _execute_locked(order_id: str, mark: Mark) -> dict | None:
             "asset_class": order["asset_class"],
             "symbol": order["symbol"],
             "side": side.value,
+            "position_side": order.get("position_side"),
             "currency": order["currency"],
             "account_currency": _wallet_currency(order),
             "fx_rate": rate,
@@ -866,8 +948,15 @@ async def _execute_locked(order_id: str, mark: Mark) -> dict | None:
     )
     logger.info(
         "Filled %s %s %s %s @ %s %s (%s %s), trade %s",
-        order["uid"], side.value, quantity, order["symbol"], price, order["currency"],
-        notional, _wallet_currency(order), trade["id"],
+        order["uid"],
+        side.value,
+        quantity,
+        order["symbol"],
+        price,
+        order["currency"],
+        notional,
+        _wallet_currency(order),
+        trade["id"],
     )
 
     await asyncio.to_thread(repository.clear_reservations, order_id)
@@ -877,7 +966,9 @@ async def _execute_locked(order_id: str, mark: Mark) -> dict | None:
 
 def _stop_reached(order: dict, mark: Mark) -> bool:
     stop = order["stop_price"]
-    return mark.last >= stop if order["side"] == OrderSide.buy.value else mark.last <= stop
+    return (
+        mark.last >= stop if order["side"] == OrderSide.buy.value else mark.last <= stop
+    )
 
 
 async def _fund_cash_leg(order: dict, effect: FillEffect) -> bool:
@@ -926,7 +1017,9 @@ async def _fund_cash_leg(order: dict, effect: FillEffect) -> bool:
     logger.critical(
         "Order %s closes a position at a loss %s beyond what %s can cover — settling into a "
         "negative balance rather than leaving the position open",
-        order["id"], shortfall, order["uid"],
+        order["id"],
+        shortfall,
+        order["uid"],
     )
     return True
 
@@ -968,7 +1061,9 @@ async def _settle_fill(order: dict, effect: FillEffect) -> None:
         currency,
         available_delta=available_delta,
         reserved_delta=reserved_delta,
-        kind=LedgerKind.trade_credit if effect.cash_delta >= 0 else LedgerKind.trade_debit,
+        kind=LedgerKind.trade_credit
+        if effect.cash_delta >= 0
+        else LedgerKind.trade_debit,
         require_reserved=reserved if reserved > 0 else None,
         order_id=order_id,
     )
@@ -977,11 +1072,18 @@ async def _settle_fill(order: dict, effect: FillEffect) -> None:
         # ever fires, the order says filled and the cash did not move — loud, not silent.
         logger.critical(
             "Order %s filled but its %s reservation of %s could not be consumed",
-            order_id, currency, reserved,
+            order_id,
+            currency,
+            reserved,
         )
 
     await asyncio.to_thread(
-        repository.ensure_position, uid, order["asset_class"], order["symbol"], order["currency"]
+        repository.ensure_position,
+        uid,
+        order["asset_class"],
+        order["symbol"],
+        order["currency"],
+        order.get("position_side"),
     )
     reserved_quantity: Decimal = order.get("reserved_quantity", ZERO)
     applied = await asyncio.to_thread(
@@ -990,14 +1092,16 @@ async def _settle_fill(order: dict, effect: FillEffect) -> None:
         order["asset_class"],
         order["symbol"],
         effect,
+        position_side=order.get("position_side"),
         require_reserved_quantity=reserved_quantity if reserved_quantity > 0 else None,
     )
     if applied is None:
         logger.critical(
             "Order %s filled but %s units of %s were not reserved on the position",
-            order_id, reserved_quantity, order["symbol"],
+            order_id,
+            reserved_quantity,
+            order["symbol"],
         )
-
 
 
 # --------------------------------------------------------------------------- #
@@ -1005,7 +1109,13 @@ async def _settle_fill(order: dict, effect: FillEffect) -> None:
 # --------------------------------------------------------------------------- #
 
 
-async def liquidate_position(uid: str, asset_class: AssetClass, symbol: str, mark: Mark) -> dict | None:
+async def liquidate_position(
+    uid: str,
+    asset_class: AssetClass,
+    symbol: str,
+    mark: Mark,
+    position_side: str | None = None,
+) -> dict | None:
     """Force-close a leveraged position whose margin has run out, at the current mark.
 
     Called by `TradingEngine` when `margin_used + unrealized P&L <= 0` for this holding —
@@ -1019,7 +1129,9 @@ async def liquidate_position(uid: str, asset_class: AssetClass, symbol: str, mar
     Works in both directions: a long is sold out of, a short is bought back. A short is the
     side that needs this most, since its loss is not bounded by the price reaching zero.
     """
-    position = await asyncio.to_thread(repository.get_position, uid, asset_class.value, symbol)
+    position = await asyncio.to_thread(
+        repository.get_position, uid, asset_class.value, symbol, position_side
+    )
     if position is None or position["available_quantity"] == 0:
         return None
 
@@ -1031,7 +1143,9 @@ async def liquidate_position(uid: str, asset_class: AssetClass, symbol: str, mar
     quantity = abs(free)
 
     rate = await fx.rate_for(mark.currency)
-    notional = fx.convert(notional_of(quantity, mark.execution_price(closing_side)), rate)
+    notional = fx.convert(
+        notional_of(quantity, mark.execution_price(closing_side)), rate
+    )
 
     now = _now()
     doc = {
@@ -1041,6 +1155,7 @@ async def liquidate_position(uid: str, asset_class: AssetClass, symbol: str, mar
         "asset_class": asset_class.value,
         "symbol": symbol,
         "side": closing_side.value,
+        "position_side": position_side,
         "type": OrderType.market.value,
         "time_in_force": TimeInForce.ioc.value,
         "status": OrderStatus.open.value,
@@ -1058,9 +1173,9 @@ async def liquidate_position(uid: str, asset_class: AssetClass, symbol: str, mar
         "fee": ZERO,
         # Closing a long promises the stock; closing a short needs cash to buy it back, and
         # the margin already posted is what that cash comes out of.
-        "reserved_amount": ZERO if closing_side is OrderSide.sell else money(
-            margin_of(notional) + fee_for(notional)
-        ),
+        "reserved_amount": ZERO
+        if closing_side is OrderSide.sell
+        else money(margin_of(notional) + fee_for(notional)),
         "reserved_quantity": quantity if closing_side is OrderSide.sell else ZERO,
         "reject_reason": None,
         "liquidation": True,
@@ -1077,14 +1192,20 @@ async def liquidate_position(uid: str, asset_class: AssetClass, symbol: str, mar
     filled = await execute(order, mark)
     if filled is not None:
         logger.warning(
-            "Margin call: liquidated %s %s for %s at %s", order["quantity"], symbol, uid, mark.last
+            "Margin call: liquidated %s %s for %s at %s",
+            order["quantity"],
+            symbol,
+            uid,
+            mark.last,
         )
         return filled
 
     # The mark went stale or untradable between the caller's snapshot and here — the same
     # race `place_order` handles for an ordinary IOC order, closed the same way.
     return await close_and_release(
-        order["id"], OrderStatus.cancelled, "Margin call could not fill against the current price"
+        order["id"],
+        OrderStatus.cancelled,
+        "Margin call could not fill against the current price",
     )
 
 
@@ -1094,10 +1215,12 @@ async def liquidate_position(uid: str, asset_class: AssetClass, symbol: str, mar
 
 
 def _assert_funding_allowed(user: dict) -> None:
-    """Money in and money out sit behind the same gate as trading.
-
-    Crediting an account before it is identified is exactly the step anti-money-laundering
-    rules exist to prevent, and it costs nothing here to refuse it.
+    """Money in and money out sit behind the same gate as trading — whatever that gate
+    currently is. When `TRADING_OPEN_ACCESS` is enabled `assert_can_trade` never blocks,
+    so a deposit or a withdrawal needs nothing beyond a verified Firebase token, same as an
+    order does. With the flag off, this is the anti-money-laundering check it was written
+    as: crediting an account before it is identified is exactly what that rule exists to
+    prevent, and it costs nothing here to refuse it.
     """
     assert_can_trade(user)
 
@@ -1126,7 +1249,9 @@ async def withdraw(uid: str, payload: FundsRequest) -> dict:
     return await _move_funds(uid, payload, LedgerKind.withdrawal, credit=False)
 
 
-async def _move_funds(uid: str, payload: FundsRequest, kind: LedgerKind, credit: bool) -> dict:
+async def _move_funds(
+    uid: str, payload: FundsRequest, kind: LedgerKind, credit: bool
+) -> dict:
     """Idempotent by construction.
 
     The key is claimed before the balance moves and completed after, so a replay can tell
@@ -1138,7 +1263,9 @@ async def _move_funds(uid: str, payload: FundsRequest, kind: LedgerKind, credit:
     # `FundsRequest` has already refused anything that is not the account currency, so this
     # is the one balance either direction can move.
     currency = payload.currency.value if payload.currency else TRADING_ACCOUNT_CURRENCY
-    existing = await asyncio.to_thread(repository.claim_key, uid, scope, payload.idempotency_key)
+    existing = await asyncio.to_thread(
+        repository.claim_key, uid, scope, payload.idempotency_key
+    )
     if existing is not None:
         if existing.get("result_id"):
             entry = await asyncio.to_thread(
@@ -1166,11 +1293,15 @@ async def _move_funds(uid: str, payload: FundsRequest, kind: LedgerKind, credit:
             reference=payload.reference,
         )
     except Exception:
-        await asyncio.to_thread(repository.release_key, uid, scope, payload.idempotency_key)
+        await asyncio.to_thread(
+            repository.release_key, uid, scope, payload.idempotency_key
+        )
         raise
 
     if entry is None:
-        await asyncio.to_thread(repository.release_key, uid, scope, payload.idempotency_key)
+        await asyncio.to_thread(
+            repository.release_key, uid, scope, payload.idempotency_key
+        )
         balance = await asyncio.to_thread(repository.get_balance, uid, currency)
         held = balance["available"] if balance else ZERO
         raise _conflict(
@@ -1222,6 +1353,7 @@ def _position(doc: dict) -> Position:
         # Absent on a position opened before the balance became universal, whose basis is in
         # the instrument's own currency — labelling it USDT would be a quiet lie.
         account_currency=doc.get("account_currency") or doc["currency"],
+        position_side=doc.get("position_side"),
         direction=_direction(net),
         quantity=net,
         available_quantity=doc["available_quantity"],
@@ -1240,8 +1372,10 @@ def positions(uid: str, include_flat: bool = False) -> list[Position]:
     return [_position(doc) for doc in repository.list_positions(uid, include_flat)]
 
 
-def position(uid: str, asset_class: str, symbol: str) -> Position | None:
-    doc = repository.get_position(uid, asset_class, symbol)
+def position(
+    uid: str, asset_class: str, symbol: str, position_side: str | None = None
+) -> Position | None:
+    doc = repository.get_position(uid, asset_class, symbol, position_side)
     return _position(doc) if doc else None
 
 
@@ -1275,7 +1409,9 @@ async def portfolio(uid: str) -> Portfolio:
 
     # Marks and rates in one gather: a portfolio of Indian equities needs one rate, not one
     # per position, and `fx.rate_for` caches so the duplicates collapse.
-    marks = await asyncio.gather(*(pricing.mark_or_none(p.asset_class, p.symbol) for p in held))
+    marks = await asyncio.gather(
+        *(pricing.mark_or_none(p.asset_class, p.symbol) for p in held)
+    )
     rates = await asyncio.gather(
         *(_rate_or_none(p.currency) for p in held), return_exceptions=False
     )
@@ -1293,7 +1429,8 @@ async def portfolio(uid: str) -> Portfolio:
         realized = money(realized + position.realized_pnl)
         margin_used = money(margin_used + position.margin_used)
         realized_by_currency[TRADING_ACCOUNT_CURRENCY] = money(
-            realized_by_currency.get(TRADING_ACCOUNT_CURRENCY, ZERO) + position.realized_pnl
+            realized_by_currency.get(TRADING_ACCOUNT_CURRENCY, ZERO)
+            + position.realized_pnl
         )
         row = PositionValuation(**position.model_dump())
         if mark is not None and rate is not None:
@@ -1325,13 +1462,21 @@ async def portfolio(uid: str) -> Portfolio:
 
     cash = money(
         sum(
-            (row.total for row in cash_rows if row.currency == TRADING_ACCOUNT_CURRENCY),
+            (
+                row.total
+                for row in cash_rows
+                if row.currency == TRADING_ACCOUNT_CURRENCY
+            ),
             ZERO,
         )
     )
     free_margin = money(
         sum(
-            (row.available for row in cash_rows if row.currency == TRADING_ACCOUNT_CURRENCY),
+            (
+                row.available
+                for row in cash_rows
+                if row.currency == TRADING_ACCOUNT_CURRENCY
+            ),
             ZERO,
         )
     )

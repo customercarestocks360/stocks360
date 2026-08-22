@@ -80,16 +80,16 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         content:
           "width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no",
       },
-      { title: "Stocks360 — Trade stocks, forex & ETFs" },
+      { title: "Stocks360 — Simulated multi-market trading" },
       {
         name: "description",
         content:
-          "One obsidian command center for equities, ETFs and forex. Millisecond fills, deep charts, instant withdrawals.",
+          "Monitor stocks, crypto, and forex with live market data and a persistent simulated trading account.",
       },
       { property: "og:title", content: "Stocks360" },
       {
         property: "og:description",
-        content: "One command center for equities, ETFs and forex.",
+        content: "Live market monitoring and a unified simulated trading workspace.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -108,7 +108,8 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       {
         rel: "stylesheet",
         href: "https://api.fontshare.com/v2/css?f[]=general-sans@400,500,600,700&display=swap",
-      },      {
+      },
+      {
         rel: "stylesheet",
         href: "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css",
         crossOrigin: "anonymous",

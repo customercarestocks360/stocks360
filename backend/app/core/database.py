@@ -82,3 +82,8 @@ def ensure_indexes() -> None:
     # The funding review queue, kept with its own module for the same reason: its
     # load-bearing index is the one query in this API that is not scoped to a uid.
     funding_repository.ensure_indexes()
+
+    db.admin_audit_log.create_index([("at", DESCENDING)], name="admin_audit_at_idx")
+    db.admin_audit_log.create_index(
+        [("target_uid", ASCENDING), ("at", DESCENDING)], name="admin_audit_target_idx"
+    )

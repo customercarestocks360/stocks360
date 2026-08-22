@@ -111,8 +111,8 @@ function Signup() {
                 Click it, then log in — the account stays locked until you do.
               </p>
               <p className="mt-3 text-xs leading-5 text-muted-foreground">
-                Nothing in your inbox? Check the spam folder, or try logging in — that sends a
-                fresh link.
+                Nothing in your inbox? Check the spam folder, or try logging in — that sends a fresh
+                link.
               </p>
               <Link
                 to="/login"
@@ -249,12 +249,14 @@ function Signup() {
               </form>
 
               <div className="mt-5 flex flex-wrap justify-center gap-x-6 gap-y-2 text-xs font-mono text-muted-foreground">
-                {["No deposit fees", "SOC 2 Type II", "Protected by 2FA"].map((c) => (
-                  <span key={c} className="flex items-center gap-2">
-                    <span className="text-primary font-bold">✓</span>
-                    {c}
-                  </span>
-                ))}
+                {["Verified email", "Server-side account ledger", "Reviewed QR funding"].map(
+                  (c) => (
+                    <span key={c} className="flex items-center gap-2">
+                      <span className="text-primary font-bold">✓</span>
+                      {c}
+                    </span>
+                  ),
+                )}
               </div>
 
               <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-5 text-sm text-muted-foreground">

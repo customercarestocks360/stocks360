@@ -23,7 +23,16 @@ const EC_TABLE_M: Record<number, [number, number, number, number, number]> = {
 
 /** Byte-mode payload capacity in bytes, per version, at EC level M. */
 const BYTE_CAPACITY_M: Record<number, number> = {
-  1: 14, 2: 26, 3: 42, 4: 62, 5: 84, 6: 106, 7: 122, 8: 152, 9: 180, 10: 213,
+  1: 14,
+  2: 26,
+  3: 42,
+  4: 62,
+  5: 84,
+  6: 106,
+  7: 122,
+  8: 152,
+  9: 180,
+  10: 213,
 };
 
 /** Row/column centres of the alignment patterns for each version. */
@@ -103,7 +112,9 @@ function pickVersion(byteLength: number) {
   for (let v = 1; v <= 10; v++) {
     if (byteLength <= BYTE_CAPACITY_M[v]!) return v;
   }
-  throw new Error(`qrMatrix: ${byteLength} bytes exceeds the supported capacity (version 10, EC level M)`);
+  throw new Error(
+    `qrMatrix: ${byteLength} bytes exceeds the supported capacity (version 10, EC level M)`,
+  );
 }
 
 /** Mode indicator + character count + payload, padded to the version's capacity. */
@@ -161,7 +172,8 @@ function placeFunctionPatterns(grid: Grid, size: number, version: number) {
         const rr = row + r;
         const cc = col + c;
         if (rr < 0 || rr >= size || cc < 0 || cc >= size) continue;
-        const onRing = (r >= 0 && r <= 6 && (c === 0 || c === 6)) || (c >= 0 && c <= 6 && (r === 0 || r === 6));
+        const onRing =
+          (r >= 0 && r <= 6 && (c === 0 || c === 6)) || (c >= 0 && c <= 6 && (r === 0 || r === 6));
         const inCore = r >= 2 && r <= 4 && c >= 2 && c <= 4;
         grid[rr]![cc] = onRing || inCore;
       }
@@ -216,14 +228,22 @@ function reserveInfoAreas(grid: Grid, size: number, version: number) {
 
 function maskBit(mask: number, row: number, col: number) {
   switch (mask) {
-    case 0: return (row + col) % 2 === 0;
-    case 1: return row % 2 === 0;
-    case 2: return col % 3 === 0;
-    case 3: return (row + col) % 3 === 0;
-    case 4: return (Math.floor(row / 2) + Math.floor(col / 3)) % 2 === 0;
-    case 5: return ((row * col) % 2) + ((row * col) % 3) === 0;
-    case 6: return (((row * col) % 2) + ((row * col) % 3)) % 2 === 0;
-    default: return (((row + col) % 2) + ((row * col) % 3)) % 2 === 0;
+    case 0:
+      return (row + col) % 2 === 0;
+    case 1:
+      return row % 2 === 0;
+    case 2:
+      return col % 3 === 0;
+    case 3:
+      return (row + col) % 3 === 0;
+    case 4:
+      return (Math.floor(row / 2) + Math.floor(col / 3)) % 2 === 0;
+    case 5:
+      return ((row * col) % 2) + ((row * col) % 3) === 0;
+    case 6:
+      return (((row * col) % 2) + ((row * col) % 3)) % 2 === 0;
+    default:
+      return (((row + col) % 2) + ((row * col) % 3)) % 2 === 0;
   }
 }
 

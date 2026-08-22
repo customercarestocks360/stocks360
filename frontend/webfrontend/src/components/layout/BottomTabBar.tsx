@@ -25,8 +25,7 @@ export function BottomTabBar() {
     >
       <div className="flex h-14 items-stretch justify-between px-1">
         {TABS.map((tab) => {
-          const active =
-            location.pathname === tab.t || location.pathname.startsWith(tab.t + "/");
+          const active = location.pathname === tab.t || location.pathname.startsWith(tab.t + "/");
           return (
             <Link
               key={tab.n}

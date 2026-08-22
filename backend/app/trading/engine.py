@@ -83,7 +83,8 @@ class TradingEngine:
         for asset_class in self._hubs:
             self._tasks.append(
                 asyncio.create_task(
-                    self._watch(asset_class), name=f"trading-matcher-{asset_class.value}"
+                    self._watch(asset_class),
+                    name=f"trading-matcher-{asset_class.value}",
                 )
             )
         self._tasks.append(asyncio.create_task(self._sweeper(), name="trading-sweeper"))
@@ -114,19 +115,27 @@ class TradingEngine:
             return
         async with self._refresh_lock:
             wanted: dict[AssetClass, set[str]] = {ac: set() for ac in self._hubs}
-            for asset_class, symbol in await asyncio.to_thread(repository.resting_instruments):
+            for asset_class, symbol in await asyncio.to_thread(
+                repository.resting_instruments
+            ):
                 try:
                     wanted[AssetClass(asset_class)].add(symbol)
                 except ValueError:
-                    logger.warning("Resting order on unknown asset class %r", asset_class)
+                    logger.warning(
+                        "Resting order on unknown asset class %r", asset_class
+                    )
             # A margin-backed position needs live prices for the margin check below just as
             # much as a resting order needs them to fill — same subscription set, same
             # reasoning. Shorts are included, and are the ones that most need watching.
-            for asset_class, symbol in await asyncio.to_thread(repository.leveraged_instruments):
+            for asset_class, symbol in await asyncio.to_thread(
+                repository.leveraged_instruments
+            ):
                 try:
                     wanted[AssetClass(asset_class)].add(symbol)
                 except ValueError:
-                    logger.warning("Margin position on unknown asset class %r", asset_class)
+                    logger.warning(
+                        "Margin position on unknown asset class %r", asset_class
+                    )
 
             self._version += 1
             for asset_class, symbols in wanted.items():
@@ -155,12 +164,16 @@ class TradingEngine:
             except asyncio.CancelledError:
                 raise
             except Exception:
-                logger.exception("Matching %s %s failed", asset_class.value, quote.symbol)
+                logger.exception(
+                    "Matching %s %s failed", asset_class.value, quote.symbol
+                )
 
     async def _match_symbol(self, asset_class: AssetClass, symbol: str) -> None:
         orders = [
             order
-            for order in await asyncio.to_thread(repository.resting_orders, asset_class.value)
+            for order in await asyncio.to_thread(
+                repository.resting_orders, asset_class.value
+            )
             if order["symbol"] == symbol
         ]
         await self._try_all(orders)
@@ -220,9 +233,19 @@ class TradingEngine:
             if equity <= 0:
                 logger.warning(
                     "Margin breach on %s %s for %s: equity %s at mark %s",
-                    asset_class.value, symbol, position["uid"], equity, mark.last,
+                    asset_class.value,
+                    symbol,
+                    position["uid"],
+                    equity,
+                    mark.last,
                 )
-                await service.liquidate_position(position["uid"], asset_class, symbol, mark)
+                await service.liquidate_position(
+                    position["uid"],
+                    asset_class,
+                    symbol,
+                    mark,
+                    position.get("position_side"),
+                )
 
     # --------------------------------------------------------------- sweep ---
     async def _sweeper(self) -> None:
@@ -240,7 +263,9 @@ class TradingEngine:
 
         for order in await asyncio.to_thread(repository.expiring_orders, now):
             closed = await service.close_and_release(
-                order["id"], OrderStatus.expired, "Day order reached the end of the session"
+                order["id"],
+                OrderStatus.expired,
+                "Day order reached the end of the session",
             )
             if closed is not None:
                 logger.info("Expired order %s", order["id"])
@@ -266,11 +291,15 @@ class TradingEngine:
 
         # Same backstop for margin: a position opened between two ticks, or one whose
         # symbol went quiet right after crossing zero equity, still gets checked here.
-        for asset_class, symbol in await asyncio.to_thread(repository.leveraged_instruments):
+        for asset_class, symbol in await asyncio.to_thread(
+            repository.leveraged_instruments
+        ):
             try:
                 await self._check_margin(AssetClass(asset_class), symbol)
             except ValueError:
-                logger.warning("Leveraged position on unknown asset class %r", asset_class)
+                logger.warning(
+                    "Leveraged position on unknown asset class %r", asset_class
+                )
 
         await self.refresh()
 

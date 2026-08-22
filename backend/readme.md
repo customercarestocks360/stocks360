@@ -63,6 +63,7 @@ All Firebase config lives in `.env` — nothing is hardcoded in the app or the t
 | `STOCKS_HEARTBEAT_SECONDS` | Silence before a heartbeat frame, 5–300, default `20` |
 | `CRYPTO_STALE_SECONDS` | Crypto quote age before it is too old to trade on, default `120`. The feed has no staleness notion of its own — it never closes |
 | `TRADING_ENABLED` | `false` stops orders and funding; the reads keep working |
+| `TRADING_OPEN_ACCESS` | Default `false`: onboarding, KYC and per-product permissions gate trading and funding. Set `true` only for an intentionally open-access simulator |
 | `TRADING_FEE_BPS` | Commission in basis points of notional, default `10` (0.1%), rounded up |
 | `TRADING_PRICE_BAND_PERCENT` | How far a limit or stop price may sit from the last trade, default `20` |
 | `TRADING_MAX_OPEN_ORDERS` | Resting orders per user, default `50` |
@@ -71,7 +72,7 @@ All Firebase config lives in `.env` — nothing is hardcoded in the app or the t
 | `TRADING_ACCOUNT_CURRENCY` | The one currency an account holds, default `USDT`. Has to be something `app/trading/fx.py` can price everything against — in practice `USDT` or `USD` |
 | `TRADING_INITIAL_BALANCE` | What a new account opens with, default `1000`. Credited once via `$setOnInsert` and recorded as an `Opening balance` ledger entry |
 | `TRADING_LEVERAGE` | Venue-wide leverage, default `200`, both directions and all three asset classes |
-| `TRADING_SHORT_SELLING_CLASSES` | Where a sell with nothing behind it opens a short, default `crypto,forex`. `stocks` is excluded — no borrow desk |
+| `TRADING_SHORT_SELLING_CLASSES` | Where a sell with nothing behind it opens a short, default `crypto,forex,stocks` for the simulated margin venue |
 | `TRADING_PEGGED_CURRENCIES` | Currencies converting 1:1 with each other, default `USDT,USDC,USD`. There is no licensed source for the peg's deviation, so pretending to one would be worse |
 | `TRADING_FX_TTL_SECONDS` | How long a fetched conversion rate is reused, 1–3600, default `60`. A rate scales a notional; it is not what the order fills at |
 | `TRADING_SWEEP_SECONDS` | How often the matcher expires day orders and re-checks resting ones, 5–300, default `15` |
@@ -226,8 +227,10 @@ instead; `—` means the request carries nothing but the bearer token.
 | `POST /auth/logout` | Revoke the user's refresh tokens, ending existing sessions | — (no body) | `{ message }` |
 | `GET /users/me` | Stored MongoDB profile. `404` before the first login | — | profile |
 | `GET /users/me/logins` | Login history, newest first. `?limit=` 1–100, default 20 | `?limit=20` | list of events |
+| `PATCH /users/me` | Update your display name — the only profile field editable directly; KYC sections go through `PATCH /onboarding/kyc` | `{"name": "Ada Lovelace"}` | profile |
 | `POST /onboarding/step` | Submit one signup step. `step` in the body selects the shape and the rules. `409` out of order / ineligible / already submitted | `{"step": "contact", "mobile_country_code": "+91", "mobile_number": "9876543210", "country_of_residence": "IN", "nationality": "IN"}` | session |
 | `GET /onboarding/session` | Resume — progress + everything captured, identifiers masked | — | session |
+| `PATCH /onboarding/kyc` | Correct one section of an **already-submitted** application — same per-step bodies as `POST /onboarding/step`. `404` nothing submitted yet, `409` for `markets`/`agreements` (out of scope) or a duplicate identity document | `{"step": "contact", "mobile_country_code": "+91", "mobile_number": "9998887770", "country_of_residence": "IN", "nationality": "IN"}` | session |
 | `POST /onboarding/submit` | Freeze the session into `kyc_profiles` and open the products. `404` no session, `409` incomplete or duplicate document | — (no body) | outcome |
 | `WS /market/overview/stream` | **Public, no token.** Headline crypto, forex and equity prices with percent change, all on one socket | connect, then `{"action": "ping"}` or `{"action": "resync"}` | overview frames |
 | `GET /crypto/symbols` | Tradable spot symbols. `?quote_asset=`, `?search=`, `?tradable_only=`, `?limit=` 1–2000 | `?quote_asset=USDT&search=btc&tradable_only=true&limit=100` | list of symbols |
@@ -277,8 +280,7 @@ instead; `—` means the request carries nothing but the bearer token.
 | `GET /trading/account` | Balances, the onboarding outcome that gates trading, and what is currently open | — | account |
 | `GET /trading/eligibility` | What you may trade and why not — the order endpoint's gates, answered up front | — | eligibility |
 | `GET /trading/balances` | The account balance. One wallet, in `TRADING_ACCOUNT_CURRENCY`, opened at `TRADING_INITIAL_BALANCE` (1000 USDT) on first read. `reserved` is locked by open orders and pending withdrawals | — | list of balances |
-| `POST /trading/deposits` | Credit the account. **Simulated** — no payment provider. `403` before onboarding. `currency` is optional and only the account currency is accepted | `{"amount": "10000.00", "idempotency_key": "dep-2026-08-17-001"}` | `201` + ledger entry |
-| `POST /trading/withdrawals` | Debit it. **Simulated**. `409` when `available` is short | `{"amount": "500.00", "idempotency_key": "wd-2026-08-17-001"}` | `201` + ledger entry |
+| `GET /trading/fx-rate` | What `currency` is worth in the account balance right now — `app.trading.fx.rate_for` exposed for a client pricing an order before it exists to carry its own `fx_rate`. `1` for the account currency and anything pegged to it, no network call. `409` if nothing prices it | `?currency=INR` | fx rate |
 | `GET /trading/ledger` | Every balance movement, newest first. `?currency=`, `?kind=`, `?limit=` 1–200 | `?currency=USDT&kind=trade_debit&limit=50` | list of entries |
 | `POST /trading/orders` | Place an order, long or short. `403` product not enabled, `404` unknown instrument, `409` closed market / insufficient funds / duplicate id / short not allowed on this class / would flip through zero, `422` price band or stop side | `{"asset_class": "crypto", "symbol": "BTCUSDT", "side": "buy", "type": "limit", "quantity": "0.05", "limit_price": "58000.00", "time_in_force": "gtc", "client_order_id": "ui-7f3a2b91"}` | `201` + order |
 | `GET /trading/orders` | Your orders, newest first. Repeat `?status=`, plus `?asset_class=`, `?symbol=`, `?limit=` 1–200 | `?status=open&status=filled&asset_class=crypto` | list of orders |
@@ -288,7 +290,8 @@ instead; `—` means the request carries nothing but the bearer token.
 | `GET /trading/positions` | What you hold, in base units, **signed** — negative is a short, with `direction` saying which. `?include_flat=` to show closed ones | `?include_flat=false` | list of positions |
 | `GET /trading/positions/{asset_class}/{symbol}` | One position | `/trading/positions/crypto/BTCUSDT` | position |
 | `GET /trading/portfolio` | Positions marked to market, with a real grand total: `cash`, `margin_used`, `equity`, `market_value` (net signed exposure), `free_margin` | — | portfolio |
-| `POST /funding/deposits` | Report a deposit **for review**. Credits nothing — a reviewer does that. `403` before onboarding, `422` if the network cannot carry the currency or the currency is not the account currency | `{"amount": "1000.00", "network": "BEP20", "reference": "0xabc123", "idempotency_key": "dep-2026-08-19-001"}` | `201` + request |
+| `GET /platform/settings` | Public announcement, support address and enabled QR deposit rails | — | settings |
+| `POST /funding/deposits` | Report a deposit **for review**. Credits nothing. The currency/network must match an enabled platform QR rail and `reference` must identify the blockchain transaction | `{"amount": "1000.00", "network": "BEP20", "reference": "0xabc123", "idempotency_key": "dep-2026-08-19-001"}` | `201` + request |
 | `POST /funding/withdrawals` | Request a payout. **Locks the amount immediately.** `409` when `available` is short | `{"amount": "400.00", "network": "TRC20", "destination": "TXk9aQ1bV2c3D4e5F6g7H8j9K0l", "idempotency_key": "wd-2026-08-19-001"}` | `201` + request |
 | `GET /funding/requests` | Your requests, newest first. `?kind=`, `?status=`, `?currency=`, `?limit=` 1–200 | `?kind=withdrawal&status=pending` | list of requests |
 | `GET /funding/requests/{id}` | One request | — | request |
@@ -297,6 +300,21 @@ instead; `—` means the request carries nothing but the bearer token.
 | `GET /admin/funding/summary` | **Admin.** Pending counts, and what the venue holds per currency | — | summary |
 | `POST /admin/funding/requests/{id}/approve` | **Admin.** Settle it: credit a deposit, pay out a withdrawal from its lock. `409` if not pending | `{"note": "tx confirmed"}` | request |
 | `POST /admin/funding/requests/{id}/decline` | **Admin.** Turn it down and release a withdrawal's lock | `{"note": "address not whitelisted"}` | request |
+| `GET /admin/overview` | **Admin.** User, KYC, order, position and pending-funding totals | — | overview |
+| `GET/PATCH /admin/settings` | **Admin.** Control the announcement, support email and QR deposit rails | see `PlatformSettingsUpdate` in OpenAPI | settings |
+| `GET /admin/users/directory` | **Admin.** Search and paginate every account | `?search=ada&limit=50&offset=0` | paginated users |
+| `GET /admin/users/{uid}/operations` | **Admin.** Balances, orders, fills, positions, ledger and login history | — | operational detail |
+| `PATCH /admin/users/{uid}/control` | **Admin.** Suspend/restore an account; suspension also cancels open orders | `{"status":"suspended","reason":"Compliance review"}` | profile |
+| `POST /admin/users/{uid}/kyc-review` | **Admin.** Approve or reject submitted KYC | `{"decision":"approve","reason":"Documents verified"}` | review result |
+| `PATCH /admin/users/{uid}/products` | **Admin.** Replace an approved account's enabled product set | `{"enabled_products":["crypto_spot"],"reason":"Access review"}` | review result |
+| `POST /admin/users/{uid}/balance-adjustments` | **Admin.** Audited signed ledger adjustment with idempotency | see OpenAPI | ledger entry |
+| `POST /admin/users/{uid}/revoke-sessions` | **Admin.** Revoke all Firebase refresh tokens for a user | `{"reason":"Compromised device"}` | revocation result |
+| `DELETE /admin/users/{uid}/orders/{order_id}` | **Admin.** Cancel an open order and release reservations | — | order |
+| `GET /admin/audit` | **Admin.** Newest privileged actions, optionally filtered by target user | `?target_uid=...` | audit entries |
+| `GET /admin/users` | **Admin.** Find a user by exact email. `404` if none | `?email=ada@example.com` | profile |
+| `GET /admin/users/{uid}` | **Admin.** Stored profile plus the same masked KYC recap the user sees on their own account page | — | profile + KYC |
+| `PATCH /admin/users/{uid}` | **Admin.** Update a user's display name on their behalf | `{"name": "Ada Lovelace"}` | profile |
+| `PATCH /admin/users/{uid}/kyc` | **Admin.** Correct one section of a user's submitted application — same rules as `PATCH /onboarding/kyc` | `{"step": "identity", "document_type": "pan", "document_number": "ABCDE1234F", "issuing_country": "IN"}` | session |
 | `GET /test` | Browser test page (not in OpenAPI schema) | — | HTML |
 | `GET /test/onboarding` | Onboarding test page (not in OpenAPI schema) | — | HTML |
 
@@ -601,8 +619,9 @@ act on it: cash, orders, fills, positions and a portfolio, across all three asse
 through one order model.
 
 **It is a simulated venue, and that is the first thing to know about it.** Orders execute
-against the same live market data the read endpoints serve, and the cash is book money
-`POST /trading/deposits` creates on request. There is no broker, no clearing member and no
+against the same live market data the read endpoints serve, and the cash is simulated book
+money created as the configured opening balance or through an administrator-reviewed funding
+request. There is no broker, no clearing member and no
 custody behind any of it. The accounting is built to be correct — that is a different
 claim from being real, and the two must not be confused before anyone is asked for money.
 
@@ -635,9 +654,8 @@ and negative for a short, one document per instrument either way, with `directio
 which so nothing has to infer it from a minus sign. A sell against a long reduces it and
 reserves the units; a sell with nothing behind it opens a short and reserves cash instead.
 
-Shorting is allowed on the asset classes in **`TRADING_SHORT_SELLING_CLASSES`** — `crypto`
-and `forex`, which are natively two-sided — and refused on **equities**, where a short is a
-stock loan needing a borrow, a locate and a recall that this venue has none of. An order
+Shorting is allowed on the asset classes in **`TRADING_SHORT_SELLING_CLASSES`** — all three
+desks by default. A cash-delivery deployment can remove equities from that setting. An order
 that would carry a position *through* zero (selling 6 against a long of 5) is a `409`: one
 fill carries one fee, and splitting it across a close and an open makes both halves
 approximate, so "close it, then open the other way" is two orders that each price honestly.
@@ -675,10 +693,10 @@ The checks run in this order, each cheap one before the expensive one after it:
 
 | Gate | Failure |
 |---|---|
-| Onboarding submitted and KYC tier reached | `403` |
+| Onboarding submitted and KYC tier reached — skipped only when `TRADING_OPEN_ACCESS=true` | `403` |
 | Instrument exists on that feed | `404` |
 | Its quote currency can be priced against the account currency | `409` |
-| The product it needs is enabled — `crypto_spot`, `forex`, `domestic_equity_delivery` or `foreign_equity` | `403` |
+| The product it needs is enabled — `crypto_spot`, `forex`, `domestic_equity_delivery` or `foreign_equity` — skipped only when `TRADING_OPEN_ACCESS=true` | `403` |
 | Any supplied price is inside `TRADING_PRICE_BAND_PERCENT` of the last trade | `422` |
 | A stop sits on the side it can be reached from | `422` |
 | Quantity is at least `TRADING_MIN_QUANTITY` | `422` |
@@ -692,14 +710,27 @@ The notional bounds are checked on the **converted** figure, which is the first 
 have meant the same thing across markets — the old per-quote-currency band compared a number
 of rupees against a number of dollars.
 
-The product gate distinguishes **under review** from **never requested**, because the user
-can do something about one of them and not the other. `GET /trading/eligibility` answers
-all of this up front, so a client can disable a button rather than discover a `403` when
-someone presses it.
+`TRADING_OPEN_ACCESS=true` can explicitly make every instrument on all three feeds tradable.
+It defaults to `false`; with it on, the first and fourth rows above never fire: any
+authenticated account may trade any crypto pair, any FX pair, and any listed equity, with
+no per-product permission to hold and no onboarding step to complete first. A verified
+Firebase token is the only requirement, and it always has been — every route here sits
+behind one. The same flag also bypasses the onboarding/product portion of the reviewed
+`/funding/*` gate; it never bypasses authentication or account suspension.
 
-Equities split on the listing venue: `.NS` and `.BO` need the domestic product, everything
-else needs `foreign_equity`. That is `TRADING_DOMESTIC_SUFFIXES`, because "domestic" is a
-deployment's fact, not a constant.
+This is a deliberate call for what this venue *is*: a simulator holding book money it
+creates itself, with no broker, no custody and nothing to launder. The onboarding/KYC/product
+gates are modelled on a real brokerage's and remain enabled by default. Set
+`TRADING_OPEN_ACCESS=true` only for a deliberately unrestricted paper-trading deployment;
+the normal product keeps KYC and per-market permissions enforced.
+
+With the flag off, the product gate distinguishes **under review** from **never requested**,
+because the user can do something about one of them and not the other, and equities split on
+the listing venue: `.NS` and `.BO` need the domestic product, everything else needs
+`foreign_equity` (`TRADING_DOMESTIC_SUFFIXES`, because "domestic" is a deployment's fact, not
+a constant). `GET /trading/eligibility` answers all of this up front either way, so a client
+can disable a button rather than discover a `403` when someone presses it — under open access
+every asset class simply reports `enabled: true`.
 
 ### Execution
 
@@ -856,8 +887,8 @@ disabled is just a broken account page.
   on the order, so the number is explainable rather than merely stale.
 - **No position flips in one order.** Selling 6 against a long of 5 is a `409`, not a close
   plus a short. One fill carries one fee and splitting it makes both halves approximate.
-- **No equity shorting.** `TRADING_SHORT_SELLING_CLASSES` excludes `stocks`: a short there is
-  a stock loan, needing a borrow, a locate and a recall this venue has none of.
+- **Configurable equity shorting.** `TRADING_SHORT_SELLING_CLASSES` includes `stocks` by
+  default because this is a simulated margin venue. A cash-delivery deployment can remove it.
 
 ### Validation
 
@@ -905,11 +936,10 @@ constrained types:
 
 ## Funding and the review queue
 
-`POST /trading/deposits` moves book money the instant it is called. That is the right
-shape for exercising the venue and the wrong shape for a rail with a counterparty: nobody
-has confirmed a USDT transfer actually landed, or that an INR payout was actually sent.
-`/funding/*` is the reviewed path, and both now exist on purpose — the instant one is a
-test fixture, this one is the flow a user goes through.
+There is no direct balance-minting funding endpoint. `/funding/*` is the only user-facing
+path: a user reports a transfer against an administrator-configured QR rail and the balance
+moves only after review. Withdrawals likewise remain reserved until an administrator records
+the payout transaction reference or declines the request.
 
 A request is **recorded** first. A balance moves only when a reviewer resolves it, and the
 two directions are deliberately asymmetric:
@@ -987,16 +1017,16 @@ Still open before real customers — deliberately not built, since each needs a 
   Atlas encrypts the disk, but anyone with a read connection string sees plaintext.
   Consider field-level encryption (Atlas CSFLE) and a retention policy.
 - **Trading is a simulation.** `/trading/*` executes against live prices but there is no
-  broker, no clearing and no custody, and `POST /trading/deposits` creates book money on
-  request. Nothing about it may be presented to a user as a real account. Before it could
+  broker, no clearing and no custody. Nothing about it may be presented to a user as a real
+  account. Before it could
   be: a real venue or broker behind the fills, multi-document transactions around
   settlement, and the matcher moved off a single process. See the Trading section.
 - **Funding is reviewed, not settled.** `/funding/*` records what a user says they sent
   and what they want paid out, and an admin marks it done. Nothing here watches a chain or
   talks to a bank, so approving a deposit is a human asserting the money arrived. The
   accounting around that assertion is correct; the assertion itself is the part that needs
-  a payment provider or a node behind it. Until then, `POST /trading/deposits` should be
-  disabled in any deployment real users can reach — it bypasses the review entirely.
+  a payment provider or a node behind it. The reviewed queue is therefore the only exposed
+  user funding path; the old direct simulated deposit/withdrawal routes are not registered.
 
 ### Auth latency
 

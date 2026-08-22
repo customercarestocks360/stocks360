@@ -73,7 +73,9 @@ function StatusPill({ status }: { status: FundingRequest["status"] }) {
         ? "bg-primary/10 text-primary"
         : "bg-muted text-muted-foreground";
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize ${tone}`}>
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize ${tone}`}
+    >
       <span className="h-1.5 w-1.5 rounded-full bg-current" />
       {status}
     </span>
@@ -114,7 +116,9 @@ function WalletPage() {
         icon: style.icon,
         available: parseAmount(p.available_quantity),
         locked: parseAmount(p.reserved_quantity),
-        value: formatMoney(parseAmount(p.market_value), p.currency),
+        // `market_value` is already converted into the account balance's own currency —
+        // `p.currency` is what the position was bought in, not what this figure is in.
+        value: formatMoney(parseAmount(p.market_value), p.account_currency),
         tradeTo: tradeLinkFor(p.asset_class, p.symbol),
       };
     });
@@ -148,7 +152,9 @@ function WalletPage() {
             <i className="fa-solid fa-wallet text-lg" />
           </div>
           <h1 className="mt-4 text-xl font-bold text-foreground">Sign in required</h1>
-          <p className="mt-2 text-sm text-muted-foreground">Sign in to view your wallet balances.</p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Sign in to view your wallet balances.
+          </p>
           <Link
             to="/login"
             className="mt-6 inline-block rounded sm:rounded-xl bg-primary px-5 py-2.5 text-sm font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90"
@@ -217,9 +223,7 @@ function WalletPage() {
               })}
             </div>
           )}
-          {trading.error && (
-            <p className="mt-3 text-xs text-destructive">{trading.error}</p>
-          )}
+          {trading.error && <p className="mt-3 text-xs text-destructive">{trading.error}</p>}
           {/* No single grand total: adding currencies together needs an FX rate this app has no
               licensed source for, so each currency is shown on its own — same rule the backend's
               own portfolio and admin summary follow. */}
@@ -271,13 +275,21 @@ function WalletPage() {
                           <AssetBadge color={r.color} text={r.label} />
                           <div className="min-w-0">
                             <div className="font-semibold text-foreground">{r.label}</div>
-                            <div className="truncate text-xs capitalize text-muted-foreground">{r.sub}</div>
+                            <div className="truncate text-xs capitalize text-muted-foreground">
+                              {r.sub}
+                            </div>
                           </div>
                         </div>
                       </td>
-                      <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-right font-mono text-foreground">{fmt(r.available)}</td>
-                      <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-right font-mono text-muted-foreground">{fmt(r.locked)}</td>
-                      <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-right font-mono text-foreground">{r.value}</td>
+                      <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-right font-mono text-foreground">
+                        {fmt(r.available)}
+                      </td>
+                      <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-right font-mono text-muted-foreground">
+                        {fmt(r.locked)}
+                      </td>
+                      <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-right font-mono text-foreground">
+                        {r.value}
+                      </td>
                       <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-right">
                         {r.tradeTo ? (
                           <Link
@@ -325,19 +337,33 @@ function WalletPage() {
                   <th className="px-1 sm:px-2 pb-2 sm:pb-3 font-medium">Network</th>
                   <th className="px-1 sm:px-2 pb-2 sm:pb-3 text-right font-medium">Amount</th>
                   <th className="px-1 sm:px-2 pb-2 sm:pb-3 text-right font-medium">Status</th>
+                  <th className="px-1 sm:px-2 pb-2 sm:pb-3 text-right font-medium">Action</th>
                 </tr>
               </thead>
               <tbody>
                 {funding.requests.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="py-10 text-center text-sm text-muted-foreground">
+                    <td colSpan={7} className="py-10 text-center text-sm text-muted-foreground">
                       {funding.loading
                         ? "Loading…"
                         : "No transactions yet — deposits and withdrawals will appear here."}
                     </td>
                   </tr>
                 ) : (
-                  funding.requests.map((r) => <HistoryRow key={r.id} tx={r} />)
+                  funding.requests.map((r) => (
+                    <HistoryRow
+                      key={r.id}
+                      tx={r}
+                      cancelling={funding.cancellingId === r.id}
+                      cancelDisabled={funding.cancellingId !== null}
+                      onCancel={() => {
+                        if (!window.confirm("Cancel this pending funding request?")) return;
+                        void funding.cancelRequest(r.id).then((cancelled) => {
+                          if (cancelled) void trading.refresh();
+                        });
+                      }}
+                    />
+                  ))
                 )}
               </tbody>
             </table>
@@ -348,7 +374,10 @@ function WalletPage() {
 
       {gate && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setGate(null)} />
+          <div
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            onClick={() => setGate(null)}
+          />
           <div className="relative max-h-[90vh] w-full max-w-md overflow-y-auto rounded sm:rounded-2xl border border-border bg-card p-6 shadow-2xl">
             <GateNotice
               reason={gate}
@@ -367,14 +396,27 @@ function WalletPage() {
   );
 }
 
-function HistoryRow({ tx }: { tx: FundingRequest }) {
+function HistoryRow({
+  tx,
+  cancelling,
+  cancelDisabled,
+  onCancel,
+}: {
+  tx: FundingRequest;
+  cancelling: boolean;
+  cancelDisabled: boolean;
+  onCancel: () => void;
+}) {
   const isWithdraw = tx.kind === "withdrawal";
   const sign = isWithdraw ? "−" : "+";
-  const tone = tx.status === "cancelled" ? "text-muted-foreground" : isWithdraw ? "text-down" : "text-up";
+  const tone =
+    tx.status === "cancelled" ? "text-muted-foreground" : isWithdraw ? "text-down" : "text-up";
 
   return (
     <tr className="border-b border-border last:border-b-0">
-      <td className="px-1 sm:px-2 py-2.5 sm:py-4 font-mono text-xs text-muted-foreground">{stamp(tx.created_at)}</td>
+      <td className="px-1 sm:px-2 py-2.5 sm:py-4 font-mono text-xs text-muted-foreground">
+        {stamp(tx.created_at)}
+      </td>
       <td className="px-1 sm:px-2 py-2.5 sm:py-4 capitalize text-foreground">{tx.kind}</td>
       <td className="px-1 sm:px-2 py-2.5 sm:py-4 font-medium text-foreground">{tx.currency}</td>
       <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-muted-foreground">{tx.network}</td>
@@ -383,9 +425,26 @@ function HistoryRow({ tx }: { tx: FundingRequest }) {
         {fmt(parseAmount(tx.amount))}
       </td>
       <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-right">
-        <div className="flex items-center justify-end gap-2" title={tx.resolution_note ?? undefined}>
+        <div
+          className="flex items-center justify-end gap-2"
+          title={tx.resolution_note ?? undefined}
+        >
           <StatusPill status={tx.status} />
         </div>
+      </td>
+      <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-right">
+        {tx.status === "pending" ? (
+          <button
+            type="button"
+            disabled={cancelDisabled}
+            onClick={onCancel}
+            className="rounded-md border border-border px-2.5 py-1 text-xs font-semibold text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {cancelling ? "Cancelling…" : "Cancel"}
+          </button>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        )}
       </td>
     </tr>
   );

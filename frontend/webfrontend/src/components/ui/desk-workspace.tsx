@@ -25,7 +25,8 @@ const LAYOUT_ID = "stocks360:desk-panes";
  * Module scope keeps the reference stable across renders.
  */
 const ssrSafeStorage = {
-  getItem: (key: string) => (typeof window === "undefined" ? null : window.localStorage.getItem(key)),
+  getItem: (key: string) =>
+    typeof window === "undefined" ? null : window.localStorage.getItem(key),
   setItem: (key: string, value: string) => {
     if (typeof window !== "undefined") window.localStorage.setItem(key, value);
   },
@@ -37,7 +38,9 @@ function Handle({ orientation }: { orientation: "horizontal" | "vertical" }) {
   return (
     <Separator
       className={`group relative shrink-0 bg-overlay-border transition-colors data-[state=dragging]:bg-primary ${
-        vertical ? "w-px cursor-col-resize hover:bg-primary/60" : "h-px cursor-row-resize hover:bg-primary/60"
+        vertical
+          ? "w-px cursor-col-resize hover:bg-primary/60"
+          : "h-px cursor-row-resize hover:bg-primary/60"
       }`}
     >
       {/* The hit area is deliberately larger than the visible line — a 1px target is unusable. */}

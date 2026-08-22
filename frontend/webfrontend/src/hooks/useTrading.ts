@@ -19,12 +19,14 @@ import { currentIdToken } from "@/lib/firebase";
 import {
   cancelOrder as cancelOrderRequest,
   fetchEligibility,
+  fetchLedger,
   fetchOrders,
   fetchPortfolio,
   fetchTrades,
   placeOrder as placeOrderRequest,
   type Balance,
   type Eligibility,
+  type LedgerEntry,
   type Order,
   type OrderRequest,
   type Portfolio,
@@ -45,13 +47,17 @@ export type TradingState = {
    */
   positions: PositionValuation[];
   /**
-   * The whole portfolio read, for callers that want the per-currency roll-ups. There is no
-   * grand total by design: adding INR to USDT would need an FX rate this API has no licensed
-   * source for, so totals stay per currency and honest.
+   * The whole portfolio read. There **is** a grand total (`equity`, `cash`, `market_value`,
+   * `margin_used`, `free_margin`), in `portfolio.account_currency` — every position's cash leg
+   * is already converted into the one balance the account holds, so these are numbers that
+   * share a unit rather than an invented sum of INR and USDT. The `*_by_currency` maps survive
+   * for API compatibility and now have exactly one key each; prefer the scalars.
    */
   portfolio: Portfolio | null;
   orders: Order[];
   trades: Trade[];
+  /** Every USDT movement: funding, order holds/releases, fills, and fees. */
+  ledger: LedgerEntry[];
   /** True until the first load settles. */
   loading: boolean;
   /** A read failure. Mutations report their own errors to the caller instead. */
@@ -74,6 +80,7 @@ export function useTrading(): TradingState {
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
   const [trades, setTrades] = useState<Trade[]>([]);
+  const [ledger, setLedger] = useState<LedgerEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -101,17 +108,20 @@ export function useTrading(): TradingState {
     const token = await currentIdToken();
     // In parallel: independent reads, and the desk needs all four to render a correct ticket
     // (cash for a buy, free units for a sell, eligibility for the gate).
-    const [eligibilityResult, portfolioResult, ordersResult, tradesResult] = await Promise.all([
-      fetchEligibility(token, signal),
-      fetchPortfolio(token, signal),
-      fetchOrders(token, { limit: 100 }, signal),
-      fetchTrades(token, { limit: 50 }, signal),
-    ]);
+    const [eligibilityResult, portfolioResult, ordersResult, tradesResult, ledgerResult] =
+      await Promise.all([
+        fetchEligibility(token, signal),
+        fetchPortfolio(token, signal),
+        fetchOrders(token, { limit: 100 }, signal),
+        fetchTrades(token, { limit: 100 }, signal),
+        fetchLedger(token, { limit: 200 }, signal),
+      ]);
     if (!aliveRef.current || signal?.aborted) return;
     setEligibility(eligibilityResult);
     setPortfolio(portfolioResult);
     setOrders(ordersResult);
     setTrades(tradesResult);
+    setLedger(ledgerResult);
   }, []);
 
   const refresh = useCallback(async () => {
@@ -132,6 +142,7 @@ export function useTrading(): TradingState {
       setPortfolio(null);
       setOrders([]);
       setTrades([]);
+      setLedger([]);
       setError("");
       setLoading(false);
       return;
@@ -218,6 +229,7 @@ export function useTrading(): TradingState {
     portfolio,
     orders,
     trades,
+    ledger,
     loading,
     error,
     ready,

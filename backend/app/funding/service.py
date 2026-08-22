@@ -30,6 +30,7 @@ from app.core.config import (
     TRADING_MAX_WITHDRAWAL,
 )
 from app.funding import repository
+from app.platform import repository as platform_repository
 from app.schemas.funding import (
     CurrencyTotal,
     DepositRequest,
@@ -46,8 +47,7 @@ from app.users import repository as users_repository
 
 logger = logging.getLogger(__name__)
 
-# Scope prefixes for the shared idempotency keys, kept distinct from the instant
-# `/trading/deposits` scopes so the same key can be used on both paths without colliding.
+# Scope prefixes for the shared idempotency-key collection.
 _SCOPE = {
     FundingKind.deposit: "funding_deposit",
     FundingKind.withdrawal: "funding_withdrawal",
@@ -68,7 +68,9 @@ def _conflict(detail: str) -> HTTPException:
 
 
 def _not_found() -> HTTPException:
-    return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No such funding request")
+    return HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND, detail="No such funding request"
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -101,7 +103,7 @@ def _assert_within_cap(kind: FundingKind, amount) -> None:
 async def _claim(uid: str, kind: FundingKind, key: str) -> dict | None:
     """Claim the idempotency key, or return the request a replay should get back.
 
-    Same contract as the instant funding path: an in-flight key is a `409` rather than a
+    An in-flight key is a `409` rather than a
     guess, because "already done" and "the first attempt died halfway" are two different
     answers and only one of them is safe to repeat.
     """
@@ -125,6 +127,22 @@ async def request_deposit(uid: str, payload: DepositRequest) -> dict:
     _assert_within_cap(FundingKind.deposit, payload.amount)
     profile = await asyncio.to_thread(_gate, uid)
 
+    settings = await asyncio.to_thread(platform_repository.get_settings)
+    rail = next(
+        (
+            candidate
+            for candidate in settings.get("deposit_rails", [])
+            if candidate.get("enabled") is True
+            and candidate.get("currency") == payload.currency.value
+            and candidate.get("network") == payload.network.value
+        ),
+        None,
+    )
+    if rail is None:
+        raise _conflict(
+            f"{payload.currency.value} deposits on {payload.network.value} are not currently enabled"
+        )
+
     replay = await _claim(uid, FundingKind.deposit, payload.idempotency_key)
     if replay is not None:
         return replay
@@ -139,13 +157,17 @@ async def request_deposit(uid: str, payload: DepositRequest) -> dict:
             amount=payload.amount,
             network=payload.network.value,
             destination=None,
+            deposit_address=rail["address"],
             reference=payload.reference,
             # Nothing to fund: a deposit locks no balance on the way in.
             funded=True,
         )
     except Exception:
         await asyncio.to_thread(
-            trading_repository.release_key, uid, _SCOPE[FundingKind.deposit], payload.idempotency_key
+            trading_repository.release_key,
+            uid,
+            _SCOPE[FundingKind.deposit],
+            payload.idempotency_key,
         )
         raise
 
@@ -189,6 +211,7 @@ async def request_withdrawal(uid: str, payload: WithdrawalRequest) -> dict:
             amount=payload.amount,
             network=payload.network.value,
             destination=payload.destination,
+            deposit_address=None,
             reference=payload.reference,
             funded=False,
         )
@@ -209,14 +232,18 @@ async def request_withdrawal(uid: str, payload: WithdrawalRequest) -> dict:
     except Exception:
         if request is not None:
             await asyncio.to_thread(repository.delete_pending, request["id"])
-        await asyncio.to_thread(trading_repository.release_key, uid, scope, payload.idempotency_key)
+        await asyncio.to_thread(
+            trading_repository.release_key, uid, scope, payload.idempotency_key
+        )
         raise
 
     if entry is None:
         # The guard inside the update failed, which is the only way this reports
         # insufficient funds. Nothing moved, so the request should not exist either.
         await asyncio.to_thread(repository.delete_pending, request["id"])
-        await asyncio.to_thread(trading_repository.release_key, uid, scope, payload.idempotency_key)
+        await asyncio.to_thread(
+            trading_repository.release_key, uid, scope, payload.idempotency_key
+        )
         balance = await asyncio.to_thread(trading_repository.get_balance, uid, currency)
         held = balance["available"] if balance else ZERO
         raise _conflict(
@@ -227,7 +254,11 @@ async def request_withdrawal(uid: str, payload: WithdrawalRequest) -> dict:
 
     await asyncio.to_thread(repository.mark_funded, request["id"])
     await asyncio.to_thread(
-        trading_repository.complete_key, uid, scope, payload.idempotency_key, request["id"]
+        trading_repository.complete_key,
+        uid,
+        scope,
+        payload.idempotency_key,
+        request["id"],
     )
     request["funded"] = True
     return request
@@ -259,7 +290,9 @@ async def _release_lock(request: dict, reason: str) -> None:
     if entry is None:
         logger.critical(
             "Funding request %s was closed but its %s reservation of %s could not be released",
-            request["id"], request["currency"], request["amount"],
+            request["id"],
+            request["currency"],
+            request["amount"],
         )
 
 
@@ -305,6 +338,10 @@ async def approve(reviewer_uid: str, request_id: str, note: str | None) -> dict:
         raise _conflict(
             "This withdrawal never locked its funds, so there is nothing to pay out — "
             "cancel it and ask the user to request it again"
+        )
+    if existing["kind"] == FundingKind.withdrawal.value and not (note or "").strip():
+        raise _conflict(
+            "Record the payout transaction reference before completing a withdrawal"
         )
 
     request = await asyncio.to_thread(
@@ -358,13 +395,20 @@ async def approve(reviewer_uid: str, request_id: str, note: str | None) -> dict:
     request["ledger_entry_id"] = entry["id"]
     logger.info(
         "Funding request %s (%s %s %s) approved by %s",
-        request_id, request["kind"], amount, currency, reviewer_uid,
+        request_id,
+        request["kind"],
+        amount,
+        currency,
+        reviewer_uid,
     )
     return request
 
 
 async def decline(reviewer_uid: str, request_id: str, note: str | None) -> dict:
     """Turn a pending request down. A withdrawal's locked cash goes straight back."""
+    reason = (note or "").strip()
+    if len(reason) < 3:
+        raise _conflict("Record a reason before declining this funding request")
     existing = await asyncio.to_thread(repository.get_unscoped, request_id)
     if existing is None:
         raise _not_found()
@@ -376,7 +420,7 @@ async def decline(reviewer_uid: str, request_id: str, note: str | None) -> dict:
         request_id,
         FundingStatus.cancelled,
         resolved_by=reviewer_uid,
-        note=note or "Declined on review",
+        note=reason,
     )
     if request is None:
         raise _conflict("This request was resolved by someone else a moment ago")

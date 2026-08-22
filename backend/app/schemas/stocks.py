@@ -43,11 +43,16 @@ Symbol = Annotated[
     str,
     StringConstraints(pattern=r"^[A-Z0-9^][A-Z0-9.\-=^]{0,19}$"),
     BeforeValidator(normalize_symbol),
-    Field(description="Ticker, with an exchange suffix outside the US", examples=["RELIANCE.NS"]),
+    Field(
+        description="Ticker, with an exchange suffix outside the US",
+        examples=["RELIANCE.NS"],
+    ),
 ]
 
 WatchlistId = Annotated[
-    str, StringConstraints(pattern=r"^[0-9a-f]{32}$"), Field(examples=["9f2c1e7b4a8d4f1e9c3b5a7d2e6f0b14"])
+    str,
+    StringConstraints(pattern=r"^[0-9a-f]{32}$"),
+    Field(examples=["9f2c1e7b4a8d4f1e9c3b5a7d2e6f0b14"]),
 ]
 
 SYMBOL_PATTERN = re.compile(r"^[A-Z0-9^][A-Z0-9.\-=^]{0,19}$")
@@ -61,7 +66,9 @@ def split_symbols(values: list[str]) -> list[str]:
     """
     out: list[str] = []
     for value in values:
-        out.extend(normalize_symbol(part) for part in value.replace(",", " ").split() if part)
+        out.extend(
+            normalize_symbol(part) for part in value.replace(",", " ").split() if part
+        )
     return out
 
 
@@ -131,7 +138,9 @@ class StockQuote(BaseModel):
         default=None, description="Current regular session for this symbol's exchange"
     )
     session_end: datetime | None = None
-    quoted_at: datetime = Field(description="Exchange time of the last trade, not receipt time")
+    quoted_at: datetime = Field(
+        description="Exchange time of the last trade, not receipt time"
+    )
     stale: bool = Field(description="No trade within the staleness window")
 
 
@@ -169,7 +178,9 @@ def _unique(symbols: list[str]) -> None:
 
 class WatchlistCreate(_Strict):
     name: str = Field(min_length=1, max_length=64, examples=["Nifty picks"])
-    symbols: list[Symbol] = Field(min_length=1, max_length=STOCKS_MAX_SYMBOLS_PER_WATCHLIST)
+    symbols: list[Symbol] = Field(
+        min_length=1, max_length=STOCKS_MAX_SYMBOLS_PER_WATCHLIST
+    )
 
     @model_validator(mode="after")
     def _no_duplicates(self) -> "WatchlistCreate":
@@ -195,7 +206,9 @@ class WatchlistUpdate(_Strict):
 
 
 class WatchlistSymbolsAdd(_Strict):
-    symbols: list[Symbol] = Field(min_length=1, max_length=STOCKS_MAX_SYMBOLS_PER_WATCHLIST)
+    symbols: list[Symbol] = Field(
+        min_length=1, max_length=STOCKS_MAX_SYMBOLS_PER_WATCHLIST
+    )
 
     @model_validator(mode="after")
     def _no_duplicates(self) -> "WatchlistSymbolsAdd":
@@ -207,7 +220,9 @@ class Watchlist(BaseModel):
     id: str
     name: str
     symbols: list[str]
-    version: int = Field(description="Bumped on every mutation; live sockets re-bind on a bump")
+    version: int = Field(
+        description="Bumped on every mutation; live sockets re-bind on a bump"
+    )
     stream_url: str = Field(
         description="Relative WebSocket path for this instance",
         examples=["/stocks/watchlists/9f2c1e7b4a8d4f1e9c3b5a7d2e6f0b14/stream"],
@@ -232,13 +247,27 @@ StockFrame = StreamFrame[StockQuote]
 
 # Reusable OpenAPI blocks for this feature's failure modes.
 UPSTREAM_ERROR = {
-    502: {"model": ErrorResponse, "description": "Upstream market data rejected or failed the request"},
+    502: {
+        "model": ErrorResponse,
+        "description": "Upstream market data rejected or failed the request",
+    },
     504: {"model": ErrorResponse, "description": "Upstream market data timed out"},
 }
 RATE_LIMITED = {
-    429: {"model": ErrorResponse, "description": "Rate limited — by this API's per-user caps or by the upstream"}
+    429: {
+        "model": ErrorResponse,
+        "description": "Rate limited — by this API's per-user caps or by the upstream",
+    }
 }
-UNKNOWN_SYMBOL = {404: {"model": ErrorResponse, "description": "Unknown, delisted or unsupported ticker"}}
+UNKNOWN_SYMBOL = {
+    404: {
+        "model": ErrorResponse,
+        "description": "Unknown, delisted or unsupported ticker",
+    }
+}
 WATCHLIST_CONFLICT = {
-    409: {"model": ErrorResponse, "description": "Duplicate watchlist name, or the per-user watchlist cap is reached"}
+    409: {
+        "model": ErrorResponse,
+        "description": "Duplicate watchlist name, or the per-user watchlist cap is reached",
+    }
 }

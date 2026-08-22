@@ -29,7 +29,7 @@ import {
   signOutFirebase,
   watchIdToken,
 } from "@/lib/firebase";
-import { fetchUserProfile, type UserProfile } from "@/lib/users-api";
+import { fetchUserProfile, updateUserProfile, type UserProfile } from "@/lib/users-api";
 import type { KycTier, OnboardingStatus, Product } from "@/lib/onboarding-api";
 
 /**
@@ -38,89 +38,10 @@ import type { KycTier, OnboardingStatus, Product } from "@/lib/onboarding-api";
  * actually been submitted — `onboarding_status`, `kyc_tier` and the product lists are
  * denormalised there by `POST /onboarding/submit` and nowhere else.
  *
- * Everything below that is what is left of the client-side simulation this app started
- * with, now that `/trading/*` and `/funding/*` are wired up: real orders, balances,
- * deposits and withdrawals live in `useTrading()` and `lib/funding-api.ts` instead, read
- * straight from the backend rather than from here. `orders` and `placeOrder`/`cancelOrder`
- * remain for `trade-modal.tsx`'s older simulated flow, and `balances`/`convertBalance`
- * remain because there is no backend route for converting between wallet currencies. Kept
- * deliberately separate from identity, and persisted under a **uid-scoped** localStorage
- * key so one account's simulated state can never show up in
- * another's session.
+ * Trading, balances, deposits, and withdrawals are owned by backend services. This
+ * provider contains identity and server profile state only, so browser-local values can
+ * never be mistaken for authoritative account data.
  */
-export type DepositMethod = "INR" | "USDT";
-
-export type TransactionKind = "deposit" | "withdraw";
-export type TransactionStatus = "completed" | "pending" | "cancelled";
-
-export type Transaction = {
-  id: string;
-  method: DepositMethod;
-  amount: number;
-  date: string;
-  /**
-   * Optional because transactions written before withdrawals existed are still
-   * sitting in localStorage. Read them through `txKind`/`txStatus` below rather
-   * than touching the fields directly, so old records keep rendering.
-   */
-  kind?: TransactionKind;
-  status?: TransactionStatus;
-  /** Settlement rail actually used, e.g. "BEP20". Falls back to NETWORK_OF. */
-  network?: string;
-  /** Where a withdrawal should be sent — the user's own UPI ID or wallet address. */
-  destination?: string;
-};
-
-export const txKind = (t: Transaction): TransactionKind => t.kind ?? "deposit";
-export const txStatus = (t: Transaction): TransactionStatus => t.status ?? "completed";
-
-/** Default settlement rail per currency, used when a record predates network choice. */
-export const NETWORK_OF: Record<DepositMethod, string> = { INR: "UPI", USDT: "BEP20" };
-
-export const txNetwork = (t: Transaction) => t.network ?? NETWORK_OF[t.method];
-
-/**
- * Funds committed to withdrawals that haven't settled yet. They still count
- * toward the balance but can't be spent, which is what the wallet's
- * "Locked" column reports.
- */
-export function lockedAmount(transactions: Transaction[], method: DepositMethod) {
-  return transactions
-    .filter((t) => t.method === method && txKind(t) === "withdraw" && txStatus(t) === "pending")
-    .reduce((sum, t) => sum + t.amount, 0);
-}
-
-/** Demo conversion rate between the two wallet currencies. */
-export const USDT_TO_INR = 93;
-
-export function convertedAmount(from: DepositMethod, to: DepositMethod, amount: number) {
-  if (from === to) return amount;
-  return from === "USDT" ? amount * USDT_TO_INR : amount / USDT_TO_INR;
-}
-
-export type OrderType = "Market" | "Limit";
-export type OrderStatus = "open" | "filled" | "cancelled";
-
-export type Order = {
-  id: string;
-  action: "buy" | "sell";
-  symbol: string;
-  qty: number;
-  price: string;
-  date: string;
-  /** Optional so orders placed before order types existed still render — read via orderType()/orderStatus(). */
-  orderType?: OrderType;
-  status?: OrderStatus;
-};
-
-export const orderType = (o: Order): OrderType => o.orderType ?? "Market";
-/**
- * There's no matching engine here, so the only orders that stay "open" are
- * limit orders — a market order fills the moment it's placed, since that's
- * the whole point of a market order.
- */
-export const orderStatus = (o: Order): OrderStatus => o.status ?? "filled";
-
 /** Who the caller is, as asserted by Firebase and confirmed by the backend. */
 export type Identity = {
   uid: string;
@@ -137,59 +58,6 @@ export type Identity = {
  * session. Treated as signed-out for gating, so nothing protected renders on a guess.
  */
 export type AuthStatus = "loading" | "authenticated" | "unauthenticated";
-
-/** The part of the state that is still simulated client-side. */
-type LocalState = {
-  /** Overrides the Firebase display name when the user renames themselves in /account. */
-  displayName: string | null;
-  balances: Record<DepositMethod, number>;
-  transactions: Transaction[];
-  orders: Order[];
-};
-
-const DEFAULT_LOCAL: LocalState = {
-  displayName: null,
-  balances: { INR: 0, USDT: 0 },
-  transactions: [],
-  orders: [],
-};
-
-/** Module scope, so the memoised reducers below cannot capture a per-render copy of it. */
-const newId = () => `${Date.now()}-${Math.round(Math.random() * 1e6)}`;
-
-const STORAGE_PREFIX = "stocks360-auth";
-/**
- * Scoped by uid so signing out and back in as somebody else cannot inherit the previous
- * account's simulated balances and KYC. The signed-out bucket exists only so the reducers
- * have somewhere to write before a session resolves.
- */
-const storageKeyFor = (uid: string | null) => `${STORAGE_PREFIX}:${uid ?? "guest"}`;
-
-function parseLocal(raw: string): LocalState {
-  try {
-    const parsed = JSON.parse(raw) as Partial<LocalState> & {
-      balances?: Partial<Record<DepositMethod, number>>;
-    };
-    return {
-      ...DEFAULT_LOCAL,
-      ...parsed,
-      balances: { ...DEFAULT_LOCAL.balances, ...parsed.balances },
-    };
-  } catch {
-    return DEFAULT_LOCAL;
-  }
-}
-
-function readLocal(key: string): LocalState {
-  if (typeof window === "undefined") return DEFAULT_LOCAL;
-  try {
-    const stored = window.localStorage.getItem(key);
-    return stored ? parseLocal(stored) : DEFAULT_LOCAL;
-  } catch {
-    // Private-mode Safari and a full quota both throw on read.
-    return DEFAULT_LOCAL;
-  }
-}
 
 function identityFromApi(user: AuthUser): Identity {
   return {
@@ -280,14 +148,8 @@ type AuthContextValue = Identity & {
    */
   refreshProfile: () => Promise<void>;
 
-  balances: Record<DepositMethod, number>;
-  transactions: Transaction[];
-  orders: Order[];
-
-  convertBalance: (from: DepositMethod, to: DepositMethod, amount: number) => void;
-  setName: (name: string) => void;
-  placeOrder: (order: Omit<Order, "id" | "date">) => void;
-  cancelOrder: (id: string) => void;
+  /** Persists via `PATCH /users/me`, then updates local state once the save succeeds. Throws on failure. */
+  setName: (name: string) => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -309,19 +171,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    */
   const [serverProfile, setServerProfile] = useState<UserProfile | null>(null);
 
-  /**
-   * Key and value held together, so the persist effect below can tell "this state belongs
-   * to this key" from "the key just changed and the load has not happened yet". Two
-   * independent effects would race and write the outgoing account's data to the incoming
-   * account's key.
-   */
-  const [store, setStore] = useState<{ key: string; state: LocalState }>({
-    key: storageKeyFor(null),
-    state: DEFAULT_LOCAL,
-  });
-
   const uid = identity?.uid ?? null;
-  const storageKey = storageKeyFor(uid);
 
   /** uid whose token the backend has already accepted, so a restored session is checked once. */
   const confirmedUidRef = useRef<string | null>(null);
@@ -441,49 +291,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       cancelled = true;
     };
   }, [status, uid, loadServerProfile]);
-
-  // --- Simulated state, scoped to the signed-in uid ------------------------------------
-
-  useEffect(() => {
-    if (status === "loading") return;
-    setStore((prev) =>
-      prev.key === storageKey ? prev : { key: storageKey, state: readLocal(storageKey) },
-    );
-  }, [storageKey, status]);
-
-  useEffect(() => {
-    if (status === "loading") return;
-    // The load above has not run for this key yet, so `store.state` still belongs to the
-    // previous account — writing it here would copy it across.
-    if (store.key !== storageKey) return;
-    try {
-      window.localStorage.setItem(storageKey, JSON.stringify(store.state));
-    } catch {
-      // Out of quota or storage blocked: the session still works, it just will not persist.
-    }
-  }, [storageKey, store, status]);
-
-  /**
-   * The admin portal and the user's own tabs each hold their own copy of this state, so a
-   * deposit an admin settles in one tab would not appear in another until something
-   * re-reads localStorage. The `storage` event fires in every other tab the moment one of
-   * them writes, so this pulls the fresh balances in without a refresh.
-   */
-  useEffect(() => {
-    const onStorage = (event: StorageEvent) => {
-      if (event.key !== storageKey) return;
-      setStore({
-        key: storageKey,
-        state: event.newValue ? parseLocal(event.newValue) : DEFAULT_LOCAL,
-      });
-    };
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
-  }, [storageKey]);
-
-  const updateLocal = useCallback((change: (state: LocalState) => LocalState) => {
-    setStore((prev) => ({ ...prev, state: change(prev.state) }));
-  }, []);
 
   // --- Sign-in actions -----------------------------------------------------------------
 
@@ -610,73 +417,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setServerProfile(null);
       setStatus("unauthenticated");
       setAuthError(null);
-      setStore({ key: storageKeyFor(null), state: DEFAULT_LOCAL });
     }
   }, []);
 
-  // --- Simulated money (unchanged behaviour) --------------------------------------------
-  //
-  // Deposits and withdrawals themselves are no longer simulated here — `/deposit`,
-  // `/withdraw`, `/wallet` and `/admin` call the real `POST /funding/deposits` /
-  // `/funding/withdrawals` and the `/admin/funding/*` review queue instead (see
-  // `lib/funding-api.ts`). What is left below is `convertBalance`: there is no backend
-  // route for converting between wallet currencies, so `ConvertWidget` still reads and
-  // writes this local balance directly.
-
-  /** Moves money straight between the two wallet balances — no transaction record, since nothing left the account. */
-  const convertBalance = useCallback(
-    (from: DepositMethod, to: DepositMethod, amount: number) =>
-      updateLocal((s) => {
-        if (from === to || amount <= 0) return s;
-        const available = s.balances[from] - lockedAmount(s.transactions, from);
-        if (amount > available) return s;
-        return {
-          ...s,
-          balances: {
-            ...s.balances,
-            [from]: s.balances[from] - amount,
-            [to]: s.balances[to] + convertedAmount(from, to, amount),
-          },
-        };
-      }),
-    [updateLocal],
-  );
-
-  const setName = useCallback(
-    (name: string) => updateLocal((s) => ({ ...s, displayName: name })),
-    [updateLocal],
-  );
-
-  const placeOrder = useCallback(
-    (order: Omit<Order, "id" | "date">) =>
-      updateLocal((s) => ({
-        ...s,
-        orders: [{ id: newId(), date: new Date().toISOString(), ...order }, ...s.orders],
-      })),
-    [updateLocal],
-  );
-
-  const cancelOrder = useCallback(
-    (id: string) =>
-      updateLocal((s) => ({
-        ...s,
-        orders: s.orders.map((o) =>
-          o.id === id && orderStatus(o) === "open"
-            ? { ...o, status: "cancelled" as OrderStatus }
-            : o,
-        ),
-      })),
-    [updateLocal],
-  );
-
-  const local = store.state;
+  const setName = useCallback(async (name: string) => {
+    const token = await currentIdToken();
+    const profile = await updateUserProfile({ name }, token);
+    setServerProfile(profile);
+    setIdentity((current) => (current ? { ...current, name: profile.name } : current));
+  }, []);
 
   const value = useMemo<AuthContextValue>(
     () => ({
       uid: identity?.uid ?? "",
       email: identity?.email ?? null,
-      // A rename in /account wins over the Firebase display name; both are only labels.
-      name: local.displayName ?? identity?.name ?? null,
+      name: serverProfile?.name ?? identity?.name ?? null,
       picture: identity?.picture ?? null,
       provider: identity?.provider ?? null,
       emailVerified: identity?.emailVerified ?? false,
@@ -700,14 +455,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       pendingProducts: serverProfile?.pending_products ?? [],
       refreshProfile,
 
-      balances: local.balances,
-      transactions: local.transactions,
-      orders: local.orders,
-
-      convertBalance,
       setName,
-      placeOrder,
-      cancelOrder,
     }),
     [
       identity,
@@ -715,15 +463,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       authError,
       serverProfile,
       refreshProfile,
-      local,
       signUpWithEmail,
       signInWithEmail,
       signInWithGoogle,
       logout,
-      convertBalance,
       setName,
-      placeOrder,
-      cancelOrder,
     ],
   );
 

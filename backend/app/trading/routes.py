@@ -1,4 +1,5 @@
-"""Trading endpoints: funding, orders, fills, positions and the portfolio.
+# ruff: noqa: B008
+"""Trading endpoints: orders, fills, positions and the portfolio.
 
 Every route is authenticated and every query is scoped to the caller's uid, so an order id
 belonging to someone else reads as a plain `404` rather than a `403` — the same rule the
@@ -8,7 +9,7 @@ Every route is `async def` because pricing is async, which means the blocking py
 has to be pushed to a thread explicitly. A bare repository call here would stall the event
 loop, and with it every market-data socket this process is serving.
 
-`TRADING_ENABLED=false` stops new activity — orders, deposits, withdrawals — and leaves
+`TRADING_ENABLED=false` stops new order activity and leaves
 the reads working. Being unable to place an order is a policy decision; being unable to
 see your own balance while one is disabled is just a broken account page.
 """
@@ -27,6 +28,7 @@ from app.core.config import (
     TRADING_LEVERAGE,
     TRADING_MAX_OPEN_ORDERS,
     TRADING_MIN_QUANTITY,
+    TRADING_OPEN_ACCESS,
     TRADING_PRICE_BAND_PERCENT,
     TRADING_SHORT_SELLING_CLASSES,
 )
@@ -39,7 +41,8 @@ from app.schemas.trading import (
     AssetClass,
     Balance,
     Eligibility,
-    FundsRequest,
+    FxRate,
+    HedgeSide,
     LedgerEntry,
     LedgerKind,
     Order,
@@ -51,13 +54,35 @@ from app.schemas.trading import (
     Trade,
     normalize_symbol,
 )
-from app.trading import repository, service
+from app.trading import fx, repository, service
 
 router = APIRouter(prefix="/trading", tags=["trading"])
 
 # Rendered into the route descriptions below, so the docs name the asset classes that can
 # actually be shorted rather than a list somebody has to remember to update here too.
 SHORT_SELLING_LIST = ", ".join(sorted(TRADING_SHORT_SELLING_CLASSES))
+
+# Same idea for the account-level gate: the docs describe whichever mode this deployment is
+# actually running, rather than a fixed claim that drifts the moment the env var flips.
+if TRADING_OPEN_ACCESS:
+    ORDER_CHECKS_INTRO = "The instrument exists on that feed"
+    OPEN_ACCESS_NOTE = (
+        "`TRADING_OPEN_ACCESS` is on: any authenticated account may place an "
+        "order in any instrument on any of the three feeds. Neither onboarding completion, "
+        "KYC tier nor a per-product grant is checked — a verified Firebase token is the only "
+        "requirement, and it always has been, since every route here sits behind one."
+    )
+else:
+    ORDER_CHECKS_INTRO = (
+        "Onboarding complete and KYC tier reached; the product it needs (`crypto_spot`, "
+        "`forex`, `domestic_equity_delivery` or `foreign_equity`) is enabled on your "
+        "account; the instrument exists on that feed"
+    )
+    OPEN_ACCESS_NOTE = (
+        "This deployment has `TRADING_OPEN_ACCESS=false`, so an instrument is only tradable "
+        "if the product it needs was granted or requested during onboarding — see "
+        "`GET /trading/eligibility` for what is enabled and why not."
+    )
 
 
 def _normalized(asset_class: AssetClass, symbol: str) -> str:
@@ -136,42 +161,34 @@ async def get_balances(claims: dict = Depends(get_current_user)):
     return await asyncio.to_thread(service.balances, claims["uid"])
 
 
-# --------------------------------------------------------------------------- #
-# Funding
-# --------------------------------------------------------------------------- #
+@router.get(
+    "/fx-rate",
+    response_model=FxRate,
+    responses={**UNAUTHORIZED, 409: {"description": "Nothing prices this currency"}},
+    summary="Convert a currency into the account balance",
+    description=f"""
+What one unit of `currency` is worth in {TRADING_ACCOUNT_CURRENCY}, at the same rate an
+order in that currency would be funded at right now — this is `app.trading.fx.rate_for`,
+the exact function `POST /trading/orders` calls when it prices an instrument that does not
+settle in {TRADING_ACCOUNT_CURRENCY}.
 
+It exists for the moment before an order does: `Order.fx_rate` only exists once an order has
+been placed, and by then the rate already decided what got funded. A client pricing an INR
+equity or a USD forex pair against the one real balance — to show "this needs ~such-and-such
+{TRADING_ACCOUNT_CURRENCY}" or to grey out a submit button honestly — has nowhere else to
+get that number, and approximating it locally would be exactly the invented conversion this
+venue's whole FX design exists to avoid.
 
-@router.post(
-    "/deposits",
-    response_model=LedgerEntry,
-    status_code=status.HTTP_201_CREATED,
-    responses={**UNAUTHORIZED, **NOT_ELIGIBLE, **ORDER_REJECTED, **UNAVAILABLE},
-    summary="Credit the account (simulated)",
-    description=f"**This moves no real money.** There is no payment provider behind it — it "
-    f"credits book money so the rest of the system can be exercised. It is gated behind "
-    f"completed onboarding anyway, because crediting an unidentified account is the exact "
-    f"step the KYC funnel exists to prevent.\n\n"
-    f"`currency` is optional and only {TRADING_ACCOUNT_CURRENCY} is accepted — there is one "
-    f"balance, so there is no second currency to fund.\n\n"
-    f"`idempotency_key` is required. Replaying one returns the original ledger entry "
-    f"instead of crediting twice, which is what makes a timed-out request safe to retry.",
+Exactly `1` for {TRADING_ACCOUNT_CURRENCY} itself and for anything in
+`TRADING_PEGGED_CURRENCIES`, with no network call behind it. A `409` means nothing prices
+`currency` against the balance at all — the same refusal placing an order in it would hit.
+""",
 )
-async def create_deposit(payload: FundsRequest, claims: dict = Depends(get_current_user)):
-    return await service.deposit(claims["uid"], payload)
-
-
-@router.post(
-    "/withdrawals",
-    response_model=LedgerEntry,
-    status_code=status.HTTP_201_CREATED,
-    responses={**UNAUTHORIZED, **NOT_ELIGIBLE, **ORDER_REJECTED, **UNAVAILABLE},
-    summary="Debit the account (simulated)",
-    description="The mirror of a deposit, and equally simulated — nothing is paid out. "
-    "Only `available` cash can be withdrawn; funds reserved against open orders are not "
-    "available until those orders close.",
-)
-async def create_withdrawal(payload: FundsRequest, claims: dict = Depends(get_current_user)):
-    return await service.withdraw(claims["uid"], payload)
+async def get_fx_rate(
+    currency: str = Query(min_length=2, max_length=10, examples=["INR"]),
+) -> FxRate:
+    rate = await fx.rate_for(currency)
+    return FxRate(currency=currency.strip().upper(), rate=rate)
 
 
 @router.get(
@@ -186,7 +203,9 @@ async def create_withdrawal(payload: FundsRequest, claims: dict = Depends(get_cu
 )
 async def get_ledger(
     claims: dict = Depends(get_current_user),
-    currency: str | None = Query(default=None, min_length=2, max_length=10, examples=["USDT"]),
+    currency: str | None = Query(
+        default=None, min_length=2, max_length=10, examples=["USDT"]
+    ),
     kind: LedgerKind | None = Query(default=None),
     limit: int = Query(50, ge=1, le=200),
 ):
@@ -221,14 +240,15 @@ Places an order on one of the three feeds. The response is the order in whatever
 reached: a market order comes back `filled` or not at all, a limit order that is already
 marketable comes back `filled`, and anything else comes back `open` and waits.
 
-**What is checked, in order.** Onboarding complete and KYC tier reached; the instrument
-exists on that feed and can be priced against your {TRADING_ACCOUNT_CURRENCY} balance; the
-product it needs (`crypto_spot`, `forex`, `domestic_equity_delivery` or `foreign_equity`)
-is enabled on your account; any price you supplied is within {TRADING_PRICE_BAND_PERCENT}%
-of the last trade and a stop sits on the side it can be reached from; the notional is
-inside the per-order bounds; short selling is permitted on that asset class if the order
-would open a short; and finally the cash or the units are locked, atomically, which is
-where insufficient funds is reported.
+**What is checked, in order.** {ORDER_CHECKS_INTRO} and can be priced against your
+{TRADING_ACCOUNT_CURRENCY} balance; any price you supplied is within
+{TRADING_PRICE_BAND_PERCENT}% of the last trade and a stop sits on the side it can be
+reached from; the notional is inside the per-order bounds; short selling is permitted on
+that asset class if the order would open a short; and finally the cash or the units are
+locked, atomically, which is where insufficient funds is reported.
+
+**Every instrument on all three feeds is tradable — nothing is held back per account.**
+{OPEN_ACCESS_NOTE}
 
 **One balance funds everything.** Your account holds a single
 {TRADING_ACCOUNT_CURRENCY} balance. An instrument priced in something else — `EUR-USD` in
@@ -250,10 +270,14 @@ resting order simply waits, which is why a limit order may be placed out of hour
 **Both directions, where the market allows one.** A position's `quantity` is signed:
 positive long, negative short. A sell against a long reduces it and reserves the units; a
 sell with nothing behind it opens a short and reserves cash instead. Shorting is available
-on **{SHORT_SELLING_LIST}** and refused on anything else — shorting a listed share is a
-stock loan, and this venue has no borrow desk. An order that would carry a position
+on **{SHORT_SELLING_LIST}** and refused on anything else. An order that would carry a position
 *through* zero is a `409`: close what is open, then open the other side, so each fill
 prices one thing.
+
+**Hedge mode.** Send `position_side=long` or `position_side=short` to target an independent
+leg. Buy opens/increases LONG and sell closes it; sell opens/increases SHORT and buy closes
+it. Both legs may remain open on the same instrument. Omit the field for legacy one-way
+netting behavior.
 
 **Leverage is fixed at {TRADING_LEVERAGE}:1**, every asset class alike and both
 directions. Opening locks `notional / {TRADING_LEVERAGE}` plus the fee as margin rather
@@ -308,7 +332,9 @@ async def list_orders(
 async def get_order(order_id: OrderId, claims: dict = Depends(get_current_user)):
     order = await asyncio.to_thread(repository.get_order, claims["uid"], order_id)
     if order is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Order not found"
+        )
     return order
 
 
@@ -361,7 +387,8 @@ async def list_trades(
     description=f"""
 Quantities are in base units — `BTCUSDT` counts BTC, `EUR-USD` counts EUR — and they are
 **signed**: positive is long, negative is short, with `direction` saying which so nothing
-has to infer it from a minus sign. One row per instrument covers either.
+has to infer it from a minus sign. Hedge-mode accounts can have separate LONG and SHORT rows
+for one instrument; `position_side` identifies the leg.
 
 `average_price` is the cost basis per unit with the entry commission included, in the
 instrument's own `currency`, so it is the real break-even and it compares directly against
@@ -376,7 +403,9 @@ Closed positions are hidden unless you ask for them with `?include_flat=true`.
 )
 async def list_positions(
     claims: dict = Depends(get_current_user),
-    include_flat: bool = Query(default=False, description="Include positions sold down to zero"),
+    include_flat: bool = Query(
+        default=False, description="Include positions sold down to zero"
+    ),
 ):
     return await asyncio.to_thread(service.positions, claims["uid"], include_flat)
 
@@ -388,13 +417,22 @@ async def list_positions(
     summary="One position",
 )
 async def get_position(
-    asset_class: AssetClass, symbol: str, claims: dict = Depends(get_current_user)
+    asset_class: AssetClass,
+    symbol: str,
+    claims: dict = Depends(get_current_user),
+    position_side: HedgeSide | None = Query(default=None),
 ):
     found = await asyncio.to_thread(
-        service.position, claims["uid"], asset_class.value, _normalized(asset_class, symbol)
+        service.position,
+        claims["uid"],
+        asset_class.value,
+        _normalized(asset_class, symbol),
+        position_side.value if position_side else None,
     )
     if found is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No such position")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="No such position"
+        )
     return found
 
 

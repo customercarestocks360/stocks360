@@ -16,7 +16,7 @@
 import { useMemo, useState } from "react";
 import { ApiError } from "@/lib/api";
 import { formatPrice } from "@/lib/instrument";
-import { amount, type Order, type OrderStatus, type Trade } from "@/lib/trading-api";
+import { amount, money2, type Order, type OrderStatus, type Trade } from "@/lib/trading-api";
 import { useTrading, type TradingState } from "@/hooks/useTrading";
 
 const TABS = ["Open orders", "Order history", "Trade history"] as const;
@@ -47,10 +47,15 @@ function StatusPill({ status }: { status: OrderStatus }) {
   );
 }
 
-/** The price that actually describes an order: what it filled at, else what it is waiting for. */
+/**
+ * The price that actually describes an order: what it filled at, else what it is waiting
+ * for. Fixed at 2 decimals rather than `formatPrice`'s magnitude-based default (which gives
+ * an FX rate 4-6 places for its pips) — a table of orders across three asset classes reads
+ * better lined up on one scale than each row picking its own.
+ */
 function displayPrice(o: Order): string {
   const price = amount(o.average_price) ?? amount(o.limit_price) ?? amount(o.stop_price);
-  return price === null ? "Market" : formatPrice(price);
+  return price === null ? "Market" : formatPrice(price, 2);
 }
 
 function fillPercent(o: Order): string {
@@ -118,9 +123,7 @@ export function OrdersPanelView({
 
   return (
     <div className={shell}>
-      <div
-        className={`flex flex-wrap items-center gap-3 ${embedded ? "px-3 pt-2.5" : ""}`}
-      >
+      <div className={`flex flex-wrap items-center gap-3 ${embedded ? "px-3 pt-2.5" : ""}`}>
         <div className="flex flex-wrap gap-1 rounded-lg bg-background/40 p-1">
           {TABS.map((t) => (
             <button
@@ -308,12 +311,22 @@ function TradeTable({ trades, emptyLabel }: { trades: Trade[]; emptyLabel: strin
                     {t.side}
                   </span>
                 </td>
-                <td className="px-2 py-3 text-right font-mono text-foreground">{t.price}</td>
+                {/* Price is in `t.currency`, already named next to the symbol above.
+                    Notional, fee and P&L are in `t.account_currency` instead — a different
+                    currency whenever the instrument is not USDT-quoted — so each carries its
+                    own tag rather than borrowing the symbol row's, which would mislabel it. */}
+                <td className="px-2 py-3 text-right font-mono text-foreground">
+                  {money2(t.price)}
+                </td>
                 <td className="px-2 py-3 text-right font-mono text-foreground">{t.quantity}</td>
                 <td className="px-2 py-3 text-right font-mono text-muted-foreground">
-                  {t.notional}
+                  {money2(t.notional)}
+                  <span className="ml-1 text-[10px]">{t.account_currency}</span>
                 </td>
-                <td className="px-2 py-3 text-right font-mono text-muted-foreground">{t.fee}</td>
+                <td className="px-2 py-3 text-right font-mono text-muted-foreground">
+                  {money2(t.fee)}
+                  <span className="ml-1 text-[10px]">{t.account_currency}</span>
+                </td>
                 <td className="px-2 py-3 text-right font-mono">
                   {/* Buys have no realised P&L — showing 0 would imply a flat round trip. */}
                   {pnl === null ? (
@@ -321,7 +334,8 @@ function TradeTable({ trades, emptyLabel }: { trades: Trade[]; emptyLabel: strin
                   ) : (
                     <span className={pnl >= 0 ? "text-up" : "text-down"}>
                       {pnl >= 0 ? "+" : ""}
-                      {t.realized_pnl}
+                      {money2(t.realized_pnl)}
+                      <span className="ml-1 text-[10px] opacity-80">{t.account_currency}</span>
                     </span>
                   )}
                 </td>

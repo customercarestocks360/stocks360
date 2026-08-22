@@ -355,3 +355,24 @@ export function fetchOnboardingSession(token: string): Promise<OnboardingSession
 export function submitOnboardingApplication(token: string): Promise<OnboardingSubmitResult> {
   return apiFetch<OnboardingSubmitResult>("/onboarding/submit", { method: "POST", token });
 }
+
+/** Steps `PATCH /onboarding/kyc` accepts — `markets` and `agreements` are `409` there. */
+export const AMENDABLE_STEPS: readonly OnboardingStep[] = ONBOARDING_STEPS.filter(
+  (step) => step !== "markets" && step !== "agreements",
+);
+
+/**
+ * `PATCH /onboarding/kyc` — corrects one section of an *already-submitted* application.
+ * Same per-step bodies as `submitOnboardingStep`. `404` if nothing has been submitted yet,
+ * `409` for `markets`/`agreements` or a duplicate identity document.
+ */
+export function amendOnboardingStep(
+  payload: OnboardingStepInput,
+  token: string,
+): Promise<OnboardingSession> {
+  return apiFetch<OnboardingSession>("/onboarding/kyc", {
+    method: "PATCH",
+    token,
+    body: payload,
+  });
+}

@@ -21,13 +21,18 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
+import { currentIdToken } from "@/lib/firebase";
 import { ApiError } from "@/lib/api";
 import { decimalsFor, formatPrice, type TradeInstrument } from "@/lib/instrument";
 import {
   describeOutcome,
+  fetchFxRate,
+  money2,
   newClientOrderId,
+  TRADING_ACCOUNT_CURRENCY,
   TRADING_LEVERAGE,
   TRADING_MIN_QUANTITY,
+  TRADING_PEGGED_CURRENCIES,
   type Order,
   type OrderType,
   type TimeInForce,
@@ -164,7 +169,8 @@ export function OrderTicket({
   className?: string | undefined;
   layout?: "vertical" | "horizontal";
   /** Set by a "Close position" action elsewhere on the page — sizes the ticket to flatten it. */
-  prefill?: { symbol: string; quantity: string } | null | undefined;
+  prefill?:
+    { symbol: string; quantity: string; positionSide?: "long" | "short" } | null | undefined;
   /** Drops the card chrome for a ticket docked inside an already-framed rail. */
   flush?: boolean;
 }) {
@@ -175,6 +181,7 @@ export function OrderTicket({
   const [limitPrice, setLimitPrice] = useState("");
   const [stopPrice, setStopPrice] = useState("");
   const [timeInForce, setTimeInForce] = useState<TimeInForce>("gtc");
+  const [intent, setIntent] = useState<"open" | "close">("open");
   const [showOrderTypeMenu, setShowOrderTypeMenu] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [placedOrder, setPlacedOrder] = useState<Order | null>(null);
@@ -190,11 +197,60 @@ export function OrderTicket({
     setServerError("");
     setLimitPrice("");
     setStopPrice("");
-    if (prefill && prefill.symbol === symbol) setQty(prefill.quantity);
+    if (prefill && prefill.symbol === symbol) {
+      setQty(prefill.quantity);
+      setIntent("close");
+    }
   }, [symbol, action, prefill]);
 
   const eligibility = trading.eligibility;
   const classEligibility = eligibility?.asset_classes.find((c) => c.asset_class === assetClass);
+
+  // The account holds one balance, in TRADING_ACCOUNT_CURRENCY, whatever the instrument's own
+  // currency is — an INR equity or a USD forex pair funds out of the same wallet as a USDT
+  // crypto pair. `trading.availableIn(currency)` used to be called with the *instrument's*
+  // currency here, which finds nothing for anything not already USDT: the server holds no
+  // separate INR or USD wallet, so that always read as "0 available" and blocked every
+  // non-crypto order in the UI even though the account had funds to cover it.
+  const isAccountCurrency =
+    !!currency &&
+    (currency === TRADING_ACCOUNT_CURRENCY ||
+      (TRADING_PEGGED_CURRENCIES as readonly string[]).includes(currency));
+
+  const [fxRate, setFxRate] = useState(1);
+  const [fxRateLoading, setFxRateLoading] = useState(false);
+
+  // Refetched whenever the instrument's currency changes, not on every symbol switch — two
+  // Nasdaq tickers share one rate. Skipped entirely for the account currency and anything
+  // pegged to it, which are exactly 1 with no network call, on both the client and the server.
+  useEffect(() => {
+    if (!currency || isAccountCurrency) {
+      setFxRate(1);
+      setFxRateLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    let cancelled = false;
+    setFxRateLoading(true);
+    (async () => {
+      try {
+        const token = await currentIdToken();
+        const result = await fetchFxRate(currency, token, controller.signal);
+        const rate = Number(result.rate);
+        if (!cancelled && Number.isFinite(rate) && rate > 0) setFxRate(rate);
+      } catch {
+        // Leave the previous rate in place. The server prices and funds every order itself
+        // regardless of what this estimate shows, so a stale rate here costs a confusing
+        // number, never a wrong fill.
+      } finally {
+        if (!cancelled) setFxRateLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [currency, isAccountCurrency]);
 
   const qtyValue = Number(qty) || 0;
   const limitValue = Number(limitPrice) || 0;
@@ -204,14 +260,28 @@ export function OrderTicket({
 
   /** The price the order will actually reserve against, matching the server's own choice. */
   const referencePrice = needsLimit && limitValue > 0 ? limitValue : price;
-  const notional = referencePrice !== null ? qtyValue * referencePrice : null;
+  /** In the instrument's own `currency` — what the quantity block shows the trade is worth. */
+  const notionalQuote = referencePrice !== null ? qtyValue * referencePrice : null;
+  /** Converted to the account balance's currency — what actually leaves or returns to it. */
+  const notional = notionalQuote !== null ? notionalQuote * fxRate : null;
   // A buy only has to post 1/TRADING_LEVERAGE of the notional in cash — see
   // `backend/app/trading/money.margin_of`. Fees are ignored here same as before this
-  // feature; the server's own check is still the authority on the exact figure.
+  // feature; the server's own check is still the authority on the exact figure. This is
+  // the account-currency figure, which is what the wallet — and hence the funds check right
+  // below — actually deals in, however the instrument itself is quoted.
   const marginRequired = notional !== null ? notional / TRADING_LEVERAGE : null;
 
-  const availableFunds = currency ? trading.availableIn(currency) : 0;
-  const heldUnits = trading.availableUnits(symbol);
+  const availableFunds = trading.availableIn(TRADING_ACCOUNT_CURRENCY);
+  const positionSide =
+    intent === "open" ? (action === "buy" ? "long" : "short") : action === "buy" ? "short" : "long";
+  const targetPosition = trading.positions.find(
+    (position) =>
+      position.symbol === symbol &&
+      (position.position_side === positionSide ||
+        (position.position_side === null && position.direction === positionSide)),
+  );
+  const heldUnits = Math.abs(Number(targetPosition?.available_quantity ?? 0));
+  const needsCashMargin = intent === "open" || action === "buy";
 
   const validation = useMemo((): string => {
     if (qtyValue < TRADING_MIN_QUANTITY)
@@ -225,10 +295,14 @@ export function OrderTicket({
       if (action === "sell" && stopValue >= price)
         return `A sell stop triggers on the way down — set it below ${formatPrice(price, decimals)}.`;
     }
-    if (action === "buy" && marginRequired !== null && currency && marginRequired > availableFunds)
-      return `This order needs ${fmt(marginRequired, 2)} ${currency} margin (1:${TRADING_LEVERAGE}) and you have ${fmt(availableFunds, 2)} available.`;
-    if (action === "sell" && qtyValue > heldUnits)
-      return `You hold ${heldUnits} ${label} free to sell. This venue is long-only spot.`;
+    // A default rate of 1 would understate an INR or overstate a JPY margin by orders of
+    // magnitude while the real rate is still in flight — wait rather than show that, however
+    // briefly, or let a buy through on it.
+    if (needsCashMargin && fxRateLoading) return "Checking the exchange rate…";
+    if (needsCashMargin && marginRequired !== null && marginRequired > availableFunds)
+      return `This order needs ${fmt(marginRequired, 2)} ${TRADING_ACCOUNT_CURRENCY} margin (1:${TRADING_LEVERAGE}) and you have ${fmt(availableFunds, 2)} available.`;
+    if (intent === "close" && qtyValue > heldUnits)
+      return `Your ${positionSide.toUpperCase()} leg has ${heldUnits} ${label} available to close.`;
     return "";
   }, [
     qtyValue,
@@ -239,15 +313,18 @@ export function OrderTicket({
     price,
     action,
     decimals,
+    fxRateLoading,
     marginRequired,
-    currency,
     availableFunds,
-    heldUnits,
+    needsCashMargin,
     label,
+    intent,
+    positionSide,
+    heldUnits,
   ]);
 
   const needsDeposit =
-    action === "buy" && marginRequired !== null && !!currency && marginRequired > availableFunds;
+    needsCashMargin && !fxRateLoading && marginRequired !== null && marginRequired > availableFunds;
 
   const submit = async () => {
     if (validation || submitting) return;
@@ -258,6 +335,9 @@ export function OrderTicket({
         asset_class: assetClass,
         symbol,
         side: action,
+        ...((intent === "open" || targetPosition?.position_side) && {
+          position_side: positionSide,
+        }),
         type: orderType,
         quantity: qty,
         // Sent only where they apply — the venue forbids them elsewhere outright (422).
@@ -384,7 +464,10 @@ export function OrderTicket({
             {placedOrder.status === "filled" && Number(placedOrder.fee) > 0 && (
               <>
                 {" "}
-                · fee {placedOrder.fee} {placedOrder.currency}
+                {/* The fee is charged in the account balance's currency, not the
+                    instrument's — a rupee fee tag on a dollar-equivalent number is
+                    exactly the mislabeling this venue's whole FX split exists to avoid. */}
+                · fee {money2(placedOrder.fee)} {placedOrder.account_currency}
               </>
             )}
           </p>
@@ -437,6 +520,25 @@ export function OrderTicket({
           }`}
         >
           {side}
+        </button>
+      ))}
+    </div>
+  );
+
+  const intentToggle = (
+    <div className="grid grid-cols-2 gap-1 rounded border border-border bg-background/60 p-1">
+      {(["open", "close"] as const).map((value) => (
+        <button
+          key={value}
+          type="button"
+          onClick={() => setIntent(value)}
+          className={`rounded px-2 py-1 text-[10px] font-bold uppercase tracking-wide transition-colors ${
+            intent === value
+              ? "bg-secondary text-foreground"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          {value}
         </button>
       ))}
     </div>
@@ -528,7 +630,14 @@ export function OrderTicket({
       <div className="flex items-center justify-between text-[11px] text-muted-foreground">
         <span>Quantity</span>
         <span className="font-mono text-[10px] text-muted-foreground/80">
-          ≈ {notional === null ? "—" : fmt(notional, 2)} {currency ?? ""}
+          ≈ {notionalQuote === null ? "—" : fmt(notionalQuote, 2)} {currency ?? ""}
+          {/* The instrument's own notional is not what the wallet moves by when it is not
+              already the account currency — shown converted too, so nothing is hidden. */}
+          {!isAccountCurrency && notional !== null && (
+            <span className="ml-1 opacity-70">
+              (≈ {fmt(notional, 2)} {TRADING_ACCOUNT_CURRENCY})
+            </span>
+          )}
         </span>
       </div>
       <div className="mt-0.5 flex items-center justify-between gap-2">
@@ -541,12 +650,16 @@ export function OrderTicket({
         />
         <span className="shrink-0 font-mono text-xs font-bold text-muted-foreground">{label}</span>
       </div>
-      {/* Only cash a buy actually locks up — the rest is leveraged, not borrowed on paper. */}
-      {action === "buy" && marginRequired !== null && (
+      {/* Only cash a buy actually locks up — the rest is leveraged, not borrowed on paper.
+          Always in the account balance's own currency: that is what leaves the wallet
+          regardless of what currency the instrument itself is quoted in. */}
+      {needsCashMargin && (marginRequired !== null || fxRateLoading) && (
         <div className="mt-1 flex items-center justify-between border-t border-border/60 pt-1 text-[10px] text-muted-foreground">
           <span>Margin (1:{TRADING_LEVERAGE})</span>
           <span className="font-mono font-semibold text-foreground">
-            {fmt(marginRequired, 2)} {currency ?? ""}
+            {fxRateLoading || marginRequired === null
+              ? "…"
+              : `${fmt(marginRequired, 2)} ${TRADING_ACCOUNT_CURRENCY}`}
           </span>
         </div>
       )}
@@ -607,9 +720,9 @@ export function OrderTicket({
   const fundsLine = (
     <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
       <span className="truncate">
-        {action === "buy"
-          ? `Available ${fmt(availableFunds, 2)} ${currency ?? ""}`
-          : `Free to sell ${heldUnits} ${label}`}
+        {needsCashMargin
+          ? `Available ${fmt(availableFunds, 2)} ${TRADING_ACCOUNT_CURRENCY} · ${intent} ${positionSide}`
+          : `${heldUnits} ${label} available · close ${positionSide}`}
       </span>
       <Link to="/deposit" className="shrink-0 font-bold text-primary hover:underline">
         + Deposit
@@ -636,7 +749,7 @@ export function OrderTicket({
       to="/deposit"
       className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-up px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-white shadow-sm transition-opacity hover:opacity-90 sm:text-sm"
     >
-      Add {currency}
+      Add {TRADING_ACCOUNT_CURRENCY}
     </Link>
   ) : (
     <button
@@ -658,6 +771,7 @@ export function OrderTicket({
         <div className="grid grid-cols-1 items-center gap-4 md:grid-cols-2 lg:grid-cols-12 lg:gap-5">
           <div className="flex items-center gap-2 lg:col-span-3">
             {sideToggle}
+            {intentToggle}
             {orderTypePicker}
           </div>
           <div className="lg:col-span-2">{priceBlock}</div>
@@ -682,6 +796,7 @@ export function OrderTicket({
           {sideToggle}
           {orderTypePicker}
         </div>
+        {intentToggle}
         {priceBlock}
         {conditionalPrices}
         {qtyBlock}

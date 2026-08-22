@@ -1,3 +1,4 @@
+# ruff: noqa: B008
 """Funding endpoints: the user's request queue, and the review queue behind it.
 
 Two routers, because they answer to two different authorities. `/funding/*` is scoped to
@@ -16,6 +17,7 @@ import asyncio
 from fastapi import APIRouter, Depends, HTTPException, Query
 from starlette import status
 
+from app.admin import repository as admin_repository
 from app.auth.dependencies import get_current_user, require_admin
 from app.funding import repository, service
 from app.schemas.common import NOT_FOUND, UNAUTHORIZED, UNAVAILABLE
@@ -49,15 +51,16 @@ admin_router = APIRouter(prefix="/admin/funding", tags=["admin"])
     summary="Report a deposit for review",
     description="Records that you sent funds on `network`. **It credits nothing.** The "
     "balance moves only once a reviewer confirms the transfer arrived, which is the "
-    "difference between this and `POST /trading/deposits` — that one is the instant, "
-    "unreviewed path that exists to exercise the venue.\n\n"
+    "configured QR rail is enabled for the selected currency and network.\n\n"
     "`reference` is the transaction hash or bank UTR the reviewer checks against, and "
     "`network` has to be one the currency can actually travel on — `INR` on `TRC20` is a "
     "`422`, not a request that sits in the queue until somebody notices.\n\n"
     "`idempotency_key` is required. Replaying one returns the original request rather "
     "than queueing a second claim for the same transfer.",
 )
-async def report_deposit(payload: DepositRequest, claims: dict = Depends(get_current_user)):
+async def report_deposit(
+    payload: DepositRequest, claims: dict = Depends(get_current_user)
+):
     return await service.request_deposit(claims["uid"], payload)
 
 
@@ -74,7 +77,9 @@ async def report_deposit(payload: DepositRequest, claims: dict = Depends(get_cur
     "`409` when `available` is short — cash locked by open orders or by an earlier "
     "withdrawal request does not count.",
 )
-async def request_withdrawal(payload: WithdrawalRequest, claims: dict = Depends(get_current_user)):
+async def request_withdrawal(
+    payload: WithdrawalRequest, claims: dict = Depends(get_current_user)
+):
     return await service.request_withdrawal(claims["uid"], payload)
 
 
@@ -95,7 +100,9 @@ async def list_requests(
     claims: dict = Depends(get_current_user),
     kind: FundingKind | None = Query(default=None),
     request_status: FundingStatus | None = Query(default=None, alias="status"),
-    currency: str | None = Query(default=None, min_length=2, max_length=10, examples=["USDT"]),
+    currency: str | None = Query(
+        default=None, min_length=2, max_length=10, examples=["USDT"]
+    ),
     limit: int = Query(50, ge=1, le=200),
 ):
     return await asyncio.to_thread(
@@ -155,8 +162,12 @@ async def list_all_requests(
     _: dict = Depends(require_admin),
     kind: FundingKind | None = Query(default=None),
     request_status: FundingStatus | None = Query(default=None, alias="status"),
-    currency: str | None = Query(default=None, min_length=2, max_length=10, examples=["USDT"]),
-    uid: str | None = Query(default=None, min_length=1, max_length=128, description="One account"),
+    currency: str | None = Query(
+        default=None, min_length=2, max_length=10, examples=["USDT"]
+    ),
+    uid: str | None = Query(
+        default=None, min_length=1, max_length=128, description="One account"
+    ),
     limit: int = Query(50, ge=1, le=200),
 ):
     return await asyncio.to_thread(
@@ -186,9 +197,16 @@ async def get_summary(_: dict = Depends(require_admin)):
 @admin_router.post(
     "/requests/{request_id}/approve",
     response_model=FundingRequest,
-    responses={**UNAUTHORIZED, **NOT_ADMIN, **NOT_FOUND, **FUNDING_REJECTED, **UNAVAILABLE},
+    responses={
+        **UNAUTHORIZED,
+        **NOT_ADMIN,
+        **NOT_FOUND,
+        **FUNDING_REJECTED,
+        **UNAVAILABLE,
+    },
     summary="Settle a request",
-    description="Credits a deposit, or pays out a withdrawal from the amount it locked. "
+    description="Credits a verified deposit, or records completion of a manually paid "
+    "withdrawal from the amount it locked. "
     "The status is claimed atomically before any money moves, so two reviewers pressing "
     "this at the same moment produce one settlement and one `409`.\n\n"
     "A withdrawal whose lock never completed (`funded: false`) is refused — there is "
@@ -199,13 +217,35 @@ async def approve_request(
     payload: ReviewDecision | None = None,
     claims: dict = Depends(require_admin),
 ):
-    return await service.approve(claims["uid"], request_id, payload.note if payload else None)
+    result = await service.approve(
+        claims["uid"], request_id, payload.note if payload else None
+    )
+    await asyncio.to_thread(
+        admin_repository.record_audit,
+        actor_uid=claims["uid"],
+        actor_email=claims.get("email"),
+        action=f"funding.{result['kind']}.approve",
+        target_uid=result["uid"],
+        reason=payload.note if payload else "Funding request approved",
+        metadata={
+            "request_id": request_id,
+            "amount": str(result["amount"]),
+            "currency": result["currency"],
+        },
+    )
+    return result
 
 
 @admin_router.post(
     "/requests/{request_id}/decline",
     response_model=FundingRequest,
-    responses={**UNAUTHORIZED, **NOT_ADMIN, **NOT_FOUND, **FUNDING_REJECTED, **UNAVAILABLE},
+    responses={
+        **UNAUTHORIZED,
+        **NOT_ADMIN,
+        **NOT_FOUND,
+        **FUNDING_REJECTED,
+        **UNAVAILABLE,
+    },
     summary="Turn a request down",
     description="Moves it to `cancelled` and releases a withdrawal's locked cash back to "
     "`available`. `note` is shown to the user — say why, since from their side this and a "
@@ -216,4 +256,20 @@ async def decline_request(
     payload: ReviewDecision | None = None,
     claims: dict = Depends(require_admin),
 ):
-    return await service.decline(claims["uid"], request_id, payload.note if payload else None)
+    result = await service.decline(
+        claims["uid"], request_id, payload.note if payload else None
+    )
+    await asyncio.to_thread(
+        admin_repository.record_audit,
+        actor_uid=claims["uid"],
+        actor_email=claims.get("email"),
+        action=f"funding.{result['kind']}.decline",
+        target_uid=result["uid"],
+        reason=payload.note if payload else "Funding request declined",
+        metadata={
+            "request_id": request_id,
+            "amount": str(result["amount"]),
+            "currency": result["currency"],
+        },
+    )
+    return result

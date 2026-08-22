@@ -57,9 +57,7 @@ export function MobileTradeBar({
         `lg:hidden` mirrors the workspace breakpoint: above it the rail's ticket is already on
         screen, and a second entry point would be two ways to do one thing.
       */}
-      <div
-        className="fixed inset-x-0 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-30 flex items-center gap-2 border-t border-overlay-border bg-surface/95 px-3 py-2 backdrop-blur md:bottom-0 lg:hidden"
-      >
+      <div className="fixed inset-x-0 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-30 flex items-center gap-2 border-t border-overlay-border bg-surface/95 px-3 py-2 backdrop-blur md:bottom-0 lg:hidden">
         <div className="min-w-0 flex-1">
           <div className="truncate text-[11px] font-semibold text-foreground">
             {instrument.label}

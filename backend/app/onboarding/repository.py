@@ -97,6 +97,16 @@ def write_kyc_profile(profile: dict[str, Any]) -> None:
     get_db()[KYC_PROFILES].replace_one({"_id": profile["_id"]}, profile, upsert=True)
 
 
+def amend_kyc_profile_field(uid: str, step: str, data: dict[str, Any]) -> None:
+    """Correct one section of an already-frozen application. The only place `kyc_profiles`
+    is edited in place after submit — and only via `service.amend_step`, never the signup
+    funnel. Raises DuplicateKeyError when an edited identity document already belongs to a
+    different account (the same unique index `write_kyc_profile` relies on)."""
+    get_db()[KYC_PROFILES].update_one(
+        {"_id": uid}, {"$set": {step: data, f"step_timestamps.{step}": _now()}}
+    )
+
+
 def set_user_onboarding(
     uid: str,
     status: OnboardingStatus,
@@ -126,3 +136,44 @@ def set_user_onboarding(
         },
         upsert=True,
     )
+
+
+def review_application(
+    uid: str,
+    *,
+    status: OnboardingStatus,
+    tier: KycTier,
+    enabled_products: list[str],
+    pending_products: list[str],
+    note: str,
+    reviewer_uid: str,
+) -> dict | None:
+    """Persist the staff decision onto every denormalised copy of onboarding state."""
+    now = _now()
+    review = {"note": note, "reviewed_by": reviewer_uid, "reviewed_at": now}
+    update = {
+        "$set": {
+            "status": status.value,
+            "kyc_tier": tier.value,
+            "enabled_products": enabled_products,
+            "pending_products": pending_products,
+            "review": review,
+            "updated_at": now,
+        }
+    }
+    db = get_db()
+    result = db[KYC_PROFILES].update_one({"_id": uid}, update)
+    if result.matched_count == 0:
+        return None
+    db[ONBOARDING_SESSIONS].update_one({"_id": uid}, update)
+    db[USERS].update_one({"_id": uid}, update)
+    return {
+        "uid": uid,
+        "status": status,
+        "kyc_tier": tier,
+        "enabled_products": enabled_products,
+        "pending_products": pending_products,
+        "review_note": note,
+        "reviewed_by": reviewer_uid,
+        "reviewed_at": now,
+    }

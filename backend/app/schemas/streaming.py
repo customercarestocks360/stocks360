@@ -15,14 +15,14 @@ Q = TypeVar("Q")
 
 
 class StreamFrameType(str, Enum):
-    subscribed = "subscribed"   # handshake accepted, carries the symbol set
-    snapshot = "snapshot"       # every symbol's current quote, sent once on connect/resync
-    quote = "quote"             # one live tick
-    resynced = "resynced"       # the watchlist changed; symbols/snapshot follow
-    deleted = "deleted"         # the watchlist is gone; the socket closes right after
-    heartbeat = "heartbeat"     # sent after a quiet interval
-    upstream = "upstream"       # upstream connectivity changed
-    error = "error"             # client sent something invalid; socket stays open
+    subscribed = "subscribed"  # handshake accepted, carries the symbol set
+    snapshot = "snapshot"  # every symbol's current quote, sent once on connect/resync
+    quote = "quote"  # one live tick
+    resynced = "resynced"  # the watchlist changed; symbols/snapshot follow
+    deleted = "deleted"  # the watchlist is gone; the socket closes right after
+    heartbeat = "heartbeat"  # sent after a quiet interval
+    upstream = "upstream"  # upstream connectivity changed
+    error = "error"  # client sent something invalid; socket stays open
     pong = "pong"
 
 
@@ -38,7 +38,8 @@ class StreamFrame(BaseModel, Generic[Q]):
     quotes: list[Q] | None = None
     state: Literal["connected", "disconnected", "reconnected"] | None = None
     dropped: int | None = Field(
-        default=None, description="Ticks shed for this socket because the client fell behind"
+        default=None,
+        description="Ticks shed for this socket because the client fell behind",
     )
     detail: str | None = None
 

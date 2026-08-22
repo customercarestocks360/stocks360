@@ -32,6 +32,14 @@ _MASKED_PATHS: dict[OnboardingStep, tuple[str, ...]] = {
     OnboardingStep.funding: ("bank_account.account_number",),
 }
 
+# Steps a submitted application may still be corrected on. `markets` drives product
+# enablement/review gating and `agreements` is versioned consent — neither is a plain
+# detail to overwrite in place, so both stay out of scope for `amend_step`.
+AMENDABLE_STEPS: frozenset[OnboardingStep] = frozenset(STEP_ORDER) - {
+    OnboardingStep.markets,
+    OnboardingStep.agreements,
+}
+
 
 def _conflict(detail: str) -> HTTPException:
     return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
@@ -174,6 +182,35 @@ def submit_step(
         # Consent is only defensible with the context it was given in.
         data["accepted_from"] = {"ip": ip, "user_agent": user_agent}
 
+    return build_view(uid, repository.save_step(uid, step.value, data))
+
+
+def amend_step(uid: str, payload) -> OnboardingSessionResponse:
+    """Correct one section of an already-submitted application — from account settings or
+    admin support. `submit_step` keeps owning the in-progress funnel; this only runs once
+    `finalize()` has already frozen a `kyc_profiles` record for this uid.
+
+    Writes both copies so neither goes stale: the frozen `kyc_profiles` record other modules
+    read from, and the `onboarding_sessions` step data the account page's recap renders —
+    the latter first would let the recap show a value that failed to freeze.
+    """
+    session = repository.get_session(uid)
+    if session is None or session.get("submitted_at") is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No submitted application to amend — complete onboarding first",
+        )
+    step: OnboardingStep = payload.step
+    if step not in AMENDABLE_STEPS:
+        raise _conflict(f"`{step.value}` cannot be corrected here")
+
+    data = payload.model_dump(mode="json", exclude={"step"})
+    try:
+        repository.amend_kyc_profile_field(uid, step.value, data)
+    except DuplicateKeyError as exc:
+        raise _conflict(
+            "This identity document is already registered to another account"
+        ) from exc
     return build_view(uid, repository.save_step(uid, step.value, data))
 
 

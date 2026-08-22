@@ -2,12 +2,15 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { useAuth } from "@/components/AuthProvider";
-import { ConvertWidget } from "@/components/ui/convert-widget";
 import { useTrading } from "@/hooks/useTrading";
 import { useFundingRequests } from "@/hooks/useFundingRequests";
 import { ApiError } from "@/lib/api";
 import { currentIdToken } from "@/lib/firebase";
-import { requestWithdrawalFunding, newIdempotencyKey, type FundingNetwork } from "@/lib/funding-api";
+import {
+  requestWithdrawalFunding,
+  newIdempotencyKey,
+  type FundingNetwork,
+} from "@/lib/funding-api";
 import { amount as parseAmount, type SettlementCurrency } from "@/lib/trading-api";
 
 type DepositMethod = SettlementCurrency;
@@ -51,36 +54,36 @@ const NETWORK_OPTIONS: NetworkOption[] = [
     name: "Tron (TRC20)",
     destinationLabel: "Wallet Address (TRC20)",
     destinationPlaceholder: "T…",
-    minimum: "More than 1 USDT",
-    arrival: "About 20 network confirmations after settlement",
-    fee: "1 USDT",
+    minimum: "No additional platform minimum",
+    arrival: "After manual administrator review",
+    fee: "No platform fee recorded",
   },
   {
     code: "BEP20",
     name: "BNB Smart Chain (BEP20)",
     destinationLabel: "Wallet Address (BEP20)",
     destinationPlaceholder: "0x…",
-    minimum: "More than 1 USDT",
-    arrival: "About 15 network confirmations after settlement",
-    fee: "1 USDT",
+    minimum: "No additional platform minimum",
+    arrival: "After manual administrator review",
+    fee: "No platform fee recorded",
   },
   {
     code: "ERC20",
     name: "Ethereum (ERC20)",
     destinationLabel: "Wallet Address (ERC20)",
     destinationPlaceholder: "0x…",
-    minimum: "More than 5 USDT",
-    arrival: "About 12 network confirmations after settlement",
-    fee: "3 USDT",
+    minimum: "No additional platform minimum",
+    arrival: "After manual administrator review",
+    fee: "No platform fee recorded",
   },
   {
     code: "SOL",
     name: "Solana",
     destinationLabel: "Wallet Address (Solana)",
     destinationPlaceholder: "Base58 address…",
-    minimum: "More than 1 USDT",
-    arrival: "About 32 network confirmations after settlement",
-    fee: "1 USDT",
+    minimum: "No additional platform minimum",
+    arrival: "After manual administrator review",
+    fee: "No platform fee recorded",
   },
   {
     // The backend's rail enum names this chain POLYGON, not the ticker MATIC — sending
@@ -89,25 +92,25 @@ const NETWORK_OPTIONS: NetworkOption[] = [
     name: "Polygon",
     destinationLabel: "Wallet Address (Polygon)",
     destinationPlaceholder: "0x…",
-    minimum: "More than 1 USDT",
-    arrival: "About 128 network confirmations after settlement",
-    fee: "1 USDT",
+    minimum: "No additional platform minimum",
+    arrival: "After manual administrator review",
+    fee: "No platform fee recorded",
   },
   {
     code: "ARBITRUM",
     name: "Arbitrum One",
     destinationLabel: "Wallet Address (Arbitrum)",
     destinationPlaceholder: "0x…",
-    minimum: "More than 1 USDT",
-    arrival: "About 12 network confirmations after settlement",
-    fee: "1 USDT",
+    minimum: "No additional platform minimum",
+    arrival: "After manual administrator review",
+    fee: "No platform fee recorded",
   },
 ];
 
 const FAQS = [
   {
     q: "How does a withdrawal actually work?",
-    a: "Requesting a withdrawal locks that amount immediately — it stays in your balance but can't be withdrawn again or spent until the request is settled or cancelled. Settling debits your balance and sends funds to the destination; cancelling releases the lock and changes nothing.",
+    a: "Requesting a withdrawal locks that amount immediately. An administrator manually reviews the destination and payout; marking it completed records the debit. Cancelling or declining releases the lock.",
   },
   {
     q: "Why can't I withdraw my full balance?",
@@ -119,7 +122,7 @@ const FAQS = [
   },
   {
     q: "Is there a minimum or a fee?",
-    a: "Each asset has its own minimum and network fee, shown once you pick it above. The fee is deducted from your balance, not added on top of the amount you enter.",
+    a: "Stocks360 currently records no separate platform withdrawal fee. Any external network cost is handled during the administrator-reviewed payout.",
   },
 ];
 
@@ -135,7 +138,9 @@ function stamp(iso: string) {
 /** Diamond marker for a completed step, numbered circle for the one in progress. */
 function StepMarker({ done, n }: { done: boolean; n: number }) {
   return (
-    <span className={`flex h-5 w-5 items-center justify-center rounded-full border-2 text-[10px] font-bold ${done ? "border-primary text-primary" : "border-foreground/70 text-foreground/70"}`}>
+    <span
+      className={`flex h-5 w-5 items-center justify-center rounded-full border-2 text-[10px] font-bold ${done ? "border-primary text-primary" : "border-foreground/70 text-foreground/70"}`}
+    >
       {n}
     </span>
   );
@@ -184,7 +189,9 @@ function Dropdown<T>({
         className="flex w-full items-center justify-between gap-3 rounded sm:rounded-xl border border-border bg-card px-4 py-3.5 text-left transition-colors hover:border-foreground/25"
       >
         {render(selected)}
-        <i className={`fa-solid fa-chevron-down text-xs text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`} />
+        <i
+          className={`fa-solid fa-chevron-down text-xs text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
+        />
       </button>
       {open && (
         <ul
@@ -252,7 +259,6 @@ function WithdrawPage() {
   const [stage, setStage] = useState<"idle" | "submitting" | "requested">("idle");
   const [error, setError] = useState("");
   const [openFaq, setOpenFaq] = useState<number | null>(null);
-  const [showConvert, setShowConvert] = useState(false);
 
   /**
    * What's actually free to withdraw right now. `Balance.available` already excludes
@@ -266,7 +272,11 @@ function WithdrawPage() {
   const value = parseFloat(amount);
   const overBalance = Number.isFinite(value) && value > available;
   const canSubmit =
-    Number.isFinite(value) && value > 0 && !overBalance && destination.trim().length > 0 && stage === "idle";
+    Number.isFinite(value) &&
+    value > 0 &&
+    !overBalance &&
+    destination.trim().length > 0 &&
+    stage === "idle";
 
   const handleSubmit = async () => {
     if (!canSubmit) return;
@@ -341,23 +351,6 @@ function WithdrawPage() {
         <div className="grid gap-12 lg:grid-cols-[minmax(0,1fr)_300px]">
           {/* ── Stepper ── */}
           <ol className="min-w-0">
-            <li className="relative pl-10 pb-10">
-              <button
-                type="button"
-                onClick={() => setShowConvert((v) => !v)}
-                className="flex items-center gap-2 text-sm font-semibold text-primary transition-opacity hover:opacity-80"
-              >
-                <i className="fa-solid fa-arrow-down-up-across-line text-xs" />
-                Holding the wrong currency? Convert to USDT first
-                <i className={`fa-solid fa-chevron-down text-[10px] transition-transform ${showConvert ? "rotate-180" : ""}`} />
-              </button>
-              {showConvert && (
-                <div className="mt-4 max-w-lg">
-                  <ConvertWidget />
-                </div>
-              )}
-            </li>
-
             <Step n={1} done title="Asset">
               <div className="max-w-lg">
                 <div className="flex w-full items-center gap-3 rounded sm:rounded-xl border border-border bg-card px-4 py-3.5">
@@ -418,10 +411,12 @@ function WithdrawPage() {
                       <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-primary/10 text-primary">
                         <i className="fa-solid fa-clock" />
                       </div>
-                      <p className="mt-3 text-sm font-semibold text-foreground">Withdrawal requested</p>
+                      <p className="mt-3 text-sm font-semibold text-foreground">
+                        Withdrawal requested
+                      </p>
                       <p className="mt-1 text-xs text-muted-foreground">
-                        {fmt(value)} {asset.code} is now locked and pending. An admin will review it and send it
-                        to {destination}.
+                        {fmt(value)} {asset.code} is now locked and pending. An admin will review it
+                        and send it to {destination}.
                       </p>
                       <button
                         type="button"
@@ -489,7 +484,8 @@ function WithdrawPage() {
                         {stage === "submitting" ? "Requesting…" : "Request withdrawal"}
                       </button>
                       <p className="mt-3 text-center text-[11px] text-muted-foreground/70">
-                        This locks the amount immediately. It's debited from your balance only once settled.
+                        This locks the amount immediately. It's debited from your balance only once
+                        settled.
                       </p>
                     </>
                   )}
@@ -511,7 +507,9 @@ function WithdrawPage() {
                     className="flex w-full items-start justify-between gap-3 py-3 text-left text-sm text-foreground transition-colors hover:text-primary"
                   >
                     <span>{f.q}</span>
-                    <i className={`fa-solid fa-chevron-down mt-1 shrink-0 text-[10px] text-muted-foreground transition-transform ${openFaq === i ? "rotate-180" : ""}`} />
+                    <i
+                      className={`fa-solid fa-chevron-down mt-1 shrink-0 text-[10px] text-muted-foreground transition-transform ${openFaq === i ? "rotate-180" : ""}`}
+                    />
                   </button>
                   {openFaq === i && (
                     <p className="pb-4 text-xs leading-5 text-muted-foreground">{f.a}</p>
@@ -562,10 +560,18 @@ function WithdrawPage() {
                           : "text-down";
                     return (
                       <tr key={t.id} className="border-b border-border last:border-b-0">
-                        <td className="px-1 sm:px-2 py-2.5 sm:py-4 font-mono text-xs text-muted-foreground">{stamp(t.created_at)}</td>
-                        <td className="px-1 sm:px-2 py-2.5 sm:py-4 font-medium text-foreground">{t.currency}</td>
-                        <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-muted-foreground">{t.network}</td>
-                        <td className={`px-1 sm:px-2 py-2.5 sm:py-4 text-right font-mono font-semibold ${tone}`}>
+                        <td className="px-1 sm:px-2 py-2.5 sm:py-4 font-mono text-xs text-muted-foreground">
+                          {stamp(t.created_at)}
+                        </td>
+                        <td className="px-1 sm:px-2 py-2.5 sm:py-4 font-medium text-foreground">
+                          {t.currency}
+                        </td>
+                        <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-muted-foreground">
+                          {t.network}
+                        </td>
+                        <td
+                          className={`px-1 sm:px-2 py-2.5 sm:py-4 text-right font-mono font-semibold ${tone}`}
+                        >
                           −{fmt(parseAmount(t.amount) ?? 0)}
                         </td>
                         <td className="px-1 sm:px-2 py-2.5 sm:py-4 text-right">
@@ -580,7 +586,11 @@ function WithdrawPage() {
                             }`}
                           >
                             <span className="h-1.5 w-1.5 rounded-full bg-current" />
-                            {status === "pending" ? "Pending" : status === "cancelled" ? "Cancelled" : "Completed"}
+                            {status === "pending"
+                              ? "Pending"
+                              : status === "cancelled"
+                                ? "Cancelled"
+                                : "Completed"}
                           </span>
                         </td>
                       </tr>

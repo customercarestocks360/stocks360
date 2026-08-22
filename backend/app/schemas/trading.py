@@ -20,9 +20,8 @@ Three shapes worth understanding before reading the fields:
   are USDT. Each field says which it is; mixing them is the mistake this split exists to
   make visible.
 * **Position quantity is signed.** Positive is long, negative is short, one document per
-  instrument either way. A sell with nothing behind it opens a short where the asset class
-  allows one (`TRADING_SHORT_SELLING_CLASSES` — crypto and forex) and is refused where it
-  does not (equities, where a short is a stock loan this venue cannot arrange).
+  instrument either way. A sell with nothing behind it opens a short where the configured
+  asset-class policy allows one (all three desks by default).
 * **Money is `Decimal` end to end** and serialises as a JSON string, the same as every
   price elsewhere in this API. A float round-trip on a balance is not a rounding
   inconvenience, it is a wrong number in someone's account.
@@ -65,6 +64,13 @@ class AssetClass(str, Enum):
 class OrderSide(str, Enum):
     buy = "buy"
     sell = "sell"
+
+
+class HedgeSide(str, Enum):
+    """The independent leg an order acts on when the account uses hedge mode."""
+
+    long = "long"
+    short = "short"
 
 
 class OrderType(str, Enum):
@@ -136,18 +142,25 @@ def _upper(value: Any) -> Any:
     return value.strip().upper() if isinstance(value, str) else value
 
 
-# A currency the caller names, rather than one the venue derived from an instrument.
-Settles = Annotated[SettlementCurrency, BeforeValidator(_upper)]
+# The funds-request `currency` field below only ever accepts the one currency this venue
+# holds. A single-member enum — not the full pricing-oriented `SettlementCurrency` — keeps
+# every other currency, USD included, out of that field's OpenAPI schema: the venue no
+# longer merely rejects "USD" at request time, the schema never offers it as a value.
+AccountCurrency = Enum(
+    "AccountCurrency", {TRADING_ACCOUNT_CURRENCY: TRADING_ACCOUNT_CURRENCY}, type=str
+)
+AccountCurrencyField = Annotated[AccountCurrency, BeforeValidator(_upper)]
 
 
 class LedgerKind(str, Enum):
     deposit = "deposit"
     withdrawal = "withdrawal"
-    reserve = "reserve"          # available -> reserved, on placing a buy
-    release = "release"          # reserved -> available, on cancel or expiry
+    reserve = "reserve"  # available -> reserved, on placing a buy
+    release = "release"  # reserved -> available, on cancel or expiry
     trade_debit = "trade_debit"  # reserved -> gone, paying for a buy
     trade_credit = "trade_credit"  # sale proceeds, net of fee
     fee = "fee"
+    adjustment = "adjustment"  # explicit, audited staff correction
 
 
 # --------------------------------------------------------------------------- #
@@ -160,15 +173,33 @@ class LedgerKind(str, Enum):
 # stay inside that.
 Quantity = Annotated[
     Decimal,
-    Field(gt=0, le=Decimal("1000000000"), max_digits=18, decimal_places=8, examples=["0.5"]),
+    Field(
+        gt=0,
+        le=Decimal("1000000000"),
+        max_digits=18,
+        decimal_places=8,
+        examples=["0.5"],
+    ),
 ]
 Price = Annotated[
     Decimal,
-    Field(gt=0, le=Decimal("1000000000"), max_digits=18, decimal_places=8, examples=["65000.00"]),
+    Field(
+        gt=0,
+        le=Decimal("1000000000"),
+        max_digits=18,
+        decimal_places=8,
+        examples=["65000.00"],
+    ),
 ]
 Money = Annotated[
     Decimal,
-    Field(gt=0, le=Decimal("1000000000"), max_digits=18, decimal_places=2, examples=["10000.00"]),
+    Field(
+        gt=0,
+        le=Decimal("1000000000"),
+        max_digits=18,
+        decimal_places=2,
+        examples=["10000.00"],
+    ),
 ]
 
 OrderId = Annotated[
@@ -232,10 +263,18 @@ class OrderRequest(_Strict):
     asset_class: AssetClass
     symbol: str = Field(min_length=2, max_length=32, examples=["BTCUSDT"])
     side: OrderSide
+    position_side: HedgeSide | None = Field(
+        default=None,
+        description="Independent long/short leg. Omit for legacy one-way netting mode.",
+    )
     type: OrderType = Field(default=OrderType.market, examples=["limit"])
     quantity: Quantity
-    limit_price: Price | None = Field(default=None, description="Required for limit and stop_limit")
-    stop_price: Price | None = Field(default=None, description="Required for stop and stop_limit")
+    limit_price: Price | None = Field(
+        default=None, description="Required for limit and stop_limit"
+    )
+    stop_price: Price | None = Field(
+        default=None, description="Required for stop and stop_limit"
+    )
     time_in_force: TimeInForce | None = Field(
         default=None,
         description="Defaults to `ioc` for a market order and `gtc` for anything that can rest",
@@ -256,11 +295,15 @@ class OrderRequest(_Strict):
         if wants_limit and self.limit_price is None:
             raise ValueError(f"`limit_price` is required for a {self.type.value} order")
         if not wants_limit and self.limit_price is not None:
-            raise ValueError(f"`limit_price` does not apply to a {self.type.value} order")
+            raise ValueError(
+                f"`limit_price` does not apply to a {self.type.value} order"
+            )
         if wants_stop and self.stop_price is None:
             raise ValueError(f"`stop_price` is required for a {self.type.value} order")
         if not wants_stop and self.stop_price is not None:
-            raise ValueError(f"`stop_price` does not apply to a {self.type.value} order")
+            raise ValueError(
+                f"`stop_price` does not apply to a {self.type.value} order"
+            )
 
         # A market order never rests, so the only time-in-force it can honestly carry is
         # the one that says so. Resolving the default here means the stored order always
@@ -290,30 +333,26 @@ class FundsRequest(_Strict):
     retried deposit that credits twice is the one bug in this file nobody would notice.
 
     `currency` is optional and defaults to the account currency, because there is only one
-    balance to move. It is still accepted so an existing client keeps working, and a value
-    that is not the account currency is a 422 rather than a wallet nothing can trade out of.
+    balance to move. It is still accepted so an existing client keeps working — `AccountCurrency`
+    only has the one member, so any other value is a plain 422 from the field itself.
     """
 
-    currency: Settles | None = Field(
+    currency: AccountCurrencyField | None = Field(
         default=None,
-        description=f"Optional, and only {TRADING_ACCOUNT_CURRENCY} is accepted — this venue "
-        "holds one balance",
+        description=f"Optional — {TRADING_ACCOUNT_CURRENCY} is the only value this venue holds",
     )
     amount: Money
     idempotency_key: IdempotencyKey
     reference: str | None = Field(
-        default=None, max_length=128, description="Your own note, echoed back on the ledger entry"
+        default=None,
+        max_length=128,
+        description="Your own note, echoed back on the ledger entry",
     )
 
     @model_validator(mode="after")
-    def _one_balance(self) -> "FundsRequest":
+    def _default_currency(self) -> "FundsRequest":
         if self.currency is None:
-            self.currency = SettlementCurrency(TRADING_ACCOUNT_CURRENCY)
-        elif self.currency.value != TRADING_ACCOUNT_CURRENCY:
-            raise ValueError(
-                f"This venue holds a single {TRADING_ACCOUNT_CURRENCY} balance, so "
-                f"{self.currency.value} cannot be deposited or withdrawn. Omit `currency`."
-            )
+            self.currency = AccountCurrency(TRADING_ACCOUNT_CURRENCY)
         return self
 
 
@@ -328,10 +367,13 @@ class Order(BaseModel):
     asset_class: AssetClass
     symbol: str
     side: OrderSide
+    position_side: HedgeSide | None = None
     type: OrderType
     time_in_force: TimeInForce
     status: OrderStatus
-    currency: str = Field(description="Quote currency — what this order's prices are in")
+    currency: str = Field(
+        description="Quote currency — what this order's prices are in"
+    )
     account_currency: str = Field(
         default="",
         description="What `fee`, `filled_notional` and `reserved_amount` are in. Falls back "
@@ -350,9 +392,13 @@ class Order(BaseModel):
     triggered: bool = Field(
         default=False, description="A stop order whose stop price has been reached"
     )
-    average_price: Amount | None = Field(default=None, description="Traded price, once filled")
+    average_price: Amount | None = Field(
+        default=None, description="Traded price, once filled"
+    )
     filled_notional: Amount | None = None
-    fee: Amount = Field(default=Decimal(0), description="Commission charged, in `currency`")
+    fee: Amount = Field(
+        default=Decimal(0), description="Commission charged, in `currency`"
+    )
     reserved_amount: Amount = Field(
         default=Decimal(0), description="Cash still locked by this order"
     )
@@ -361,11 +407,14 @@ class Order(BaseModel):
     )
     reject_reason: str | None = None
     liquidation: bool = Field(
-        default=False, description="Forced closed by the engine on a margin breach, not the user"
+        default=False,
+        description="Forced closed by the engine on a margin breach, not the user",
     )
     created_at: datetime
     updated_at: datetime
-    expires_at: datetime | None = Field(default=None, description="Set on a `day` order")
+    expires_at: datetime | None = Field(
+        default=None, description="Set on a `day` order"
+    )
     closed_at: datetime | None = Field(
         default=None, description="When it reached a terminal status"
     )
@@ -392,16 +441,23 @@ class Trade(BaseModel):
     asset_class: AssetClass
     symbol: str
     side: OrderSide
+    position_side: HedgeSide | None = None
     currency: str = Field(description="Quote currency — what `price` is in")
     account_currency: str = Field(
         default="",
         description="What `notional`, `fee` and P&L are in. Falls back to `currency` for a "
         "fill recorded before the balance became universal.",
     )
-    fx_rate: Amount = Field(default=Decimal(1), description="Quote currency to `account_currency`")
+    fx_rate: Amount = Field(
+        default=Decimal(1), description="Quote currency to `account_currency`"
+    )
     quantity: Amount
-    price: Amount = Field(description="Traded price, in the instrument's quote `currency`")
-    notional: Amount = Field(description="quantity × price, converted to `account_currency`")
+    price: Amount = Field(
+        description="Traded price, in the instrument's quote `currency`"
+    )
+    notional: Amount = Field(
+        description="quantity × price, converted to `account_currency`"
+    )
     fee: Amount
     opened: Amount = Field(
         default=Decimal(0),
@@ -450,6 +506,10 @@ class Position(BaseModel):
         description="What every money field below is expressed in. Equals `currency` for a "
         "position opened before the balance became universal, whose basis really is in the "
         "instrument's own currency and cannot be restated without a historical rate.",
+    )
+    position_side: HedgeSide | None = Field(
+        default=None,
+        description="Independent hedge leg, or null for a legacy net position",
     )
     direction: PositionSide = PositionSide.flat
     quantity: Amount = Field(
@@ -501,11 +561,31 @@ class PositionValuation(Position):
     )
     unrealized_pnl: Amount | None = None
     unrealized_pnl_percent: Amount | None = Field(
-        default=None, description="Against the cash posted (`margin_used`), so it is the "
-        "return on what the position actually tied up"
+        default=None,
+        description="Against the cash posted (`margin_used`), so it is the "
+        "return on what the position actually tied up",
     )
     market_state: MarketState = MarketState.unknown
     stale: bool = False
+
+
+class FxRate(BaseModel):
+    """What one unit of an instrument's quote currency is worth in the account balance.
+
+    Exists because placing or pricing an order client-side needs this number before the
+    order exists to carry it: `Order.fx_rate` is only readable *after* placement, and by
+    then the rate already decided what got funded. A client showing "you need ~X USDT" or
+    checking that against the one real balance before submitting has nowhere else to get
+    X from — inventing it locally would be exactly the made-up conversion `app.trading.fx`
+    exists to avoid.
+    """
+
+    currency: str = Field(description="The instrument's quote currency, upper-cased")
+    account_currency: str = Field(default=TRADING_ACCOUNT_CURRENCY)
+    rate: Amount = Field(
+        description="Multiply an amount in `currency` by this to get `account_currency`. "
+        "Exactly 1 for the account currency itself and for anything pegged to it."
+    )
 
 
 class Balance(BaseModel):
@@ -533,15 +613,20 @@ class LedgerEntry(BaseModel):
 
 class AssetClassEligibility(BaseModel):
     asset_class: AssetClass
-    products: list[Product] = Field(description="The products an order here can require")
+    products: list[Product] = Field(
+        description="The products an order here can require"
+    )
     enabled: bool
     pending_review: bool = Field(
-        default=False, description="Requested during onboarding, waiting on the income proof"
+        default=False,
+        description="Requested during onboarding, waiting on the income proof",
     )
     market_state: MarketState = Field(
         description="Feed-wide state. `unknown` for equities, where it is per exchange."
     )
-    reason: str | None = Field(default=None, description="Why it is not tradable, when it is not")
+    reason: str | None = Field(
+        default=None, description="Why it is not tradable, when it is not"
+    )
 
 
 class Eligibility(BaseModel):
@@ -552,7 +637,9 @@ class Eligibility(BaseModel):
     onboarding_status: OnboardingStatus
     kyc_tier: KycTier
     can_trade: bool
-    base_currency: str | None = Field(default=None, description="Declared in the markets step")
+    base_currency: str | None = Field(
+        default=None, description="Declared in the markets step"
+    )
     asset_classes: list[AssetClassEligibility]
     at: datetime
 
@@ -590,11 +677,17 @@ class Portfolio(BaseModel):
     market_value: Amount = Field(
         description="Net signed value of every priced position — longs less shorts"
     )
-    equity: Amount = Field(description="What the account is worth: cash plus margin at risk")
+    equity: Amount = Field(
+        description="What the account is worth: cash plus margin at risk"
+    )
     unrealized_pnl: Amount
     realized_pnl: Amount = Field(description="Booked across every position, lifetime")
-    margin_used: Amount = Field(description="Cash currently posted against open positions")
-    free_margin: Amount = Field(description="Available cash — what a new position can post")
+    margin_used: Amount = Field(
+        description="Cash currently posted against open positions"
+    )
+    free_margin: Amount = Field(
+        description="Available cash — what a new position can post"
+    )
     market_value_by_currency: dict[str, Amount] = Field(
         description="Kept for clients written against the per-currency shape. With one "
         "account currency this has a single key."
