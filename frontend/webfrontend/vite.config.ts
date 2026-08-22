@@ -1,7 +1,6 @@
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
-import tsconfigPaths from "vite-tsconfig-paths";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import { nitro } from "nitro/vite";
 
@@ -40,11 +39,13 @@ export default defineConfig(({ mode }) => {
       port: 5173,
       strictPort: true,
     },
+    resolve: {
+      tsconfigPaths: true,
+    },
     plugins: [
       tanstackStart(),
       react(),
       tailwindcss(),
-      tsconfigPaths(),
       // Last, and after tanstackStart: nitro takes the SSR bundle and packages it for
       // whatever host it detects. On Vercel it emits .vercel/output (Build Output API v3)
       // with its own routing config, which is what makes deploying zero-config. Locally it
